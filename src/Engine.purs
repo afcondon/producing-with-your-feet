@@ -41,6 +41,8 @@ type MidiConnections =
   , pedalOutputId :: Maybe String
   , twisterInput :: Maybe MIDIInput
   , twisterInputId :: Maybe String
+  , twisterOutput :: Maybe MIDIOutput
+  , twisterOutputId :: Maybe String
   , loopyOutput :: Maybe MIDIOutput
   , loopyOutputId :: Maybe String
   , availableOutputs :: Array MidiPort
@@ -53,6 +55,7 @@ type AppState =
   , connections :: MidiConnections
   , cardOrder :: Array PedalId
   , focusPedalId :: Maybe PedalId
+  , suppressTwister :: Boolean
   }
 
 defaultPedalState :: PedalDef -> PedalState
@@ -76,6 +79,8 @@ initAppState =
       , pedalOutputId: Nothing
       , twisterInput: Nothing
       , twisterInputId: Nothing
+      , twisterOutput: Nothing
+      , twisterOutputId: Nothing
       , loopyOutput: Nothing
       , loopyOutputId: Nothing
       , availableOutputs: []
@@ -83,6 +88,7 @@ initAppState =
       }
   , cardOrder: map _.meta.id Registry.pedals
   , focusPedalId: Nothing
+  , suppressTwister: false
   }
 
 getValue :: PedalId -> CC -> EngineState -> Maybe MidiValue

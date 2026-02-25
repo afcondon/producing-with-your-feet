@@ -13,10 +13,9 @@ import Data.Array as Array
 import Data.Const (Const)
 import Data.Foldable (for_)
 import Data.Map as Map
-import Data.Maybe (Maybe(..), fromMaybe)
-import Data.Midi (CC, MidiValue, unMidiValue)
+import Data.Maybe (Maybe(..))
+import Data.Midi (CC, MidiValue)
 import Data.Pedal (PedalId, Section, SectionLayout(..))
-import Data.Pedal.Engage (EngageConfig(..))
 import Data.Pedal.Modes (DualChannelModes)
 import Data.Tuple (Tuple(..))
 import Effect.Aff.Class (class MonadAff)
@@ -34,6 +33,7 @@ type Input =
 
 data Output
   = PedalClicked PedalId
+  | PedalFocused PedalId
   | OrderChanged (Array PedalId)
   | ValueChanged PedalId CC MidiValue
   | MomentarySent PedalId CC MidiValue
@@ -47,7 +47,8 @@ type State =
 
 data Action
   = Receive Input
-  | ClickPedal PedalId
+  | FocusPedal PedalId
+  | OpenPedal PedalId
   | ToggleSection String
   | TogglePedal PedalId
   | ControlEvent Control.ControlOutput
@@ -86,35 +87,19 @@ render state =
       ]
       [ HH.div
           [ HP.class_ (H.ClassName "card-header")
-          , HE.onClick \_ -> ClickPedal pid
+          , HE.onClick \_ -> FocusPedal pid
           ]
           [ HH.span [ HP.class_ (H.ClassName "card-name") ] [ HH.text def.meta.name ]
           , HH.span [ HP.class_ (H.ClassName "card-brand") ] [ HH.text def.meta.brand ]
+          , HH.button
+              [ HP.class_ (H.ClassName "card-open-btn")
+              , HE.onClick \_ -> OpenPedal pid
+              ]
+              [ HH.text "\x2192" ]
           ]
-      , HH.div [ HP.class_ (H.ClassName "card-status") ]
-          [ engageIndicator def ps ]
       , HH.div [ HP.class_ (H.ClassName "card-sections") ]
           (map (renderSection def.meta.id ps def.modes) def.sections)
       ]
-
-  engageIndicator def ps = case def.engage of
-    SingleEngage cc' ->
-      let val = fromMaybe 0 (map unMidiValue (Map.lookup cc' ps.values))
-      in HH.span
-        [ HP.class_ (H.ClassName (if val > 0 then "engaged" else "bypassed")) ]
-        [ HH.text (if val > 0 then "On" else "Off") ]
-    DualEngage { a, b } ->
-      let valA = fromMaybe 0 (map unMidiValue (Map.lookup a.cc ps.values))
-          valB = fromMaybe 0 (map unMidiValue (Map.lookup b.cc ps.values))
-      in HH.span_
-        [ HH.span
-            [ HP.class_ (H.ClassName (if valA > 0 then "engaged" else "bypassed")) ]
-            [ HH.text a.label ]
-        , HH.text " "
-        , HH.span
-            [ HP.class_ (H.ClassName (if valB > 0 then "engaged" else "bypassed")) ]
-            [ HH.text b.label ]
-        ]
 
   renderSection :: PedalId -> PedalState -> Maybe DualChannelModes -> Section -> H.ComponentHTML Action () m
   renderSection pid ps mModes section =
@@ -186,7 +171,8 @@ renderOrderStrip state =
 handleAction :: forall m. MonadAff m => Action -> H.HalogenM State Action () Output m Unit
 handleAction = case _ of
   Receive input -> H.modify_ _ { input = input }
-  ClickPedal pid -> H.raise (PedalClicked pid)
+  FocusPedal pid -> H.raise (PedalFocused pid)
+  OpenPedal pid -> H.raise (PedalClicked pid)
   ToggleSection name -> H.modify_ \st ->
     st { collapsedSections =
       if Array.elem name st.collapsedSections
