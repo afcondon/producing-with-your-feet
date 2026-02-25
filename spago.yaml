@@ -1,0 +1,36 @@
+package:
+  name: explorer-ps
+  dependencies:
+    - aff
+    - arrays
+    - console
+    - datetime
+    - effect
+    - either
+    - foldable-traversable
+    - halogen
+    - integers
+    - maybe
+    - newtype
+    - ordered-collections
+    - prelude
+    - strings
+    - transformers
+    - tuples
+    - web-html
+    - web-storage
+    - colors
+    - argonaut-core
+    - codec-argonaut
+    - foreign-object
+    - halogen-subscriptions
+  build:
+    strict: true
+  publish:
+    license: MIT
+    version: 0.1.0
+
+workspace:
+  package_set:
+    registry: 61.2.0
+  extra_packages: {}
