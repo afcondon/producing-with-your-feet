@@ -6,6 +6,8 @@ import Component.Boards.View as BoardsView
 import Component.Detail.View as DetailView
 import Component.Grid.View as GridView
 import Component.Header as Header
+import Component.Loopy.Panel as LoopyPanel
+import Data.Loopy as Loopy
 import Data.Array as Array
 import Data.Foldable (for_)
 import Data.Map as Map
@@ -51,12 +53,17 @@ data Action
   | HandleDetail DetailView.Output
   | HandleGrid GridView.Output
   | HandleBoards BoardsView.Output
+  | HandleSideGrid GridView.Output
+  | HandleLoopy LoopyPanel.Output
+  | SelectLoopyOutput String
 
 type Slots =
   ( header :: Header.Slot Unit
   , grid :: GridView.Slot Unit
   , detail :: DetailView.Slot Unit
   , boards :: BoardsView.Slot Unit
+  , sideGrid :: GridView.Slot Unit
+  , loopy :: LoopyPanel.Slot Unit
   )
 
 component :: forall q i o m. MonadAff m => H.Component q i o m
@@ -79,6 +86,7 @@ render state =
         , connections: state.connections
         , cardOrder: state.cardOrder
         , hiddenPedals: state.hiddenPedals
+        , boardsActivePedal: state.boardsActivePedal
         }
         HandleHeader
     , case state.view of
@@ -98,14 +106,36 @@ render state =
             , cardOrder: state.cardOrder
             }
             HandleDetail
-        BoardsView ->
-          HH.slot (Proxy :: _ "boards") unit BoardsView.component
-            { engine: state.engine
-            , connections: state.connections
-            , presets: state.presets
-            , boardPresets: state.boardPresets
-            }
-            HandleBoards
+        BoardsView -> HH.text ""
+    -- Boards always rendered for state persistence
+    , HH.div
+        [ HP.class_ (H.ClassName (if state.view == BoardsView then "boards-wrapper" else "boards-persist-hidden")) ]
+        ( case state.view, state.boardsActivePedal of
+            BoardsView, Just pid ->
+              [ HH.slot (Proxy :: _ "sideGrid") unit GridView.component
+                  { engine: state.engine
+                  , cardOrder: [pid]
+                  , hiddenPedals: []
+                  , presets: state.presets
+                  , connections: state.connections
+                  }
+                  HandleSideGrid
+              ]
+            _, _ -> []
+        <>
+          [ HH.slot (Proxy :: _ "boards") unit BoardsView.component
+              { engine: state.engine
+              , connections: state.connections
+              , presets: state.presets
+              , boardPresets: state.boardPresets
+              }
+              HandleBoards
+          , HH.slot (Proxy :: _ "loopy") unit LoopyPanel.component
+              { connections: state.connections
+              }
+              HandleLoopy
+          ]
+        )
     ]
 
 handleAction :: forall o m. MonadAff m => Action -> H.HalogenM AppState Action Slots o m Unit
@@ -144,6 +174,10 @@ handleAction = case _ of
     for_ mTwisterOut \port -> do
       mOut <- liftEffect $ MIDI.openOutput mAccess port.id
       H.modify_ _ { connections { twisterOutput = mOut, twisterOutputId = Just port.id } }
+    -- Auto-select LoopyPro output (iPad via iConnectivity AUDIO4c)
+    let mLoopyOut = Array.find (\p -> contains (Pattern "AUDIO4c") p.name) outputs
+    for_ mLoopyOut \port ->
+      handleAction (SelectLoopyOutput port.id)
 
   SetView view -> do
     H.modify_ _ { view = view }
@@ -247,9 +281,16 @@ handleAction = case _ of
               then Array.filter (_ /= pid) s.hiddenPedals
               else Array.snoc s.hiddenPedals pid
           }
-        _ -> handleAction (SetView (DetailView pid))
+        BoardsView ->
+          H.modify_ \s -> s { boardsActivePedal =
+            if s.boardsActivePedal == Just pid
+              then Nothing
+              else Just pid
+          }
+        _ -> pure unit
     Header.PedalOutputChanged portId -> handleAction (SelectPedalOutput portId)
     Header.TwisterInputChanged portId -> handleAction (SelectTwisterInput portId)
+    Header.LoopyOutputChanged portId -> handleAction (SelectLoopyOutput portId)
 
   HandleDetail output -> case output of
     DetailView.ValueChanged pid ccNum val -> handleAction (SetValue pid ccNum val)
@@ -269,11 +310,38 @@ handleAction = case _ of
     GridView.RecallPreset preset -> recallPreset preset
     GridView.SendPC pid pn -> sendPC_ pid pn
 
+  HandleSideGrid output -> case output of
+    GridView.PedalClicked _ -> pure unit
+    GridView.PedalFocused pid -> do
+      H.modify_ _ { focusPedalId = Just pid }
+      sendAllLEDs pid
+    GridView.OrderChanged _ -> pure unit
+    GridView.ValueChanged pid cc val -> handleAction (SetValue pid cc val)
+    GridView.MomentarySent pid cc val -> handleAction (SendMomentary pid cc val)
+    GridView.InfoChanged pid key val -> handleAction (SetInfo pid key val)
+    GridView.RecallPreset preset -> recallPreset preset
+    GridView.SendPC pid pn -> sendPC_ pid pn
+
   HandleBoards output -> case output of
     BoardsView.RecallBoard bp -> recallBoard bp
     BoardsView.SendEngageAudition pid engState -> sendEngage pid engState
     BoardsView.SendPCAudition pid pn -> sendPC_ pid pn
     BoardsView.ValueChanged pid cc val -> handleAction (SetValue pid cc val)
+
+  HandleLoopy output -> case output of
+    LoopyPanel.LoopSelected idx -> sendMomentaryLoopy (Loopy.selectCC (Loopy.LoopIndex idx))
+    LoopyPanel.ActionFired action ->
+      case Array.find (\a -> a.action == action) Loopy.actions of
+        Just def -> sendMomentaryLoopy def.cc
+        Nothing -> pure unit
+
+  SelectLoopyOutput portId -> do
+    st <- H.get
+    case st.connections.access of
+      Nothing -> pure unit
+      Just access -> do
+        mOut <- liftEffect $ MIDI.openOutput access portId
+        H.modify_ _ { connections { loopyOutput = mOut, loopyOutputId = Just portId } }
 
 -- Recall helpers
 
@@ -414,3 +482,13 @@ dimAllLEDs :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Uni
 dimAllLEDs = for_ (Array.range 0 15) \i -> do
   sendRGBColor i 0
   sendRingPosition i 0
+
+-- LoopyPro momentary CC: send 127, wait 50ms, send 0 (channel 16)
+sendMomentaryLoopy :: forall o m. MonadAff m => CC -> H.HalogenM AppState Action Slots o m Unit
+sendMomentaryLoopy ccNum = do
+  st <- H.get
+  for_ st.connections.loopyOutput \output ->
+    for_ (makeChannel 16) \ch -> do
+      liftEffect $ MIDI.sendCC output ch ccNum (unsafeMidiValue 127)
+      H.liftAff (delay (Milliseconds 50.0))
+      liftEffect $ MIDI.sendCC output ch ccNum (unsafeMidiValue 0)

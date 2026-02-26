@@ -37,9 +37,8 @@ html {
 }
 
 body {
-  max-width: 640px;
   margin: 0 auto;
-  padding: 16px 16px 80px;
+  padding: 8px 8px 80px;
 }
 
 /* --- Header --- */
@@ -426,9 +425,9 @@ body {
 }
 
 .toggle-btn.on {
-  background: var(--active-bg);
+  background: var(--pedal-color, var(--active-bg));
   color: var(--active-fg);
-  border-color: var(--active-bg);
+  border-color: var(--pedal-color, var(--active-bg));
 }
 .toggle-btn.on .toggle-state { color: var(--active-fg); opacity: 0.7; }
 
@@ -456,7 +455,7 @@ body {
 }
 .segment-btn:last-child { border-right: none; }
 .segment-btn.active {
-  background: var(--active-bg);
+  background: var(--pedal-color, var(--active-bg));
   color: var(--active-fg);
 }
 
@@ -495,9 +494,9 @@ body {
 
 .piano-key.white:hover { background: #f0f0f0; }
 .piano-key.white.active {
-  background: var(--active-bg);
+  background: var(--pedal-color, var(--active-bg));
   color: var(--active-fg);
-  border-color: var(--active-bg);
+  border-color: var(--pedal-color, var(--active-bg));
 }
 
 .piano-key.black {
@@ -519,7 +518,7 @@ body {
 }
 
 .piano-key.black.active {
-  background: var(--active-bg);
+  background: var(--pedal-color, var(--active-bg));
   color: var(--active-fg);
   font-size: 8px;
 }
@@ -544,9 +543,9 @@ body {
 .piano-chromatic:hover { background: #f0f0f0; }
 
 .piano-chromatic.active {
-  background: var(--active-bg);
+  background: var(--pedal-color, var(--active-bg));
   color: var(--active-fg);
-  border-color: var(--active-bg);
+  border-color: var(--pedal-color, var(--active-bg));
 }
 
 /* --- Dropdown --- */
@@ -1032,8 +1031,6 @@ body {
 
 /* --- Grid Mode Body --- */
 
-body.grid-mode { max-width: none; padding: 8px 8px 16px; }
-
 /* --- Header Controls (view toggle + MIDI picker) --- */
 
 .header-controls {
@@ -1367,9 +1364,9 @@ body.grid-mode { max-width: none; padding: 8px 8px 16px; }
   transition: background 0.1s, color 0.1s, border-color 0.1s;
 }
 .radio-btn.active {
-  background: var(--active-bg);
+  background: var(--pedal-color, var(--active-bg));
   color: var(--active-fg);
-  border-color: var(--active-bg);
+  border-color: var(--pedal-color, var(--active-bg));
 }
 
 .compact-control .radio-group { gap: 3px; }
@@ -1419,12 +1416,17 @@ body.grid-mode { max-width: none; padding: 8px 8px 16px; }
 }
 .compact-print:hover { background: rgba(255,255,255,0.25); }
 
+/* --- Boards persistence wrapper --- */
+.boards-persist-hidden { display: none; }
+.boards-wrapper { display: flex; gap: 12px; }
+.boards-wrapper > .grid-view { flex: 0 0 340px; grid-template-columns: 1fr; }
+.boards-wrapper > .boards-view { flex: 0 1 560px; min-width: 0; }
+.boards-wrapper > .loopy-panel { flex: 1; min-width: 0; }
+
 /* --- Boards View --- */
 
 .boards-view {
-  max-width: 640px;
-  margin: 0 auto;
-  padding: 0 16px;
+  padding: 0;
 }
 
 .boards-header {

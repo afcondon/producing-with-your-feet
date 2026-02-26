@@ -57,6 +57,7 @@ type AppState =
   , cardOrder :: Array PedalId
   , hiddenPedals :: Array PedalId
   , focusPedalId :: Maybe PedalId
+  , boardsActivePedal :: Maybe PedalId
   , suppressTwister :: Boolean
   , presets :: Array PedalPreset
   , boardPresets :: Array BoardPreset
@@ -93,6 +94,7 @@ initAppState =
   , cardOrder: map _.meta.id Registry.pedals
   , hiddenPedals: []
   , focusPedalId: Nothing
+  , boardsActivePedal: Nothing
   , suppressTwister: false
   , presets: []
   , boardPresets: []

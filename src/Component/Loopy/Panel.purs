@@ -2,10 +2,12 @@ module Component.Loopy.Panel
   ( component
   , Output(..)
   , Input
+  , Slot
   ) where
 
 import Prelude
 
+import Data.Const (Const)
 import Data.Loopy as Loopy
 import Data.Maybe (Maybe(..))
 import Effect.Aff.Class (class MonadAff)
@@ -14,6 +16,8 @@ import Halogen as H
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
+
+type Slot = H.Slot (Const Void) Output
 
 type Input =
   { connections :: MidiConnections
@@ -63,9 +67,15 @@ render state =
           [ HH.text group.color.label ]
       ]
 
-  loopButton (Loopy.LoopIndex idx) _color label =
-    HH.button
-      [ HP.class_ (H.ClassName (if state.selectedLoop == idx then "loopy-loop selected" else "loopy-loop"))
+  loopButton (Loopy.LoopIndex idx) color label =
+    let isSelected = state.selectedLoop == idx
+        style = "border-color: " <> color.color
+                <> if isSelected
+                     then "; background: " <> color.color <> "; color: #fff"
+                     else "; color: " <> color.color
+    in HH.button
+      [ HP.class_ (H.ClassName (if isSelected then "loopy-loop selected" else "loopy-loop"))
+      , HP.attr (HH.AttrName "style") style
       , HE.onClick \_ -> ClickLoop idx
       ]
       [ HH.text label ]

@@ -12,7 +12,7 @@ import Data.Array as Array
 import Data.Const (Const)
 import Data.Maybe (Maybe(..))
 
-import Data.Pedal (PedalId(..))
+import Data.Pedal (PedalId)
 import Effect.Aff.Class (class MonadAff)
 import Engine (MidiConnections, View(..))
 import Halogen as H
@@ -26,6 +26,7 @@ type Input =
   , connections :: MidiConnections
   , cardOrder :: Array PedalId
   , hiddenPedals :: Array PedalId
+  , boardsActivePedal :: Maybe PedalId
   }
 
 data Output
@@ -33,6 +34,7 @@ data Output
   | PedalPillClicked PedalId
   | PedalOutputChanged String
   | TwisterInputChanged String
+  | LoopyOutputChanged String
 
 type State = Input
 
@@ -42,6 +44,7 @@ data Action
   | ClickPedal PedalId
   | ChangePedalOutput String
   | ChangeTwisterInput String
+  | ChangeLoopyOutput String
 
 type Slot = H.Slot (Const Void) Output
 
@@ -62,7 +65,6 @@ render state =
     [ HP.class_ (H.ClassName "app-header") ]
     [ HH.div [ HP.class_ (H.ClassName "view-toggle") ]
         [ viewButton "Grid" GridView
-        , viewButton "Detail" (DetailView (PedalId "onward"))
         , viewButton "Boards" BoardsView
         ]
     , HH.div [ HP.class_ (H.ClassName "pedal-pills") ]
@@ -70,6 +72,7 @@ render state =
     , HH.div [ HP.class_ (H.ClassName "midi-pickers") ]
         [ midiPicker "Pedal MIDI" state.connections.pedalOutputId state.connections.availableOutputs ChangePedalOutput
         , midiPicker "Twister" state.connections.twisterInputId state.connections.availableInputs ChangeTwisterInput
+        , midiPicker "LoopyPro" state.connections.loopyOutputId state.connections.availableOutputs ChangeLoopyOutput
         ]
     ]
   where
@@ -88,6 +91,7 @@ render state =
 
   isActivePedal pid = case state.view of
     DetailView activePid -> activePid == pid
+    BoardsView -> state.boardsActivePedal == Just pid
     _ -> false
 
   renderPill pid = do
@@ -146,3 +150,4 @@ handleAction = case _ of
   ClickPedal pid -> H.raise (PedalPillClicked pid)
   ChangePedalOutput portId -> H.raise (PedalOutputChanged portId)
   ChangeTwisterInput portId -> H.raise (TwisterInputChanged portId)
+  ChangeLoopyOutput portId -> H.raise (LoopyOutputChanged portId)

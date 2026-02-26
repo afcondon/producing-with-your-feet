@@ -101,11 +101,6 @@ render state =
           ]
           [ HH.span [ HP.class_ (H.ClassName "card-name") ] [ HH.text def.meta.name ]
           , HH.span [ HP.class_ (H.ClassName "card-brand") ] [ HH.text def.meta.brand ]
-          , HH.button
-              [ HP.class_ (H.ClassName "card-open-btn")
-              , HE.onClick \_ -> OpenPedal pid
-              ]
-              [ HH.text "\x2192" ]
           ]
       , HH.div [ HP.class_ (H.ClassName "card-sections") ]
           (map (renderSection def.meta.id ps def.modes) def.sections)
