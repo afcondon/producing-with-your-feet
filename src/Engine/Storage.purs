@@ -17,6 +17,12 @@ module Engine.Storage
   , parseBoardPresets
   , parseEngageState
   , engineToJson
+  , nowISO
+  , engageStateToString
+  , presetToJson
+  , boardPresetToJson
+  , presetsToJsonString
+  , boardPresetsToJsonString
   , StorageKey(..)
   ) where
 
@@ -27,9 +33,10 @@ import Data.Argonaut.Core as Json
 import Data.Argonaut.Parser (jsonParser)
 import Data.Either (hush)
 import Data.Int as Int
+import Data.JSDate as JSDate
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
-import Data.Midi (CC, MidiValue, makeCC, makeMidiValue, makeProgramNumber, unCC, unMidiValue)
+import Data.Midi (CC, MidiValue, makeCC, makeMidiValue, makeProgramNumber, unCC, unMidiValue, unProgramNumber)
 import Data.Pedal (PedalId(..))
 import Data.Pedal.Engage (EngageState(..))
 import Data.Preset (BoardPreset, BoardPresetEntry, PedalPreset)
@@ -310,3 +317,65 @@ loadBoardPresetsParsed :: Effect (Array BoardPreset)
 loadBoardPresetsParsed = do
   mStr <- getItem BoardPresetsKey
   pure $ fromMaybe [] (mStr >>= parseBoardPresets)
+
+-- Serializers
+
+nowISO :: Effect String
+nowISO = do
+  d <- JSDate.now
+  JSDate.toISOString d
+
+engageStateToString :: EngageState -> String
+engageStateToString = case _ of
+  EngageOn -> "on"
+  EngageOff -> "off"
+  EngageA -> "a"
+  EngageB -> "b"
+  EngageNoChange -> "no-change"
+
+presetToJson :: PedalPreset -> Json
+presetToJson p =
+  Json.fromObject $ FO.fromFoldable $
+    [ Tuple "id" (Json.fromString p.id)
+    , Tuple "pedalId" (let (PedalId pid) = p.pedalId in Json.fromString pid)
+    , Tuple "name" (Json.fromString p.name)
+    , Tuple "description" (Json.fromString p.description)
+    , Tuple "notes" (Json.fromString p.notes)
+    , Tuple "values" (valuesToJson p.values)
+    , Tuple "created" (Json.fromString p.created)
+    , Tuple "modified" (Json.fromString p.modified)
+    ] <> case p.savedSlot of
+      Nothing -> []
+      Just slot -> [ Tuple "savedSlot" (Json.fromNumber (Int.toNumber (unProgramNumber slot))) ]
+
+boardPresetEntryToJson :: BoardPresetEntry -> Json
+boardPresetEntryToJson entry =
+  Json.fromObject $ FO.fromFoldable $
+    [ Tuple "engage" (Json.fromString (engageStateToString entry.engage))
+    ] <> case entry.presetId of
+      Nothing -> []
+      Just pid -> [ Tuple "presetId" (Json.fromString pid) ]
+
+boardPresetToJson :: BoardPreset -> Json
+boardPresetToJson bp =
+  Json.fromObject $ FO.fromFoldable
+    [ Tuple "id" (Json.fromString bp.id)
+    , Tuple "name" (Json.fromString bp.name)
+    , Tuple "description" (Json.fromString bp.description)
+    , Tuple "notes" (Json.fromString bp.notes)
+    , Tuple "pedals" (boardPedalsToJson bp.pedals)
+    , Tuple "created" (Json.fromString bp.created)
+    , Tuple "modified" (Json.fromString bp.modified)
+    ]
+  where
+  boardPedalsToJson :: Map.Map PedalId BoardPresetEntry -> Json
+  boardPedalsToJson pedals =
+    Json.fromObject $ FO.fromFoldable $
+      map (\(Tuple (PedalId pid) entry) -> Tuple pid (boardPresetEntryToJson entry))
+        (Map.toUnfoldable pedals :: Array _)
+
+presetsToJsonString :: Array PedalPreset -> String
+presetsToJsonString = stringify <<< Json.fromArray <<< map presetToJson
+
+boardPresetsToJsonString :: Array BoardPreset -> String
+boardPresetsToJsonString = stringify <<< Json.fromArray <<< map boardPresetToJson

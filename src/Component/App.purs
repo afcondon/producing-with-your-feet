@@ -10,16 +10,20 @@ import Data.Array as Array
 import Data.Foldable (for_)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
-import Data.Midi (CC, MidiValue, makeChannel, unCC, unMidiValue)
+import Data.Midi (CC, MidiValue, ProgramNumber, makeChannel, unCC, unMidiValue, unsafeMidiValue)
 import Data.Pedal (PedalId)
+import Data.Pedal.Engage (EngageConfig(..), EngageState(..))
+import Data.Preset (PedalPreset)
 import Data.String.CodeUnits (contains)
 import Data.String.Pattern (Pattern(..))
+import Data.Tuple (Tuple(..))
 import Data.Twister (SideBtn(..), TwisterEncoder(..), TwisterMsg(..), parseTwisterMsg)
+import Effect.Aff (Milliseconds(..), delay)
 import Effect.Aff.Class (class MonadAff)
 import Effect.Class (liftEffect)
 import Effect.Console as Console
 import Engine (AppState, View(..), initAppState)
-import Engine.Storage (loadEngineState, loadCardOrderParsed)
+import Engine.Storage (loadEngineState, loadCardOrderParsed, loadPresetsParsed, loadBoardPresetsParsed)
 import Engine.Twister as Twister
 import Foreign.WebMIDI as MIDI
 import Halogen as H
@@ -80,6 +84,8 @@ render state =
           HH.slot (Proxy :: _ "grid") unit GridView.component
             { engine: state.engine
             , cardOrder: state.cardOrder
+            , presets: state.presets
+            , connections: state.connections
             }
             HandleGrid
         DetailView pid ->
@@ -93,6 +99,8 @@ render state =
           HH.slot (Proxy :: _ "boards") unit BoardsView.component
             { engine: state.engine
             , connections: state.connections
+            , presets: state.presets
+            , boardPresets: state.boardPresets
             }
             HandleBoards
     ]
@@ -106,6 +114,9 @@ handleAction = case _ of
       Nothing -> pure unit
     cardOrder <- liftEffect loadCardOrderParsed
     H.modify_ _ { cardOrder = cardOrder }
+    presets <- liftEffect loadPresetsParsed
+    boardPresets <- liftEffect loadBoardPresetsParsed
+    H.modify_ _ { presets = presets, boardPresets = boardPresets }
     st <- H.get
     liftEffect do
       w <- window
@@ -242,8 +253,65 @@ handleAction = case _ of
     GridView.ValueChanged pid cc val -> handleAction (SetValue pid cc val)
     GridView.MomentarySent pid cc val -> handleAction (SendMomentary pid cc val)
     GridView.InfoChanged pid key val -> handleAction (SetInfo pid key val)
+    GridView.RecallPreset preset -> recallPreset preset
+    GridView.SendPC pid pn -> sendPC_ pid pn
 
-  HandleBoards _output -> pure unit
+  HandleBoards output -> case output of
+    BoardsView.RecallBoard bp -> recallBoard bp
+    BoardsView.SendEngageAudition pid engState -> sendEngage pid engState
+    BoardsView.SendPCAudition pid pn -> sendPC_ pid pn
+    BoardsView.ValueChanged pid cc val -> handleAction (SetValue pid cc val)
+
+-- Recall helpers
+
+recallPreset :: forall o m. MonadAff m => PedalPreset -> H.HalogenM AppState Action Slots o m Unit
+recallPreset preset = do
+  st <- H.get
+  for_ (Map.lookup preset.pedalId st.engine) \ps ->
+    for_ (makeChannel ps.channel) \_ -> do
+      let entries = Map.toUnfoldable preset.values :: Array (Tuple CC MidiValue)
+      for_ entries \(Tuple cc val) -> do
+        handleAction (SetValue preset.pedalId cc val)
+        H.liftAff (delay (Milliseconds 100.0))
+
+sendPC_ :: forall o m. MonadAff m => PedalId -> ProgramNumber -> H.HalogenM AppState Action Slots o m Unit
+sendPC_ pid pn = do
+  st <- H.get
+  for_ st.connections.pedalOutput \output ->
+    for_ (Map.lookup pid st.engine >>= \ps -> makeChannel ps.channel) \ch ->
+      liftEffect $ MIDI.sendPC output ch pn
+
+recallBoard :: forall o m. MonadAff m => { id :: String, name :: String, description :: String, notes :: String, pedals :: Map.Map PedalId { presetId :: Maybe String, engage :: EngageState }, created :: String, modified :: String } -> H.HalogenM AppState Action Slots o m Unit
+recallBoard board = do
+  st <- H.get
+  let entries = Map.toUnfoldable board.pedals :: Array (Tuple PedalId { presetId :: Maybe String, engage :: EngageState })
+  for_ entries \(Tuple pid entry) -> do
+    -- PC if preset assigned
+    for_ entry.presetId \presetId ->
+      for_ (Array.find (\p -> p.id == presetId) st.presets) \preset ->
+        for_ preset.savedSlot \slot -> sendPC_ pid slot
+    H.liftAff (delay (Milliseconds 200.0))
+    -- Engage CCs
+    sendEngage pid entry.engage
+
+sendEngage :: forall o m. MonadAff m => PedalId -> EngageState -> H.HalogenM AppState Action Slots o m Unit
+sendEngage pid engState = case engState of
+  EngageNoChange -> pure unit
+  _ -> for_ (Registry.findPedal pid) \def -> case def.engage of
+    SingleEngage cc -> case engState of
+      EngageOn  -> handleAction (SetValue pid cc (unsafeMidiValue 127))
+      EngageOff -> handleAction (SetValue pid cc (unsafeMidiValue 0))
+      _ -> pure unit
+    DualEngage { a, b } -> case engState of
+      EngageOn  -> do handleAction (SetValue pid a.cc (unsafeMidiValue 127))
+                      handleAction (SetValue pid b.cc (unsafeMidiValue 127))
+      EngageOff -> do handleAction (SetValue pid a.cc (unsafeMidiValue 0))
+                      handleAction (SetValue pid b.cc (unsafeMidiValue 0))
+      EngageA   -> do handleAction (SetValue pid a.cc (unsafeMidiValue 127))
+                      handleAction (SetValue pid b.cc (unsafeMidiValue 0))
+      EngageB   -> do handleAction (SetValue pid a.cc (unsafeMidiValue 0))
+                      handleAction (SetValue pid b.cc (unsafeMidiValue 127))
+      _ -> pure unit
 
 -- Twister message handlers
 

@@ -24,6 +24,7 @@ package:
     - codec-argonaut
     - foreign-object
     - halogen-subscriptions
+    - js-date
   build:
     strict: true
   publish:

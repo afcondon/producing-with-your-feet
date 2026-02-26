@@ -1904,6 +1904,34 @@ body.grid-mode { max-width: none; padding: 8px 8px 16px; }
 .grid-view .section-body.dip-grid { gap: 2px; padding: 2px 0 4px; }
 .grid-view .section-body.dip-grid .toggle-btn { padding: 3px 2px; font-size: 10px; min-height: 0; }
 .grid-view .section-body.dip-grid .toggle-label { font-size: 10px; }
+
+/* --- Card Presets Toggle --- */
+
+.card-presets-toggle {
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-muted);
+  cursor: pointer;
+  border-top: 1px solid var(--border-light);
+  -webkit-user-select: none;
+  user-select: none;
+}
+.card-presets-toggle:hover { color: var(--fg); }
+
+.card-presets-section {
+  padding: 0 10px 8px;
+}
+
+.card-presets-section .preset-list { list-style: none; }
+.card-presets-section .preset-item { padding: 6px 0; border-bottom: 1px solid var(--border-light); }
+.card-presets-section .preset-name { font-size: 12px; }
+.card-presets-section .preset-date { font-size: 10px; }
+.card-presets-section .preset-slot-badge { font-size: 10px; padding: 0 5px; }
+.card-presets-section .recall-btn { padding: 3px 8px; font-size: 11px; }
+.card-presets-section .slot-grid { grid-template-columns: repeat(8, 1fr); }
+.card-presets-section .slot-grid-heading { font-size: 10px; }
+.card-presets-section .slot-btn { font-size: 10px; padding: 4px 1px; }
 </style>
 </head>
 <body>

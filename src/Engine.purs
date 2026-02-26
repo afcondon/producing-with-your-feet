@@ -19,6 +19,7 @@ import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Midi (CC, MidiValue)
 import Data.Pedal (PedalDef, PedalId)
+import Data.Preset (BoardPreset, PedalPreset)
 import Data.Tuple (Tuple(..))
 import Foreign.WebMIDI (MIDIAccess, MIDIInput, MIDIOutput, MidiPort)
 import Pedals.Registry as Registry
@@ -56,6 +57,8 @@ type AppState =
   , cardOrder :: Array PedalId
   , focusPedalId :: Maybe PedalId
   , suppressTwister :: Boolean
+  , presets :: Array PedalPreset
+  , boardPresets :: Array BoardPreset
   }
 
 defaultPedalState :: PedalDef -> PedalState
@@ -89,6 +92,8 @@ initAppState =
   , cardOrder: map _.meta.id Registry.pedals
   , focusPedalId: Nothing
   , suppressTwister: false
+  , presets: []
+  , boardPresets: []
   }
 
 getValue :: PedalId -> CC -> EngineState -> Maybe MidiValue

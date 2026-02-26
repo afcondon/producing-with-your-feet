@@ -19,6 +19,7 @@
             "halogen",
             "halogen-subscriptions",
             "integers",
+            "js-date",
             "maybe",
             "newtype",
             "ordered-collections",
