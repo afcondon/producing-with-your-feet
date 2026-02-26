@@ -4,6 +4,8 @@ module Data.Pedal
   , PedalDef
   , Annotation
   , SelectOption
+  , RangeOption
+  , ModeRangesMode
   , LabelSource(..)
   , Control(..)
   , Section
@@ -38,6 +40,14 @@ type PedalMeta =
 type Annotation = { position :: MidiValue, label :: String }
 
 type SelectOption = { label :: String, value :: MidiValue, description :: Maybe String }
+
+type RangeOption = { lo :: MidiValue, hi :: MidiValue, label :: String, description :: Maybe String }
+
+type ModeRangesMode =
+  { lo :: MidiValue
+  , hi :: MidiValue
+  , ranges :: Array (Array RangeOption)
+  }
 
 -- | How a control's label is determined
 data LabelSource
@@ -83,6 +93,17 @@ data Control
       , label :: String
       , options :: Array SelectOption
       , chromaticValue :: MidiValue
+      }
+  | RangeSelect
+      { cc :: CC
+      , label :: String
+      , ranges :: Array RangeOption
+      }
+  | ModeRanges
+      { cc :: CC
+      , label :: String
+      , modeCC :: CC
+      , modes :: Array ModeRangesMode
       }
   | RadioGroup
       { label :: String

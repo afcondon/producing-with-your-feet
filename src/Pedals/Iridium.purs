@@ -1,5 +1,6 @@
 module Pedals.Iridium (pedal) where
 
+import Color (fromHexString)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Midi (CC, MidiValue, unsafeCC, unsafeMidiValue)
@@ -25,7 +26,7 @@ pedal =
       { id: PedalId "iridium"
       , name: "Iridium"
       , brand: "Strymon"
-      , color: Nothing
+      , color: fromHexString "#5a6a8a"
       , defaultChannel: 10
       , saveInstructions: Just "Hold the footswitch for 3 seconds until LED flashes."
       }

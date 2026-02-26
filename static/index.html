@@ -47,11 +47,38 @@ body {
 .app-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   padding: 12px 0 16px;
   border-bottom: 2px solid var(--fg);
   margin-bottom: 0;
 }
+
+/* --- Pedal Pills (header) --- */
+
+.pedal-pills {
+  display: flex;
+  gap: 3px;
+  flex: 1;
+  justify-content: center;
+}
+
+.pedal-pill {
+  padding: 3px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 3px;
+  border: none;
+  cursor: pointer;
+  color: #fff;
+  background: var(--fg-muted);
+  transition: opacity 0.1s;
+  line-height: 1;
+}
+.pedal-pill:hover { opacity: 0.8; }
+.pedal-pill.active {
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--fg);
+}
+.pedal-pill.hidden { opacity: 0.25; }
 
 .app-title {
   font-size: 18px;

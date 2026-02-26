@@ -77,6 +77,8 @@ render state =
     [ HH.slot (Proxy :: _ "header") unit Header.component
         { view: state.view
         , connections: state.connections
+        , cardOrder: state.cardOrder
+        , hiddenPedals: state.hiddenPedals
         }
         HandleHeader
     , case state.view of
@@ -84,6 +86,7 @@ render state =
           HH.slot (Proxy :: _ "grid") unit GridView.component
             { engine: state.engine
             , cardOrder: state.cardOrder
+            , hiddenPedals: state.hiddenPedals
             , presets: state.presets
             , connections: state.connections
             }
@@ -235,6 +238,16 @@ handleAction = case _ of
 
   HandleHeader output -> case output of
     Header.ViewChanged view -> handleAction (SetView view)
+    Header.PedalPillClicked pid -> do
+      st <- H.get
+      case st.view of
+        GridView ->
+          H.modify_ \s -> s { hiddenPedals =
+            if Array.elem pid s.hiddenPedals
+              then Array.filter (_ /= pid) s.hiddenPedals
+              else Array.snoc s.hiddenPedals pid
+          }
+        _ -> handleAction (SetView (DetailView pid))
     Header.PedalOutputChanged portId -> handleAction (SelectPedalOutput portId)
     Header.TwisterInputChanged portId -> handleAction (SelectTwisterInput portId)
 

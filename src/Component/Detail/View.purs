@@ -64,8 +64,7 @@ component =
 render :: forall m. State -> H.ComponentHTML Action () m
 render state =
   HH.div [ HP.class_ (H.ClassName "detail-view") ]
-    [ renderTabBar state.input
-    , case mDef of
+    [ case mDef of
         Nothing -> HH.text "Pedal not found"
         Just def -> case mPs of
           Nothing -> HH.text "No state"
@@ -74,19 +73,6 @@ render state =
   where
   mDef = Registry.findPedal state.input.pedalId
   mPs = Map.lookup state.input.pedalId state.input.engine
-
-renderTabBar :: forall m. Input -> H.ComponentHTML Action () m
-renderTabBar input =
-  HH.nav [ HP.class_ (H.ClassName "tab-bar") ]
-    ( Array.mapMaybe renderTab input.cardOrder )
-  where
-  renderTab pid = do
-    def <- Registry.findPedal pid
-    pure $ HH.button
-      [ HP.class_ (H.ClassName (if pid == input.pedalId then "tab active" else "tab"))
-      , HE.onClick \_ -> ClickTab pid
-      ]
-      [ HH.text def.meta.name ]
 
 renderPedal :: forall m. PedalDef -> PedalState -> State -> H.ComponentHTML Action () m
 renderPedal def ps state =

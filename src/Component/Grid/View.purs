@@ -28,9 +28,12 @@ import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Pedals.Registry as Registry
 
+-- Note: Pedal order pills are rendered in the Header component
+
 type Input =
   { engine :: EngineState
   , cardOrder :: Array PedalId
+  , hiddenPedals :: Array PedalId
   , presets :: Array PedalPreset
   , connections :: MidiConnections
   }
@@ -48,7 +51,6 @@ data Output
 type State =
   { input :: Input
   , collapsedSections :: Array String
-  , hiddenPedals :: Array PedalId
   , expandedPresets :: Array PedalId
   }
 
@@ -57,7 +59,6 @@ data Action
   | FocusPedal PedalId
   | OpenPedal PedalId
   | ToggleSection String
-  | TogglePedal PedalId
   | ControlEvent Control.ControlOutput
   | TogglePresets PedalId
   | ClickRecall PedalPreset
@@ -68,7 +69,7 @@ type Slot = H.Slot (Const Void) Output
 component :: forall q m. MonadAff m => H.Component q Input Output m
 component =
   H.mkComponent
-    { initialState: \i -> { input: i, collapsedSections: [], hiddenPedals: [], expandedPresets: [] }
+    { initialState: \i -> { input: i, collapsedSections: [], expandedPresets: [] }
     , render
     , eval: H.mkEval H.defaultEval
         { handleAction = handleAction
@@ -78,13 +79,10 @@ component =
 
 render :: forall m. State -> H.ComponentHTML Action () m
 render state =
-  HH.div_
-    [ renderOrderStrip state
-    , HH.div [ HP.class_ (H.ClassName "grid-view") ]
-        ( Array.mapMaybe renderCard visibleOrder )
-    ]
+  HH.div [ HP.class_ (H.ClassName "grid-view") ]
+    ( Array.mapMaybe renderCard visibleOrder )
   where
-  visibleOrder = Array.filter (\pid -> not (Array.elem pid state.hiddenPedals)) state.input.cardOrder
+  visibleOrder = Array.filter (\pid -> not (Array.elem pid state.input.hiddenPedals)) state.input.cardOrder
 
   renderCard pid = do
     def <- Registry.findPedal pid
@@ -258,23 +256,7 @@ slotRange = case _ of
   "Chase Bliss" -> Just { start: 1, count: 122 }
   _            -> Nothing
 
-renderOrderStrip :: forall m. State -> H.ComponentHTML Action () m
-renderOrderStrip state =
-  HH.div [ HP.class_ (H.ClassName "order-strip") ]
-    ( Array.mapMaybe renderPill state.input.cardOrder )
-  where
-  renderPill pid = do
-    def <- Registry.findPedal pid
-    let isHidden = Array.elem pid state.hiddenPedals
-        colorStyle = case def.meta.color of
-          Just c -> "background: " <> toHexString c
-          Nothing -> ""
-    pure $ HH.button
-      [ HP.class_ (H.ClassName ("order-block" <> if isHidden then " hidden" else ""))
-      , HP.attr (HH.AttrName "style") colorStyle
-      , HE.onClick \_ -> TogglePedal pid
-      ]
-      [ HH.text def.meta.name ]
+
 
 handleAction :: forall m. MonadAff m => Action -> H.HalogenM State Action () Output m Unit
 handleAction = case _ of
@@ -286,12 +268,6 @@ handleAction = case _ of
       if Array.elem name st.collapsedSections
         then Array.filter (_ /= name) st.collapsedSections
         else Array.snoc st.collapsedSections name
-    }
-  TogglePedal pid -> H.modify_ \st ->
-    st { hiddenPedals =
-      if Array.elem pid st.hiddenPedals
-        then Array.filter (_ /= pid) st.hiddenPedals
-        else Array.snoc st.hiddenPedals pid
     }
   ControlEvent output -> case output of
     Control.SetCC pid cc val -> H.raise (ValueChanged pid cc val)

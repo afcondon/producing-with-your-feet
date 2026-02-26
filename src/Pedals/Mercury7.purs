@@ -4,7 +4,7 @@ import Color (fromHexString)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Midi (CC, MidiValue, unsafeCC, unsafeMidiValue)
-import Data.Pedal (Annotation, Control(..), LabelSource(..), PedalDef, PedalId(..), SectionLayout(..))
+import Data.Pedal (Annotation, Control(..), LabelSource(..), PedalDef, PedalId(..), RangeOption, SectionLayout(..))
 import Data.Pedal.Engage (EngageConfig(..))
 import Data.Tuple (Tuple(..))
 import Data.Twister (TwisterButton(..), TwisterEncoder(..))
@@ -17,6 +17,9 @@ mv = unsafeMidiValue
 
 ann :: Int -> String -> Annotation
 ann pos label = { position: mv pos, label }
+
+rng :: Int -> Int -> String -> RangeOption
+rng lo hi label = { lo: mv lo, hi: mv hi, label, description: Nothing }
 
 infixr 6 Tuple as /\
 
@@ -73,9 +76,9 @@ pedal =
             [ Toggle { cc: cc 14, label: "Bypass", onLabel: "On", offLabel: "Off", description: Nothing, labelSource: Nothing }
             , Toggle { cc: cc 28, label: "Swell", onLabel: "On", offLabel: "Off"
               , description: Just "Auto swell \x2014 hold ALT to max decay sustain", labelSource: Nothing }
-            , Segmented { cc: cc 29, label: "Algorithm", options:
-                [ { label: "Ultraplate", value: mv 0, description: Nothing }
-                , { label: "Cathedra", value: mv 127, description: Nothing }
+            , RangeSelect { cc: cc 29, label: "Algorithm", ranges:
+                [ rng 0 63 "Ultraplate"
+                , rng 64 127 "Cathedra"
                 ] }
             ]
         }

@@ -55,6 +55,7 @@ type AppState =
   , engine :: EngineState
   , connections :: MidiConnections
   , cardOrder :: Array PedalId
+  , hiddenPedals :: Array PedalId
   , focusPedalId :: Maybe PedalId
   , suppressTwister :: Boolean
   , presets :: Array PedalPreset
@@ -90,6 +91,7 @@ initAppState =
       , availableInputs: []
       }
   , cardOrder: map _.meta.id Registry.pedals
+  , hiddenPedals: []
   , focusPedalId: Nothing
   , suppressTwister: false
   , presets: []

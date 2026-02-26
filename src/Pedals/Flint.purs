@@ -1,5 +1,6 @@
 module Pedals.Flint (pedal) where
 
+import Color (fromHexString)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Midi (CC, MidiValue, unsafeCC, unsafeMidiValue)
@@ -25,7 +26,7 @@ pedal =
       { id: PedalId "flint"
       , name: "Flint"
       , brand: "Strymon"
-      , color: Nothing
+      , color: fromHexString "#a85a50"
       , defaultChannel: 7
       , saveInstructions: Just "Hold the footswitch for 3 seconds until LED flashes."
       }

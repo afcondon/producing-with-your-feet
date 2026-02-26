@@ -4,7 +4,7 @@ import Color (fromHexString)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Midi (CC, MidiValue, unsafeCC, unsafeMidiValue)
-import Data.Pedal (Annotation, Control(..), LabelSource(..), PedalDef, PedalId(..), SectionLayout(..))
+import Data.Pedal (Annotation, Control(..), LabelSource(..), PedalDef, PedalId(..), RangeOption, SectionLayout(..), ModeRangesMode)
 import Data.Pedal.Engage (EngageConfig(..))
 import Data.Tuple (Tuple(..))
 import Data.Twister (TwisterButton(..), TwisterEncoder(..))
@@ -18,7 +18,37 @@ mv = unsafeMidiValue
 ann :: Int -> String -> Annotation
 ann pos label = { position: mv pos, label }
 
+rng :: Int -> Int -> String -> RangeOption
+rng lo hi label = { lo: mv lo, hi: mv hi, label, description: Nothing }
+
 infixr 6 Tuple as /\
+
+-- Pitch voice interval tables (mode-dependent)
+
+diatonicIntervals :: Array (Array RangeOption)
+diatonicIntervals =
+  [ [ rng 0 0 "Off", rng 1 7 "-2Oct", rng 8 11 "-1Oct", rng 116 119 "+1Oct", rng 120 127 "+2Oct" ]
+  , [ rng 12 19 "-7", rng 20 27 "-6", rng 28 35 "-5", rng 36 43 "-4"
+    , rng 44 51 "-3", rng 52 59 "-2", rng 60 67 "U"
+    , rng 68 75 "+2", rng 76 83 "+3", rng 84 91 "+4"
+    , rng 92 99 "+5", rng 100 107 "+6", rng 108 115 "+7"
+    ]
+  ]
+
+pentatonicIntervals :: Array (Array RangeOption)
+pentatonicIntervals =
+  [ [ rng 0 0 "Off", rng 1 19 "-2Oct", rng 20 27 "-1Oct", rng 100 107 "+1Oct", rng 108 127 "+2Oct" ]
+  , [ rng 28 35 "-5", rng 36 43 "-4", rng 44 51 "-3", rng 52 59 "-2"
+    , rng 60 67 "U"
+    , rng 68 75 "+2", rng 76 83 "+3", rng 84 91 "+4", rng 92 99 "+5"
+    ]
+  ]
+
+pitchVoiceModes :: Array ModeRangesMode
+pitchVoiceModes =
+  [ { lo: mv 0, hi: mv 97, ranges: diatonicIntervals }
+  , { lo: mv 98, hi: mv 127, ranges: pentatonicIntervals }
+  ]
 
 pedal :: PedalDef
 pedal =
@@ -82,12 +112,9 @@ pedal =
       , { name: "Pitch Voices", compact: true, collapsed: false, layout: DefaultLayout
         , description: Just "Three independent pitch-shifted delay voices"
         , controls:
-            [ Slider { cc: cc 19, label: Static "Pitch 1", description: Just "Interval for voice 1"
-              , annotations: [ ann 0 "-2 Oct", ann 56 "Unison", ann 116 "+1 Oct", ann 127 "+2 Oct" ] }
-            , Slider { cc: cc 20, label: Static "Pitch 2", description: Just "Interval for voice 2"
-              , annotations: [ ann 0 "-2 Oct", ann 56 "Unison", ann 116 "+1 Oct", ann 127 "+2 Oct" ] }
-            , Slider { cc: cc 21, label: Static "Pitch 3", description: Just "Interval for voice 3"
-              , annotations: [ ann 0 "-2 Oct", ann 56 "Unison", ann 116 "+1 Oct", ann 127 "+2 Oct" ] }
+            [ ModeRanges { cc: cc 19, label: "Pitch 1", modeCC: cc 22, modes: pitchVoiceModes }
+            , ModeRanges { cc: cc 20, label: "Pitch 2", modeCC: cc 22, modes: pitchVoiceModes }
+            , ModeRanges { cc: cc 21, label: "Pitch 3", modeCC: cc 22, modes: pitchVoiceModes }
             ]
         }
       , { name: "Key & Scale", compact: true, collapsed: false, layout: DefaultLayout, description: Nothing
@@ -109,14 +136,14 @@ pedal =
                   ]
               , chromaticValue: mv 123
               }
-            , Segmented { cc: cc 22, label: "Scale", options:
-                [ { label: "Major", value: mv 5, description: Nothing }
-                , { label: "Minor", value: mv 24, description: Nothing }
-                , { label: "Mel Min", value: mv 48, description: Nothing }
-                , { label: "Harm Min", value: mv 68, description: Nothing }
-                , { label: "Dbl Harm", value: mv 88, description: Nothing }
-                , { label: "Lyd Pent", value: mv 108, description: Nothing }
-                , { label: "Min Pent", value: mv 123, description: Nothing }
+            , RangeSelect { cc: cc 22, label: "Scale", ranges:
+                [ rng 0 11 "Major"
+                , rng 12 37 "Minor"
+                , rng 38 58 "Mel Min"
+                , rng 59 78 "Harm Min"
+                , rng 79 97 "Dbl Harm"
+                , rng 98 119 "Lyd Pent"
+                , rng 120 127 "Min Pent"
                 ] }
             ]
         }
@@ -128,11 +155,11 @@ pedal =
               , annotations: [ ann 0 "Dry", ann 64 "Even", ann 127 "Wet" ] }
             , Slider { cc: cc 24, label: Static "Feedback", description: Just "Delay feedback amount"
               , annotations: [ ann 0 "None", ann 64 "Mid", ann 127 "Max" ] }
-            , Dropdown { cc: cc 29, label: "Delay Mode", description: Nothing, options:
-                [ { label: "Series+Pitch Fdbk", value: mv 15, description: Nothing }
-                , { label: "Series", value: mv 47, description: Nothing }
-                , { label: "Dual+Cross Fdbk", value: mv 79, description: Nothing }
-                , { label: "Dual", value: mv 111, description: Nothing }
+            , RangeSelect { cc: cc 29, label: "Delay Mode", ranges:
+                [ rng 0 31 "Series+Pitch Fdbk"
+                , rng 32 63 "Series"
+                , rng 64 95 "Dual+Cross Fdbk"
+                , rng 96 127 "Dual"
                 ] }
             ]
         }

@@ -12,7 +12,7 @@ import Halogen.HTML.Events as HE
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Midi (CC, MidiValue, unMidiValue, unsafeMidiValue)
-import Data.Pedal (Annotation, Control(..), LabelSource(..), PedalId)
+import Data.Pedal (Annotation, Control(..), LabelSource(..), PedalId, RangeOption)
 import Data.Pedal.Modes (DualChannelModes, ChannelDef, ModeChannel(..), ModeRole(..))
 import Data.Tuple (Tuple(..))
 import Engine (PedalState)
@@ -159,6 +159,62 @@ renderControl pid ps mModes = case _ of
         [ HP.class_ (H.ClassName (if opt.value == currentVal then "active" else ""))
         , HE.onClick \_ -> SetCC pid r.cc opt.value
         ]
+        [ HH.text opt.label ]
+
+  RangeSelect r ->
+    HH.div [ HP.class_ (H.ClassName "control radio-group-control") ]
+      [ HH.label_ [ HH.text r.label ]
+      , HH.div [ HP.class_ (H.ClassName "radio-group") ]
+          (map rangeButton r.ranges)
+      ]
+    where
+    currentVal = fromMaybe (unsafeMidiValue 0) (Map.lookup r.cc ps.values)
+
+    rangeButton :: forall w'. RangeOption -> HH.HTML w' ControlOutput
+    rangeButton opt =
+      let active = opt.lo <= currentVal && currentVal <= opt.hi
+      in HH.button
+        ( [ HP.class_ (H.ClassName (if active then "radio-btn active" else "radio-btn"))
+          , HE.onClick \_ -> SetCC pid r.cc opt.lo
+          ]
+          <> case opt.description of
+               Just d -> [ HP.attr (HH.AttrName "title") d ]
+               Nothing -> []
+        )
+        [ HH.text opt.label ]
+
+  ModeRanges r ->
+    HH.div [ HP.class_ (H.ClassName "control radio-group-control") ]
+      [ HH.label_ [ HH.text r.label ]
+      , HH.div_ (map renderRow activeRanges)
+      ]
+    where
+    currentVal = fromMaybe (unsafeMidiValue 0) (Map.lookup r.cc ps.values)
+    modeVal = fromMaybe (unsafeMidiValue 0) (Map.lookup r.modeCC ps.values)
+
+    activeRanges :: Array (Array RangeOption)
+    activeRanges = case Array.find (\m -> m.lo <= modeVal && modeVal <= m.hi) r.modes of
+      Just m -> m.ranges
+      Nothing -> case Array.head r.modes of
+        Just m -> m.ranges
+        Nothing -> []
+
+    renderRow :: forall w'. Array RangeOption -> HH.HTML w' ControlOutput
+    renderRow row =
+      HH.div [ HP.class_ (H.ClassName "radio-group") ]
+        (map modeRangeButton row)
+
+    modeRangeButton :: forall w'. RangeOption -> HH.HTML w' ControlOutput
+    modeRangeButton opt =
+      let active = opt.lo <= currentVal && currentVal <= opt.hi
+      in HH.button
+        ( [ HP.class_ (H.ClassName (if active then "radio-btn active" else "radio-btn"))
+          , HE.onClick \_ -> SetCC pid r.cc opt.lo
+          ]
+          <> case opt.description of
+               Just d -> [ HP.attr (HH.AttrName "title") d ]
+               Nothing -> []
+        )
         [ HH.text opt.label ]
 
   RadioGroup r ->

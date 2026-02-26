@@ -4,7 +4,7 @@ import Color (fromHexString)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Midi (CC, MidiValue, unsafeCC, unsafeMidiValue)
-import Data.Pedal (Annotation, Control(..), LabelSource(..), PedalDef, PedalId(..), SectionLayout(..))
+import Data.Pedal (Annotation, Control(..), LabelSource(..), PedalDef, PedalId(..), RangeOption, SectionLayout(..))
 import Data.Pedal.Engage (EngageConfig(..))
 import Data.Tuple (Tuple(..))
 import Data.Twister (TwisterButton(..), TwisterEncoder(..))
@@ -17,6 +17,9 @@ mv = unsafeMidiValue
 
 ann :: Int -> String -> Annotation
 ann pos label = { position: mv pos, label }
+
+rng :: Int -> Int -> String -> RangeOption
+rng lo hi label = { lo: mv lo, hi: mv hi, label, description: Nothing }
 
 infixr 6 Tuple as /\
 
@@ -142,8 +145,13 @@ pedal =
         , controls:
             [ Slider { cc: cc 24, label: Static "Stereo Width", description: Just "Panning width when Spread is on"
               , annotations: [ ann 0 "Narrow", ann 127 "Wide" ] }
-            , Slider { cc: cc 25, label: Static "Ramp Waveform", description: Just "Shape of ramp/bounce LFO"
-              , annotations: [ ann 0 "Triangle", ann 15 "Square", ann 55 "Sine", ann 81 "Random", ann 127 "Smooth" ] }
+            , RangeSelect { cc: cc 25, label: "Ramp Waveform", ranges:
+                [ rng 0 7 "Triangle"
+                , rng 8 35 "Square"
+                , rng 36 68 "Sine"
+                , rng 69 104 "Random"
+                , rng 105 127 "Smooth"
+                ] }
             , Slider { cc: cc 26, label: Static "Fade", description: Just "Loop fade during overdub"
               , annotations: [ ann 0 "Fast fade", ann 127 "No fade" ] }
             , Slider { cc: cc 27, label: Static "Tone", description: Just "Hi-cut filter for Wet Channel"
