@@ -4,22 +4,28 @@ module Data.Loopy
   , LoopIndex(..)
   , LoopColor
   , LoopGroup
+  , LoopState
   , LoopyParam(..)
   , LoopyTwisterConfig
   , actions
   , groups
   , selectCC
   , volumeCC
+  , clearCC
+  , speedCC
   , loopCount
   , paramCC
   , paramLabel
   , loopToEncoder
   , encoderToLoop
   , recordAndMixConfig
+  , defaultLoopState
+  , shiftAction
   ) where
 
 import Prelude
 
+import Data.Maybe (Maybe(..))
 import Data.Midi (CC, unsafeCC)
 
 data LoopyAction
@@ -80,6 +86,24 @@ encoderToLoop encIdx =
   let group = encIdx `mod` 4  -- which column (0-3)
       row   = encIdx / 4      -- 0=top, 1=bottom
   in group * 2 + row
+
+type LoopState =
+  { volume :: Int, speed :: Int, muted :: Boolean, soloed :: Boolean, cleared :: Boolean }
+
+defaultLoopState :: LoopState
+defaultLoopState = { volume: 100, speed: 64, muted: false, soloed: false, cleared: false }
+
+clearCC :: CC
+clearCC = unsafeCC 22
+
+speedCC :: CC
+speedCC = unsafeCC 53
+
+-- | In shift mode, map bottom-encoder paramIdx to a shifted action.
+-- POC: only paramIdx 2 (the Mute position) maps to LoopyClear.
+shiftAction :: Int -> Maybe LoopyAction
+shiftAction 2 = Just LoopyClear
+shiftAction _ = Nothing
 
 selectCC :: LoopIndex -> CC
 selectCC (LoopIndex i) = unsafeCC (30 + i)

@@ -11,8 +11,8 @@ import Data.Loopy as Loopy
 import Data.Array as Array
 import Data.Foldable (any, for_)
 import Data.Map as Map
-import Data.Maybe (Maybe(..))
-import Data.Midi (CC, MidiValue, ProgramNumber, makeChannel, unCC, unChannel, unMidiValue, unProgramNumber, unsafeMidiValue)
+import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Midi (CC, MidiValue, ProgramNumber, makeChannel, unCC, unChannel, unMidiValue, unProgramNumber, unsafeCC, unsafeMidiValue)
 import Data.Pedal (PedalId)
 import Data.Pedal.Engage (EngageConfig(..), EngageState(..), engageCCs)
 import Data.Preset (PedalPreset, BoardPreset, PresetId)
@@ -158,6 +158,8 @@ render state = case state.configError of
                   { connections: state.connections
                   , loopyTwisterActive: state.loopyTwisterActive
                   , selectedLoop: state.loopySelectedLoop
+                  , loopStates: state.loopyLoopStates
+                  , heldEncoder: state.loopyHeldEncoder
                   }
                   HandleLoopy
               , HH.div [ HP.class_ (H.ClassName "mc6-panel") ]
@@ -840,17 +842,40 @@ sendLoopyCC ccNum val = do
       liftEffect $ Console.log $ "sendLoopyCC: CC " <> show (unCC ccNum) <> " val=" <> show val
       liftEffect $ MIDI.sendCC output ch ccNum (unsafeMidiValue val)
 
+-- | Helper to update a single loop's state in the array
+updateLoopState :: forall o m. MonadAff m => Int -> (Loopy.LoopState -> Loopy.LoopState) -> H.HalogenM AppState Action Slots o m Unit
+updateLoopState loopIdx f =
+  H.modify_ \st -> st
+    { loopyLoopStates = fromMaybe st.loopyLoopStates (Array.modifyAt loopIdx f st.loopyLoopStates) }
+
+-- | Track mute/solo/record state changes from normal-mode CC sends
+trackLoopyAction :: forall o m. MonadAff m => Int -> CC -> H.HalogenM AppState Action Slots o m Unit
+trackLoopyAction loopIdx cc
+  | cc == unsafeCC 23 = updateLoopState loopIdx \ls -> ls { muted = not ls.muted }
+  | cc == unsafeCC 24 = updateLoopState loopIdx \ls -> ls { soloed = not ls.soloed }
+  | cc == unsafeCC 20 = updateLoopState loopIdx (_ { cleared = false })
+  | otherwise = pure unit
+
 -- | Handle Twister messages in Loopy mode
 handleLoopyTwisterMsg :: forall o m. MonadAff m => TwisterMsg -> H.HalogenM AppState Action Slots o m Unit
 handleLoopyTwisterMsg = case _ of
   EncoderTurn idx val
     | idx < 8 -> do
-        -- Top 2 rows: volume for the loop at this encoder position
+        st <- H.get
         let loopIdx = Loopy.encoderToLoop idx
-        sendLoopyCC (Loopy.volumeCC (Loopy.LoopIndex loopIdx)) val
-        sendRingPosition idx val
+        case st.loopyHeldEncoder of
+          Just held | held == idx -> do
+            -- Shift+rotate: send Speed instead of Volume
+            sendLoopyCC Loopy.speedCC val
+            sendRingPosition idx val
+            updateLoopState loopIdx (_ { speed = val })
+          _ -> do
+            -- Normal: volume for the loop at this encoder position
+            sendLoopyCC (Loopy.volumeCC (Loopy.LoopIndex loopIdx)) val
+            sendRingPosition idx val
+            updateLoopState loopIdx (_ { volume = val })
     | otherwise -> do
-        -- Bottom 2 rows: parameter for selected loop
+        -- Bottom 2 rows: parameter for selected loop (unchanged)
         let paramIdx = idx - 8
             cfg = Loopy.recordAndMixConfig
         case Array.index cfg.params paramIdx of
@@ -858,23 +883,58 @@ handleLoopyTwisterMsg = case _ of
             sendLoopyCC cc val
             sendRingPosition idx val
           _ -> pure unit
+
   EncoderPress idx
     | idx < 8 -> do
-        -- Top 2 rows press: select the loop at this encoder position
+        st <- H.get
         let loopIdx = Loopy.encoderToLoop idx
-        sendMomentaryLoopy (Loopy.selectCC (Loopy.LoopIndex loopIdx))
-        H.modify_ _ { loopySelectedLoop = loopIdx }
+        if st.loopySelectedLoop == loopIdx
+          then do
+            -- Second press on same loop: deselect (no shift mode)
+            H.modify_ _ { loopySelectedLoop = -1 }
+            sendMomentaryLoopy (Loopy.selectCC (Loopy.LoopIndex loopIdx))
+          else do
+            -- Select loop + enter shift mode
+            -- Set held state and LEDs BEFORE the momentary send (which has a 50ms delay)
+            H.modify_ _ { loopySelectedLoop = loopIdx, loopyHeldEncoder = Just idx }
+            for_ (Array.range 8 15) \i ->
+              sendRGBColor i 0
+            sendMomentaryLoopy (Loopy.selectCC (Loopy.LoopIndex loopIdx))
     | otherwise -> do
-        -- Bottom 2 rows press: toggle/momentary params
+        -- Bottom encoder press: check if shifted
+        st <- H.get
         let paramIdx = idx - 8
             cfg = Loopy.recordAndMixConfig
-        case Array.index cfg.params paramIdx of
-          Just (Loopy.LoopyParamToggle { cc }) ->
-            sendMomentaryLoopy cc
-          Just (Loopy.LoopyParamMomentary { cc }) ->
-            sendMomentaryLoopy cc
-          _ -> pure unit
-  EncoderRelease _ -> pure unit
+        case st.loopyHeldEncoder of
+          Just _ ->
+            -- Shift mode: check for shifted action
+            case Loopy.shiftAction paramIdx of
+              Just Loopy.LoopyClear -> do
+                sendMomentaryLoopy Loopy.clearCC
+                updateLoopState st.loopySelectedLoop (_ { cleared = true })
+              _ -> pure unit
+          Nothing ->
+            -- Normal mode: toggle/momentary params
+            case Array.index cfg.params paramIdx of
+              Just (Loopy.LoopyParamToggle { cc }) -> do
+                sendMomentaryLoopy cc
+                trackLoopyAction st.loopySelectedLoop cc
+              Just (Loopy.LoopyParamMomentary { cc }) -> do
+                sendMomentaryLoopy cc
+                trackLoopyAction st.loopySelectedLoop cc
+              _ -> pure unit
+
+  EncoderRelease idx
+    | idx < 8 -> do
+        -- Release top encoder: exit shift mode, restore bottom LED colors
+        st <- H.get
+        when (st.loopyHeldEncoder == Just idx) do
+          H.modify_ _ { loopyHeldEncoder = Nothing }
+          let cfg = Loopy.recordAndMixConfig
+          for_ (Array.range 8 15) \i ->
+            sendRGBColor i cfg.paramHue
+    | otherwise -> pure unit
+
   SideButton btn -> handleTwisterSideButton btn
 
 -- | Send Loopy-themed LED colors to all 16 Twister encoders

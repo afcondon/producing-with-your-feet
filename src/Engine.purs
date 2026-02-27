@@ -17,6 +17,8 @@ import Prelude
 import Config.Registry (PedalRegistry)
 import Config.Registry as CRegistry
 import Config.Types (MidiRouting)
+import Data.Array as Array
+import Data.Loopy as Loopy
 import Data.Map (Map)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
@@ -67,6 +69,8 @@ type AppState =
   , configError :: Maybe String
   , loopyTwisterActive :: Boolean
   , loopySelectedLoop :: Int
+  , loopyHeldEncoder :: Maybe Int
+  , loopyLoopStates :: Array Loopy.LoopState
   }
 
 defaultPedalState :: PedalDef -> PedalState
@@ -117,6 +121,8 @@ initAppState =
   , configError: Nothing
   , loopyTwisterActive: false
   , loopySelectedLoop: 0
+  , loopyHeldEncoder: Nothing
+  , loopyLoopStates: Array.replicate 8 Loopy.defaultLoopState
   }
 
 getValue :: PedalId -> CC -> EngineState -> Maybe MidiValue

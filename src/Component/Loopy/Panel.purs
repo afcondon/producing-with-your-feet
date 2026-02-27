@@ -7,9 +7,10 @@ module Component.Loopy.Panel
 
 import Prelude
 
+import Data.Array as Array
 import Data.Const (Const)
 import Data.Loopy as Loopy
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), isJust)
 import Effect.Aff.Class (class MonadAff)
 import Engine (MidiConnections)
 import Halogen as H
@@ -23,6 +24,8 @@ type Input =
   { connections :: MidiConnections
   , loopyTwisterActive :: Boolean
   , selectedLoop :: Int
+  , loopStates :: Array Loopy.LoopState
+  , heldEncoder :: Maybe Int
   }
 
 data Output
@@ -74,16 +77,40 @@ render state =
         ]
     ]
   where
-  titleClass = "loopy-header" <> if state.input.loopyTwisterActive then " twister-active" else ""
-  titleText = if state.input.loopyTwisterActive then "LoopyPro \x25C9" else "LoopyPro"
+  isShifted = isJust state.input.heldEncoder
+  titleClass = "loopy-header"
+    <> (if state.input.loopyTwisterActive then " twister-active" else "")
+    <> (if isShifted then " shift-active" else "")
+  titleText
+    | isShifted = "LoopyPro SHIFT"
+    | state.input.loopyTwisterActive = "LoopyPro \x25C9"
+    | otherwise = "LoopyPro"
 
   renderGroup group =
-    HH.div [ HP.class_ (H.ClassName "loopy-group") ]
+    let (Loopy.LoopIndex aIdx) = group.loopA
+        (Loopy.LoopIndex bIdx) = group.loopB
+        aState = Array.index state.input.loopStates aIdx
+        bState = Array.index state.input.loopStates bIdx
+    in HH.div [ HP.class_ (H.ClassName "loopy-group") ]
       [ loopButton group.loopA group.color "A"
       , loopButton group.loopB group.color "B"
       , HH.span [ HP.class_ (H.ClassName "loopy-group-label") ]
           [ HH.text group.color.label ]
+      , HH.div [ HP.class_ (H.ClassName "loopy-info-pair") ]
+          [ renderLoopInfo aState
+          , renderLoopInfo bState
+          ]
       ]
+
+  renderLoopInfo Nothing = HH.span_ []
+  renderLoopInfo (Just ls) =
+    HH.span [ HP.class_ (H.ClassName "loopy-info") ]
+      ( [ HH.text (show ls.volume) ]
+        <> (if ls.speed /= 64 then [ HH.text (" s" <> show ls.speed) ] else [])
+        <> (if ls.muted then [ HH.span [ HP.class_ (H.ClassName "loopy-flag loopy-flag-muted") ] [ HH.text "M" ] ] else [])
+        <> (if ls.soloed then [ HH.span [ HP.class_ (H.ClassName "loopy-flag loopy-flag-soloed") ] [ HH.text "S" ] ] else [])
+        <> (if ls.cleared then [ HH.span [ HP.class_ (H.ClassName "loopy-flag loopy-flag-cleared") ] [ HH.text "CLR" ] ] else [])
+      )
 
   loopButton (Loopy.LoopIndex idx) color label =
     let isSelected = state.input.selectedLoop == idx
