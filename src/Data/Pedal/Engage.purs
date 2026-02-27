@@ -1,6 +1,7 @@
 module Data.Pedal.Engage
   ( EngageConfig(..)
   , EngageState(..)
+  , engageCCs
   ) where
 
 import Prelude
@@ -24,3 +25,8 @@ data EngageState
   | EngageNoChange
 
 derive instance Eq EngageState
+
+-- | Extract the CC number(s) from an EngageConfig
+engageCCs :: EngageConfig -> Array CC
+engageCCs (SingleEngage cc) = [cc]
+engageCCs (DualEngage { a, b }) = [a.cc, b.cc]

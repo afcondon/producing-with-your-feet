@@ -105,6 +105,13 @@ body {
   background: var(--bg);
   color: var(--fg);
 }
+.midi-picker.disconnected select {
+  border-color: #c44;
+  color: var(--fg-muted);
+}
+.midi-picker.disconnected label {
+  color: #c44;
+}
 
 .midi-status {
   width: 8px;
@@ -1421,7 +1428,7 @@ body {
 .boards-wrapper { display: flex; gap: 12px; }
 .boards-wrapper > .grid-view { flex: 0 0 340px; grid-template-columns: 1fr; }
 .boards-wrapper > .boards-view { flex: 0 1 560px; min-width: 0; }
-.boards-wrapper > .loopy-panel { flex: 1; min-width: 0; }
+.boards-wrapper > .right-panels { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
 
 /* --- Boards View --- */
 
@@ -1709,6 +1716,30 @@ body {
   color: var(--active-fg);
   border-color: var(--active-bg);
 }
+
+/* --- MC6 Panel --- */
+
+.mc6-panel {
+  padding: 12px;
+  background: var(--bg-section);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.mc6-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mc6-title {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+}
+
 /* ============================================
    PureScript-specific layout
    (Detail controls now emit JS-matching markup)
@@ -1782,6 +1813,13 @@ body {
   font-size: 11px;
   font-weight: 500;
   opacity: 0.7;
+}
+.card-channel {
+  font-size: 10px;
+  font-weight: 500;
+  opacity: 0.5;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
 }
 
 .card-status {

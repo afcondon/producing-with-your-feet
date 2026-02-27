@@ -9,13 +9,13 @@ import Component.Header as Header
 import Component.Loopy.Panel as LoopyPanel
 import Data.Loopy as Loopy
 import Data.Array as Array
-import Data.Foldable (for_)
+import Data.Foldable (any, for_)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
-import Data.Midi (CC, MidiValue, ProgramNumber, makeChannel, unCC, unMidiValue, unsafeMidiValue)
+import Data.Midi (CC, MidiValue, ProgramNumber, makeChannel, unCC, unChannel, unMidiValue, unProgramNumber, unsafeMidiValue)
 import Data.Pedal (PedalId)
-import Data.Pedal.Engage (EngageConfig(..), EngageState(..))
-import Data.Preset (PedalPreset)
+import Data.Pedal.Engage (EngageConfig(..), EngageState(..), engageCCs)
+import Data.Preset (PedalPreset, BoardPreset, PresetId)
 import Data.String.CodeUnits (contains)
 import Data.String.Pattern (Pattern(..))
 import Data.Tuple (Tuple(..))
@@ -25,8 +25,9 @@ import Effect.Aff.Class (class MonadAff)
 import Effect.Class (liftEffect)
 import Effect.Console as Console
 import Engine (AppState, View(..), initAppState)
-import Engine.Storage (loadEngineState, loadCardOrderParsed, loadPresetsParsed, loadBoardPresetsParsed)
+import Engine.Storage as Storage
 import Engine.Twister as Twister
+import Foreign.FileIO as FileIO
 import Foreign.WebMIDI as MIDI
 import Halogen as H
 import Halogen.HTML as HH
@@ -130,10 +131,16 @@ render state =
               , boardPresets: state.boardPresets
               }
               HandleBoards
-          , HH.slot (Proxy :: _ "loopy") unit LoopyPanel.component
-              { connections: state.connections
-              }
-              HandleLoopy
+          , HH.div [ HP.class_ (H.ClassName "right-panels") ]
+              [ HH.slot (Proxy :: _ "loopy") unit LoopyPanel.component
+                  { connections: state.connections
+                  }
+                  HandleLoopy
+              , HH.div [ HP.class_ (H.ClassName "mc6-panel") ]
+                  [ HH.div [ HP.class_ (H.ClassName "mc6-header") ]
+                      [ HH.span [ HP.class_ (H.ClassName "mc6-title") ] [ HH.text "MC6" ] ]
+                  ]
+              ]
           ]
         )
     ]
@@ -141,14 +148,14 @@ render state =
 handleAction :: forall o m. MonadAff m => Action -> H.HalogenM AppState Action Slots o m Unit
 handleAction = case _ of
   Initialize -> do
-    mEngine <- liftEffect loadEngineState
+    mEngine <- liftEffect Storage.loadEngineState
     case mEngine of
       Just eng -> H.modify_ _ { engine = eng }
       Nothing -> pure unit
-    cardOrder <- liftEffect loadCardOrderParsed
+    cardOrder <- liftEffect Storage.loadCardOrderParsed
     H.modify_ _ { cardOrder = cardOrder }
-    presets <- liftEffect loadPresetsParsed
-    boardPresets <- liftEffect loadBoardPresetsParsed
+    presets <- liftEffect Storage.loadPresetsParsed
+    boardPresets <- liftEffect Storage.loadBoardPresetsParsed
     H.modify_ _ { presets = presets, boardPresets = boardPresets }
     st <- H.get
     liftEffect do
@@ -174,6 +181,10 @@ handleAction = case _ of
     for_ mTwisterOut \port -> do
       mOut <- liftEffect $ MIDI.openOutput mAccess port.id
       H.modify_ _ { connections { twisterOutput = mOut, twisterOutputId = Just port.id } }
+    -- Auto-select pedal output (MC6 via USB)
+    let mPedalOut = Array.find (\p -> contains (Pattern "Morningstar") p.name) outputs
+    for_ mPedalOut \port ->
+      handleAction (SelectPedalOutput port.id)
     -- Auto-select LoopyPro output (iPad via iConnectivity AUDIO4c)
     let mLoopyOut = Array.find (\p -> contains (Pattern "AUDIO4c") p.name) outputs
     for_ mLoopyOut \port ->
@@ -298,17 +309,7 @@ handleAction = case _ of
     DetailView.PedalSelected pid -> handleAction (SetView (DetailView pid))
     DetailView.InfoChanged pid key val -> handleAction (SetInfo pid key val)
 
-  HandleGrid output -> case output of
-    GridView.PedalClicked pid -> handleAction (SetView (DetailView pid))
-    GridView.PedalFocused pid -> do
-      H.modify_ _ { focusPedalId = Just pid }
-      sendAllLEDs pid
-    GridView.OrderChanged order -> H.modify_ _ { cardOrder = order }
-    GridView.ValueChanged pid cc val -> handleAction (SetValue pid cc val)
-    GridView.MomentarySent pid cc val -> handleAction (SendMomentary pid cc val)
-    GridView.InfoChanged pid key val -> handleAction (SetInfo pid key val)
-    GridView.RecallPreset preset -> recallPreset preset
-    GridView.SendPC pid pn -> sendPC_ pid pn
+  HandleGrid output -> handleGridOutput output
 
   HandleSideGrid output -> case output of
     GridView.PedalClicked _ -> pure unit
@@ -319,14 +320,32 @@ handleAction = case _ of
     GridView.ValueChanged pid cc val -> handleAction (SetValue pid cc val)
     GridView.MomentarySent pid cc val -> handleAction (SendMomentary pid cc val)
     GridView.InfoChanged pid key val -> handleAction (SetInfo pid key val)
-    GridView.RecallPreset preset -> recallPreset preset
+    GridView.RecallPreset preset -> do
+      recallPreset preset
+      autoEngageIfNeeded preset
     GridView.SendPC pid pn -> sendPC_ pid pn
+    GridView.SavePreset r -> handleSavePreset r
+    GridView.OverwritePreset presetId pedalId -> handleOverwritePreset presetId pedalId
+    GridView.DeletePreset presetId -> handleDeletePreset presetId
+    GridView.AssignSlot presetId pn -> handleAssignSlot presetId pn
+    GridView.ExportPreset preset -> handleExportPreset preset
+    GridView.ImportPresets presets -> handleImportPresets presets
 
   HandleBoards output -> case output of
     BoardsView.RecallBoard bp -> recallBoard bp
     BoardsView.SendEngageAudition pid engState -> sendEngage pid engState
     BoardsView.SendPCAudition pid pn -> sendPC_ pid pn
+    BoardsView.RecallPresetAudition preset -> do
+      recallPreset preset
+      autoEngageIfNeeded preset
+    BoardsView.FocusPedal pid -> H.modify_ _ { boardsActivePedal = Just pid }
     BoardsView.ValueChanged pid cc val -> handleAction (SetValue pid cc val)
+    BoardsView.SaveBoard r -> handleSaveBoard r
+    BoardsView.UpdateBoard presetId r -> handleUpdateBoard presetId r
+    BoardsView.OverwriteBoard presetId pedals -> handleOverwriteBoard presetId pedals
+    BoardsView.DeleteBoard presetId -> handleDeleteBoard presetId
+    BoardsView.ExportBoard bp -> handleExportBoard bp
+    BoardsView.ImportBoards boards -> handleImportBoards boards
 
   HandleLoopy output -> case output of
     LoopyPanel.LoopSelected idx -> sendMomentaryLoopy (Loopy.selectCC (Loopy.LoopIndex idx))
@@ -343,6 +362,165 @@ handleAction = case _ of
         mOut <- liftEffect $ MIDI.openOutput access portId
         H.modify_ _ { connections { loopyOutput = mOut, loopyOutputId = Just portId } }
 
+-- Grid output handler (shared by HandleGrid)
+handleGridOutput :: forall o m. MonadAff m => GridView.Output -> H.HalogenM AppState Action Slots o m Unit
+handleGridOutput = case _ of
+  GridView.PedalClicked pid -> handleAction (SetView (DetailView pid))
+  GridView.PedalFocused pid -> do
+    H.modify_ _ { focusPedalId = Just pid }
+    sendAllLEDs pid
+  GridView.OrderChanged order -> H.modify_ _ { cardOrder = order }
+  GridView.ValueChanged pid cc val -> handleAction (SetValue pid cc val)
+  GridView.MomentarySent pid cc val -> handleAction (SendMomentary pid cc val)
+  GridView.InfoChanged pid key val -> handleAction (SetInfo pid key val)
+  GridView.RecallPreset preset -> recallPreset preset
+  GridView.SendPC pid pn -> sendPC_ pid pn
+  GridView.SavePreset r -> handleSavePreset r
+  GridView.OverwritePreset presetId pedalId -> handleOverwritePreset presetId pedalId
+  GridView.DeletePreset presetId -> handleDeletePreset presetId
+  GridView.AssignSlot presetId pn -> handleAssignSlot presetId pn
+  GridView.ExportPreset preset -> handleExportPreset preset
+  GridView.ImportPresets presets -> handleImportPresets presets
+
+-- Preset CRUD handlers
+
+handleSavePreset :: forall o m. MonadAff m => { pedalId :: PedalId, name :: String, description :: String, notes :: String } -> H.HalogenM AppState Action Slots o m Unit
+handleSavePreset r = do
+  uuid <- liftEffect MIDI.randomUUID
+  now <- liftEffect Storage.nowISO
+  st <- H.get
+  let mPs = Map.lookup r.pedalId st.engine
+      values = case mPs of
+        Just ps -> ps.values
+        Nothing -> Map.empty
+      info = case mPs of
+        Just ps -> ps.info
+        Nothing -> Map.empty
+      preset :: PedalPreset
+      preset =
+        { id: uuid
+        , pedalId: r.pedalId
+        , name: r.name
+        , description: r.description
+        , notes: r.notes
+        , values
+        , info
+        , savedSlot: Nothing
+        , created: now
+        , modified: now
+        }
+  H.modify_ \s -> s { presets = Array.cons preset s.presets }
+  persistPresets
+
+handleOverwritePreset :: forall o m. MonadAff m => PresetId -> PedalId -> H.HalogenM AppState Action Slots o m Unit
+handleOverwritePreset presetId pedalId = do
+  now <- liftEffect Storage.nowISO
+  st <- H.get
+  let mPs = Map.lookup pedalId st.engine
+      values = case mPs of
+        Just ps -> ps.values
+        Nothing -> Map.empty
+      info = case mPs of
+        Just ps -> ps.info
+        Nothing -> Map.empty
+  H.modify_ \s -> s { presets = map (\p ->
+    if p.id == presetId then p { values = values, info = info, modified = now } else p
+  ) s.presets }
+  persistPresets
+
+handleDeletePreset :: forall o m. MonadAff m => PresetId -> H.HalogenM AppState Action Slots o m Unit
+handleDeletePreset presetId = do
+  H.modify_ \s -> s { presets = Array.filter (\p -> p.id /= presetId) s.presets }
+  persistPresets
+
+handleAssignSlot :: forall o m. MonadAff m => PresetId -> ProgramNumber -> H.HalogenM AppState Action Slots o m Unit
+handleAssignSlot presetId pn = do
+  now <- liftEffect Storage.nowISO
+  H.modify_ \s -> s { presets = map (\p ->
+    if p.id == presetId then p { savedSlot = Just pn, modified = now } else p
+  ) s.presets }
+  persistPresets
+
+handleExportPreset :: forall o m. MonadAff m => PedalPreset -> H.HalogenM AppState Action Slots o m Unit
+handleExportPreset preset = do
+  let json = Storage.presetsToJsonString [preset]
+      filename = preset.name <> ".json"
+  liftEffect $ FileIO.downloadJson filename json
+
+handleImportPresets :: forall o m. MonadAff m => Array PedalPreset -> H.HalogenM AppState Action Slots o m Unit
+handleImportPresets imported = do
+  st <- H.get
+  let existingIds = map _.id st.presets
+      newPresets = Array.filter (\p -> not (Array.elem p.id existingIds)) imported
+  H.modify_ \s -> s { presets = newPresets <> s.presets }
+  persistPresets
+
+-- Board CRUD handlers
+
+handleSaveBoard :: forall o m. MonadAff m => { name :: String, notes :: String, pedals :: Map.Map PedalId { presetId :: Maybe String, engage :: EngageState } } -> H.HalogenM AppState Action Slots o m Unit
+handleSaveBoard r = do
+  uuid <- liftEffect MIDI.randomUUID
+  now <- liftEffect Storage.nowISO
+  let bp :: BoardPreset
+      bp =
+        { id: uuid
+        , name: r.name
+        , description: ""
+        , notes: r.notes
+        , pedals: r.pedals
+        , created: now
+        , modified: now
+        }
+  H.modify_ \s -> s { boardPresets = Array.cons bp s.boardPresets }
+  persistBoardPresets
+
+handleUpdateBoard :: forall o m. MonadAff m => PresetId -> { name :: String, notes :: String } -> H.HalogenM AppState Action Slots o m Unit
+handleUpdateBoard presetId r = do
+  now <- liftEffect Storage.nowISO
+  H.modify_ \s -> s { boardPresets = map (\bp ->
+    if bp.id == presetId then bp { name = r.name, notes = r.notes, modified = now } else bp
+  ) s.boardPresets }
+  persistBoardPresets
+
+handleOverwriteBoard :: forall o m. MonadAff m => PresetId -> Map.Map PedalId { presetId :: Maybe String, engage :: EngageState } -> H.HalogenM AppState Action Slots o m Unit
+handleOverwriteBoard presetId pedals = do
+  now <- liftEffect Storage.nowISO
+  H.modify_ \s -> s { boardPresets = map (\bp ->
+    if bp.id == presetId then bp { pedals = pedals, modified = now } else bp
+  ) s.boardPresets }
+  persistBoardPresets
+
+handleDeleteBoard :: forall o m. MonadAff m => PresetId -> H.HalogenM AppState Action Slots o m Unit
+handleDeleteBoard presetId = do
+  H.modify_ \s -> s { boardPresets = Array.filter (\bp -> bp.id /= presetId) s.boardPresets }
+  persistBoardPresets
+
+handleExportBoard :: forall o m. MonadAff m => BoardPreset -> H.HalogenM AppState Action Slots o m Unit
+handleExportBoard bp = do
+  let json = Storage.boardPresetsToJsonString [bp]
+      filename = bp.name <> ".json"
+  liftEffect $ FileIO.downloadJson filename json
+
+handleImportBoards :: forall o m. MonadAff m => Array BoardPreset -> H.HalogenM AppState Action Slots o m Unit
+handleImportBoards imported = do
+  st <- H.get
+  let existingIds = map _.id st.boardPresets
+      newBoards = Array.filter (\bp -> not (Array.elem bp.id existingIds)) imported
+  H.modify_ \s -> s { boardPresets = newBoards <> s.boardPresets }
+  persistBoardPresets
+
+-- Persistence helpers
+
+persistPresets :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
+persistPresets = do
+  st <- H.get
+  liftEffect $ Storage.savePresets (Storage.presetsToJsonString st.presets)
+
+persistBoardPresets :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
+persistBoardPresets = do
+  st <- H.get
+  liftEffect $ Storage.saveBoardPresets (Storage.boardPresetsToJsonString st.boardPresets)
+
 -- Recall helpers
 
 recallPreset :: forall o m. MonadAff m => PedalPreset -> H.HalogenM AppState Action Slots o m Unit
@@ -353,13 +531,20 @@ recallPreset preset = do
       let entries = Map.toUnfoldable preset.values :: Array (Tuple CC MidiValue)
       for_ entries \(Tuple cc val) -> do
         handleAction (SetValue preset.pedalId cc val)
-        H.liftAff (delay (Milliseconds 100.0))
+        H.liftAff (delay (Milliseconds 5.0))
+      -- Restore info values (e.g. dip switches)
+      let infoEntries = Map.toUnfoldable preset.info :: Array (Tuple String Int)
+      for_ infoEntries \(Tuple key val) ->
+        handleAction (SetInfo preset.pedalId key val)
 
 sendPC_ :: forall o m. MonadAff m => PedalId -> ProgramNumber -> H.HalogenM AppState Action Slots o m Unit
 sendPC_ pid pn = do
   st <- H.get
+  liftEffect $ Console.log $ "sendPC: pedal=" <> show pid <> " pc=" <> show (unProgramNumber pn)
+      <> " output=" <> show (map (const "connected") st.connections.pedalOutput)
   for_ st.connections.pedalOutput \output ->
-    for_ (Map.lookup pid st.engine >>= \ps -> makeChannel ps.channel) \ch ->
+    for_ (Map.lookup pid st.engine >>= \ps -> makeChannel ps.channel) \ch -> do
+      liftEffect $ Console.log $ "sendPC: sending ch=" <> show (unChannel ch) <> " pc=" <> show (unProgramNumber pn)
       liftEffect $ MIDI.sendPC output ch pn
 
 recallBoard :: forall o m. MonadAff m => { id :: String, name :: String, description :: String, notes :: String, pedals :: Map.Map PedalId { presetId :: Maybe String, engage :: EngageState }, created :: String, modified :: String } -> H.HalogenM AppState Action Slots o m Unit
@@ -367,12 +552,15 @@ recallBoard board = do
   st <- H.get
   let entries = Map.toUnfoldable board.pedals :: Array (Tuple PedalId { presetId :: Maybe String, engage :: EngageState })
   for_ entries \(Tuple pid entry) -> do
-    -- PC if preset assigned
+    -- Recall preset: PC if saved slot, otherwise stream CCs
     for_ entry.presetId \presetId ->
-      for_ (Array.find (\p -> p.id == presetId) st.presets) \preset ->
-        for_ preset.savedSlot \slot -> sendPC_ pid slot
-    H.liftAff (delay (Milliseconds 200.0))
-    -- Engage CCs
+      for_ (Array.find (\p -> p.id == presetId) st.presets) \preset -> do
+        case preset.savedSlot of
+          Just slot -> sendPC_ pid slot
+          Nothing -> recallPreset preset
+        autoEngageIfNeeded preset
+    H.liftAff (delay (Milliseconds 50.0))
+    -- Engage CCs (explicit board engage state overrides auto-engage)
     sendEngage pid entry.engage
 
 sendEngage :: forall o m. MonadAff m => PedalId -> EngageState -> H.HalogenM AppState Action Slots o m Unit
@@ -393,6 +581,14 @@ sendEngage pid engState = case engState of
       EngageB   -> do handleAction (SetValue pid a.cc (unsafeMidiValue 0))
                       handleAction (SetValue pid b.cc (unsafeMidiValue 127))
       _ -> pure unit
+
+-- Auto-engage: if a preset doesn't contain any engage CCs, send EngageOn
+autoEngageIfNeeded :: forall o m. MonadAff m => PedalPreset -> H.HalogenM AppState Action Slots o m Unit
+autoEngageIfNeeded preset =
+  for_ (Registry.findPedal preset.pedalId) \def ->
+    let ccs = engageCCs def.engage
+    in unless (any (\cc -> Map.member cc preset.values) ccs) do
+         sendEngage preset.pedalId EngageOn
 
 -- Twister message handlers
 

@@ -10,16 +10,19 @@ import Prelude
 import Color (toHexString)
 import Data.Array as Array
 import Data.Const (Const)
+import Data.Foldable (any)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
-import Data.Midi (CC, MidiValue, ProgramNumber, unProgramNumber)
+import Data.Midi (CC, MidiValue, ProgramNumber, unsafeMidiValue, unProgramNumber)
 import Data.Pedal (PedalDef, PedalId)
 import Data.Pedal.Engage (EngageConfig(..), EngageState(..))
 import Data.Preset (BoardPreset, BoardPresetEntry, PedalPreset, PresetId)
 import Data.String.CodeUnits as SCU
 import Data.Tuple (Tuple(..))
+import Effect.Class (liftEffect)
 import Effect.Aff.Class (class MonadAff)
 import Engine (EngineState, MidiConnections)
+import Foreign.FileIO as FileIO
 import Halogen as H
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
@@ -37,7 +40,15 @@ data Output
   = RecallBoard BoardPreset
   | SendEngageAudition PedalId EngageState
   | SendPCAudition PedalId ProgramNumber
+  | RecallPresetAudition PedalPreset
   | ValueChanged PedalId CC MidiValue
+  | SaveBoard { name :: String, notes :: String, pedals :: Map.Map PedalId BoardPresetEntry }
+  | UpdateBoard PresetId { name :: String, notes :: String }
+  | OverwriteBoard PresetId (Map.Map PedalId BoardPresetEntry)
+  | DeleteBoard PresetId
+  | ExportBoard BoardPreset
+  | ImportBoards (Array BoardPreset)
+  | FocusPedal PedalId
 
 type GridEntry =
   { engage :: EngageState
@@ -48,6 +59,12 @@ type State =
   { input :: Input
   , grid :: Map.Map PedalId GridEntry
   , recalling :: Maybe PresetId
+  , showSaveForm :: Boolean
+  , saveName :: String
+  , saveNotes :: String
+  , editingBoard :: Maybe PresetId
+  , editName :: String
+  , editNotes :: String
   }
 
 data Action
@@ -59,6 +76,20 @@ data Action
   | AllNoChange
   | ClickRecallBoard PresetId
   | ClickLoadBoard PresetId
+  -- Board CRUD
+  | ShowBoardSaveForm
+  | CancelBoardSaveForm
+  | UpdateBoardSaveName String
+  | UpdateBoardSaveNotes String
+  | CommitBoardSave
+  | StartEditBoard PresetId
+  | CancelEditBoard
+  | UpdateEditName String
+  | UpdateEditNotes String
+  | CommitEditBoard PresetId
+  | ClickOverwriteBoard PresetId
+  | ClickDeleteBoard PresetId
+  | ClickExportBoard BoardPreset
 
 type Slot = H.Slot (Const Void) Output
 
@@ -78,6 +109,12 @@ initialState i =
   { input: i
   , grid: Map.fromFoldable $ map (\def -> Tuple def.meta.id { engage: EngageNoChange, selectedPresetId: Nothing }) Registry.pedals
   , recalling: Nothing
+  , showSaveForm: false
+  , saveName: ""
+  , saveNotes: ""
+  , editingBoard: Nothing
+  , editName: ""
+  , editNotes: ""
   }
 
 render :: forall m. State -> H.ComponentHTML Action () m
@@ -96,10 +133,40 @@ renderBuilderGrid state =
             [ HH.button [ HE.onClick \_ -> AllOn ] [ HH.text "All On" ]
             , HH.button [ HE.onClick \_ -> AllOff ] [ HH.text "All Off" ]
             , HH.button [ HE.onClick \_ -> AllNoChange ] [ HH.text "All \x2014\x2014" ]
+            , HH.button [ HE.onClick \_ -> ShowBoardSaveForm ] [ HH.text "Save New" ]
             ]
         ]
+    , if state.showSaveForm
+        then renderBoardSaveForm state
+        else HH.text ""
     , HH.div [ HP.class_ (H.ClassName "boards-pedal-grid") ]
         (map (renderPedalRow state) Registry.pedals)
+    ]
+
+renderBoardSaveForm :: forall m. State -> H.ComponentHTML Action () m
+renderBoardSaveForm state =
+  HH.div [ HP.class_ (H.ClassName "preset-save-form") ]
+    [ HH.input
+        [ HP.type_ HP.InputText
+        , HP.placeholder "Board name"
+        , HP.value state.saveName
+        , HE.onValueInput UpdateBoardSaveName
+        ]
+    , HH.textarea
+        [ HP.placeholder "Notes (optional)"
+        , HP.value state.saveNotes
+        , HE.onValueInput UpdateBoardSaveNotes
+        ]
+    , HH.div [ HP.class_ (H.ClassName "preset-form-buttons") ]
+        [ HH.button
+            [ HP.class_ (H.ClassName "save-confirm")
+            , HE.onClick \_ -> CommitBoardSave
+            ]
+            [ HH.text "Save to Library" ]
+        , HH.button
+            [ HE.onClick \_ -> CancelBoardSaveForm ]
+            [ HH.text "Cancel" ]
+        ]
     ]
 
 renderPedalRow :: forall m. State -> PedalDef -> H.ComponentHTML Action () m
@@ -113,7 +180,7 @@ renderPedalRow state def =
         ]
         [ HH.text def.meta.name ]
     , renderEngageSelect def.meta.id def.engage currentEntry.engage
-    , renderPresetSelect def.meta.id currentEntry.selectedPresetId pedalPresets
+    , renderPresetSelect def.meta.id currentEntry.selectedPresetId pedalPresets state.input.engine
     ]
   where
   currentEntry = fromMaybe { engage: EngageNoChange, selectedPresetId: Nothing }
@@ -160,8 +227,8 @@ valueToEngage = case _ of
   "b" -> EngageB
   _ -> EngageNoChange
 
-renderPresetSelect :: forall m. PedalId -> Maybe PresetId -> Array PedalPreset -> H.ComponentHTML Action () m
-renderPresetSelect pid selectedId presets =
+renderPresetSelect :: forall m. PedalId -> Maybe PresetId -> Array PedalPreset -> EngineState -> H.ComponentHTML Action () m
+renderPresetSelect pid selectedId presets engine =
   HH.select
     [ HP.class_ (H.ClassName "boards-preset-select")
     , HP.value (fromMaybe "" selectedId)
@@ -175,7 +242,9 @@ renderPresetSelect pid selectedId presets =
     let slotLabel = case p.savedSlot of
           Just slot -> " [" <> show (unProgramNumber slot) <> "]"
           Nothing -> " [LIB]"
-    in HH.option [ HP.value p.id ] [ HH.text (p.name <> slotLabel) ]
+        modified = selectedId == Just p.id && isPresetModified engine p
+        prefix = if modified then "* " else ""
+    in HH.option [ HP.value p.id ] [ HH.text (prefix <> p.name <> slotLabel) ]
 
 renderBoardList :: forall m. State -> H.ComponentHTML Action () m
 renderBoardList state =
@@ -190,6 +259,14 @@ renderBoardList state =
 renderBoardItem :: forall m. State -> BoardPreset -> H.ComponentHTML Action () m
 renderBoardItem state bp =
   HH.div [ HP.class_ (H.ClassName "boards-item") ]
+    [ case state.editingBoard of
+        Just eid | eid == bp.id -> renderEditForm state bp
+        _ -> renderBoardItemNormal state bp
+    ]
+
+renderBoardItemNormal :: forall m. State -> BoardPreset -> H.ComponentHTML Action () m
+renderBoardItemNormal state bp =
+  HH.div_
     [ HH.div [ HP.class_ (H.ClassName "boards-item-header") ]
         [ HH.span [ HP.class_ (H.ClassName "boards-item-name") ] [ HH.text bp.name ]
         , HH.span [ HP.class_ (H.ClassName "boards-item-date") ] [ HH.text (SCU.take 10 bp.modified) ]
@@ -208,6 +285,46 @@ renderBoardItem state bp =
         , HH.button
             [ HE.onClick \_ -> ClickLoadBoard bp.id ]
             [ HH.text "Load" ]
+        , HH.button
+            [ HE.onClick \_ -> StartEditBoard bp.id ]
+            [ HH.text "Edit" ]
+        , HH.button
+            [ HE.onClick \_ -> ClickOverwriteBoard bp.id ]
+            [ HH.text "Overwrite" ]
+        , HH.button
+            [ HE.onClick \_ -> ClickExportBoard bp ]
+            [ HH.text "Export" ]
+        , HH.button
+            [ HP.class_ (H.ClassName "delete-btn")
+            , HE.onClick \_ -> ClickDeleteBoard bp.id
+            ]
+            [ HH.text "Delete" ]
+        ]
+    ]
+
+renderEditForm :: forall m. State -> BoardPreset -> H.ComponentHTML Action () m
+renderEditForm state bp =
+  HH.div [ HP.class_ (H.ClassName "preset-save-form") ]
+    [ HH.input
+        [ HP.type_ HP.InputText
+        , HP.placeholder "Board name"
+        , HP.value state.editName
+        , HE.onValueInput UpdateEditName
+        ]
+    , HH.textarea
+        [ HP.placeholder "Notes (optional)"
+        , HP.value state.editNotes
+        , HE.onValueInput UpdateEditNotes
+        ]
+    , HH.div [ HP.class_ (H.ClassName "preset-form-buttons") ]
+        [ HH.button
+            [ HP.class_ (H.ClassName "save-confirm")
+            , HE.onClick \_ -> CommitEditBoard bp.id
+            ]
+            [ HH.text "Save" ]
+        , HH.button
+            [ HE.onClick \_ -> CancelEditBoard ]
+            [ HH.text "Cancel" ]
         ]
     ]
 
@@ -233,9 +350,46 @@ boardSummary bp allPresets =
             Nothing -> ""
       Just (def.meta.name <> presetLabel)
 
+-- Build BoardPresetEntry map from current grid state
+captureGrid :: Map.Map PedalId GridEntry -> Map.Map PedalId BoardPresetEntry
+captureGrid grid =
+  map (\entry -> { presetId: entry.selectedPresetId, engage: entry.engage }) grid
+
+-- | Infer engage state from engine CC values for a pedal
+inferEngageState :: PedalDef -> Map.Map CC MidiValue -> EngageState
+inferEngageState def vals = case def.engage of
+  SingleEngage cc ->
+    if Map.lookup cc vals > Just (unsafeMidiValue 63) then EngageOn else EngageOff
+  DualEngage { a, b } ->
+    let aOn = Map.lookup a.cc vals > Just (unsafeMidiValue 63)
+        bOn = Map.lookup b.cc vals > Just (unsafeMidiValue 63)
+    in case aOn, bOn of
+         true, true   -> EngageOn
+         true, false  -> EngageA
+         false, true  -> EngageB
+         false, false -> EngageOff
+
+-- | Check if engine state has diverged from a preset's stored values
+isPresetModified :: EngineState -> PedalPreset -> Boolean
+isPresetModified engine preset =
+  case Map.lookup preset.pedalId engine of
+    Nothing -> false
+    Just ps ->
+      let presetEntries = Map.toUnfoldable preset.values :: Array (Tuple CC MidiValue)
+      in any (\(Tuple cc val) -> Map.lookup cc ps.values /= Just val) presetEntries
+
 handleAction :: forall m. MonadAff m => Action -> H.HalogenM State Action () Output m Unit
 handleAction = case _ of
-  Receive input -> H.modify_ _ { input = input }
+  Receive input -> do
+    st <- H.get
+    -- Sync engage state from engine for each pedal
+    let updatedGrid = Array.foldl (\g def ->
+          let pid = def.meta.id
+          in case Map.lookup pid input.engine of
+               Nothing -> g
+               Just ps -> Map.update (\e -> Just e { engage = inferEngageState def ps.values }) pid g
+          ) st.grid Registry.pedals
+    H.modify_ _ { input = input, grid = updatedGrid }
 
   ChangeEngage pid valStr -> do
     let eng = valueToEngage valStr
@@ -245,15 +399,17 @@ handleAction = case _ of
   ChangePreset pid valStr -> do
     let mPresetId = if valStr == "" then Nothing else Just valStr
     H.modify_ \st -> st { grid = Map.update (\e -> Just e { selectedPresetId = mPresetId }) pid st.grid }
-    -- Live audition: send PC if preset has a saved slot
+    -- Live audition: send PC if preset has a saved slot, otherwise stream CCs
     case mPresetId of
       Nothing -> pure unit
       Just presetId -> do
         st <- H.get
         case Array.find (\p -> p.id == presetId) st.input.presets of
-          Just preset -> case preset.savedSlot of
-            Just slot -> H.raise (SendPCAudition pid slot)
-            Nothing -> pure unit
+          Just preset -> do
+            case preset.savedSlot of
+              Just slot -> H.raise (SendPCAudition pid slot)
+              Nothing -> H.raise (RecallPresetAudition preset)
+            H.raise (FocusPedal pid)
           Nothing -> pure unit
 
   AllOn ->
@@ -288,3 +444,46 @@ handleAction = case _ of
               Tuple pid { engage: entry.engage, selectedPresetId: entry.presetId }
             ) entries
         H.modify_ \s -> s { grid = Map.union newGrid s.grid }
+
+  -- Board save form
+  ShowBoardSaveForm ->
+    H.modify_ _ { showSaveForm = true, saveName = "", saveNotes = "" }
+  CancelBoardSaveForm ->
+    H.modify_ _ { showSaveForm = false }
+  UpdateBoardSaveName s -> H.modify_ _ { saveName = s }
+  UpdateBoardSaveNotes s -> H.modify_ _ { saveNotes = s }
+  CommitBoardSave -> do
+    st <- H.get
+    when (st.saveName /= "") do
+      H.raise (SaveBoard { name: st.saveName, notes: st.saveNotes, pedals: captureGrid st.grid })
+      H.modify_ _ { showSaveForm = false }
+
+  -- Edit board
+  StartEditBoard presetId -> do
+    st <- H.get
+    case Array.find (\bp -> bp.id == presetId) st.input.boardPresets of
+      Nothing -> pure unit
+      Just bp ->
+        H.modify_ _ { editingBoard = Just presetId, editName = bp.name, editNotes = bp.notes }
+  CancelEditBoard ->
+    H.modify_ _ { editingBoard = Nothing }
+  UpdateEditName s -> H.modify_ _ { editName = s }
+  UpdateEditNotes s -> H.modify_ _ { editNotes = s }
+  CommitEditBoard presetId -> do
+    st <- H.get
+    when (st.editName /= "") do
+      H.raise (UpdateBoard presetId { name: st.editName, notes: st.editNotes })
+      H.modify_ _ { editingBoard = Nothing }
+
+  -- Overwrite / Delete / Export
+  ClickOverwriteBoard presetId -> do
+    ok <- liftEffect $ FileIO.confirm "Overwrite this board with current grid state?"
+    when ok do
+      st <- H.get
+      H.raise (OverwriteBoard presetId (captureGrid st.grid))
+
+  ClickDeleteBoard presetId -> do
+    ok <- liftEffect $ FileIO.confirm "Delete this board?"
+    when ok $ H.raise (DeleteBoard presetId)
+
+  ClickExportBoard bp -> H.raise (ExportBoard bp)

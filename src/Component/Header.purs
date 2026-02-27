@@ -111,11 +111,13 @@ render state =
       [ HH.text (shortName def.meta.name) ]
 
   midiPicker label selectedId ports onChange =
-    HH.div [ HP.class_ (H.ClassName "midi-picker") ]
+    let disconnected = selectedId == Nothing
+        cls = "midi-picker" <> if disconnected then " disconnected" else ""
+    in HH.div [ HP.class_ (H.ClassName cls) ]
       [ HH.label_ [ HH.text label ]
       , HH.select
           [ HE.onValueChange onChange ]
-          ( [ HH.option [ HP.value "" ] [ HH.text "No output" ] ]
+          ( [ HH.option [ HP.value "" ] [ HH.text "—" ] ]
             <> map portOption ports
           )
       ]

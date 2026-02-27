@@ -20,6 +20,7 @@ type PedalPreset =
   , description :: String
   , notes :: String
   , values :: Map CC MidiValue
+  , info :: Map String Int
   , savedSlot :: Maybe ProgramNumber
   , created :: String
   , modified :: String

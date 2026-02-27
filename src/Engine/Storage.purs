@@ -224,6 +224,9 @@ parsePreset json = do
   notes <- Json.toString notesJson
   valuesJson <- FO.lookup "values" obj
   values <- parseValues valuesJson
+  let info = case FO.lookup "info" obj of
+        Just iJson -> fromMaybe Map.empty (parseInfo iJson)
+        Nothing -> Map.empty
   let savedSlot = do
         slotJson <- FO.lookup "savedSlot" obj
         numVal <- Json.toNumber slotJson
@@ -233,7 +236,7 @@ parsePreset json = do
   created <- Json.toString createdJson
   modifiedJson <- FO.lookup "modified" obj
   modified <- Json.toString modifiedJson
-  pure { id, pedalId, name, description, notes, values, savedSlot, created, modified }
+  pure { id, pedalId, name, description, notes, values, info, savedSlot, created, modified }
 
 parseBoardPresets :: String -> Maybe (Array BoardPreset)
 parseBoardPresets str = do
@@ -342,6 +345,7 @@ presetToJson p =
     , Tuple "description" (Json.fromString p.description)
     , Tuple "notes" (Json.fromString p.notes)
     , Tuple "values" (valuesToJson p.values)
+    , Tuple "info" (infoToJson p.info)
     , Tuple "created" (Json.fromString p.created)
     , Tuple "modified" (Json.fromString p.modified)
     ] <> case p.savedSlot of
