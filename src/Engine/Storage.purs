@@ -178,8 +178,14 @@ parseValues json = do
   parseValueEntry (Tuple key valJson) = do
     ccInt <- Int.fromString key
     cc <- makeCC ccInt
-    numVal <- Json.toNumber valJson
-    intVal <- Int.fromNumber numVal
+    -- Support both plain number ("14": 64) and readable object ("14": { "value": 64, "label": "Mix" })
+    intVal <- case Json.toNumber valJson of
+      Just numVal -> Int.fromNumber numVal
+      Nothing -> do
+        obj <- Json.toObject valJson
+        vJson <- FO.lookup "value" obj
+        numVal <- Json.toNumber vJson
+        Int.fromNumber numVal
     mv <- makeMidiValue intVal
     pure (Tuple cc mv)
 
@@ -213,21 +219,25 @@ parsePreset json = do
   obj <- Json.toObject json
   idJson <- FO.lookup "id" obj
   id <- Json.toString idJson
-  pedalIdJson <- FO.lookup "pedalId" obj
-  pedalId <- PedalId <$> Json.toString pedalIdJson
+  -- Support both "pedalId" (internal) and "pedal" (readable format)
+  pedalId <- PedalId <$> case FO.lookup "pedalId" obj of
+    Just pj -> Json.toString pj
+    Nothing -> FO.lookup "pedal" obj >>= Json.toString
   nameJson <- FO.lookup "name" obj
   name <- Json.toString nameJson
   descJson <- FO.lookup "description" obj
   description <- Json.toString descJson
-  notesJson <- FO.lookup "notes" obj
-  notes <- Json.toString notesJson
+  let notes = fromMaybe "" (FO.lookup "notes" obj >>= Json.toString)
   valuesJson <- FO.lookup "values" obj
   values <- parseValues valuesJson
   let info = case FO.lookup "info" obj of
         Just iJson -> fromMaybe Map.empty (parseInfo iJson)
         Nothing -> Map.empty
+  -- Support both "savedSlot" (internal) and "slot" (readable format)
   let savedSlot = do
-        slotJson <- FO.lookup "savedSlot" obj
+        slotJson <- case FO.lookup "savedSlot" obj of
+          Just sj -> Just sj
+          Nothing -> FO.lookup "slot" obj
         numVal <- Json.toNumber slotJson
         intVal <- Int.fromNumber numVal
         makeProgramNumber intVal
@@ -280,9 +290,10 @@ parseBoardPresetEntry json = do
   engageJson <- FO.lookup "engage" obj
   engageStr <- Json.toString engageJson
   engage <- parseEngageState engageStr
-  let presetId = do
-        pidJson <- FO.lookup "presetId" obj
-        Json.toString pidJson
+  -- Support both "presetId" (internal) and "preset" (readable format)
+  let presetId = case FO.lookup "presetId" obj of
+        Just pidJson -> Json.toString pidJson
+        Nothing -> FO.lookup "preset" obj >>= Json.toString
   pure { presetId, engage }
 
 parseEngageState :: String -> Maybe EngageState

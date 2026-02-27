@@ -51,6 +51,7 @@ data Output
   | ExportBoard BoardPreset
   | ImportBoards (Array BoardPreset)
   | FocusPedal PedalId
+  | SendEngageAll EngageState
 
 type GridEntry =
   { engage :: EngageState
@@ -415,10 +416,10 @@ handleAction = case _ of
           Nothing -> pure unit
 
   AllOn ->
-    H.modify_ \st -> st { grid = map (\e -> e { engage = EngageOn }) st.grid }
+    H.raise (SendEngageAll EngageOn)
 
   AllOff ->
-    H.modify_ \st -> st { grid = map (\e -> e { engage = EngageOff }) st.grid }
+    H.raise (SendEngageAll EngageOff)
 
   AllNoChange ->
     H.modify_ \st -> st { grid = map (\e -> e { engage = EngageNoChange, selectedPresetId = Nothing }) st.grid }

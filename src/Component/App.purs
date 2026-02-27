@@ -27,12 +27,14 @@ import Effect.Console as Console
 import Config.Decode as Decode
 import Data.Either (Either(..))
 import Engine (AppState, View(..), initAppState, initEngineFromPedals)
+import Config.Preset as CPreset
 import Engine.Storage as Storage
 import Engine.Twister as Twister
 import Foreign.FileIO as FileIO
 import Foreign.WebMIDI as MIDI
 import Halogen as H
 import Halogen.HTML as HH
+import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Halogen.Subscription as HS
 import Config.Registry as CRegistry
@@ -59,6 +61,10 @@ data Action
   | HandleSideGrid GridView.Output
   | HandleLoopy LoopyPanel.Output
   | SelectLoopyOutput String
+  | ExportAllPresetsAction
+  | ExportAllBoardsAction
+  | ImportPresetsFromFileAction
+  | ImportBoardsFromFileAction
 
 type Slots =
   ( header :: Header.Slot Unit
@@ -119,6 +125,7 @@ render state = case state.configError of
             , registry: state.registry
             }
             HandleDetail
+        FilesView -> renderFilesView
         BoardsView -> HH.text ""
     -- Boards always rendered for state persistence
     , HH.div
@@ -157,6 +164,41 @@ render state = case state.configError of
               ]
           ]
         )
+    ]
+
+renderFilesView :: forall m. MonadAff m => H.ComponentHTML Action Slots m
+renderFilesView =
+  HH.div [ HP.class_ (H.ClassName "files-view") ]
+    [ HH.p [ HP.class_ (H.ClassName "files-description") ]
+        [ HH.text "Your presets are stored in this browser's local storage and will persist as long as the app is served from the same location. To back up your presets, share them, or edit them by hand, you can export to a JSON file and import it later." ]
+    , HH.div [ HP.class_ (H.ClassName "files-actions") ]
+        [ HH.div [ HP.class_ (H.ClassName "files-group") ]
+            [ HH.h3_ [ HH.text "Pedal Presets" ]
+            , HH.button
+                [ HP.class_ (H.ClassName "files-btn")
+                , HE.onClick \_ -> ExportAllPresetsAction
+                ]
+                [ HH.text "Export All Presets" ]
+            , HH.button
+                [ HP.class_ (H.ClassName "files-btn")
+                , HE.onClick \_ -> ImportPresetsFromFileAction
+                ]
+                [ HH.text "Import Presets" ]
+            ]
+        , HH.div [ HP.class_ (H.ClassName "files-group") ]
+            [ HH.h3_ [ HH.text "Board Presets" ]
+            , HH.button
+                [ HP.class_ (H.ClassName "files-btn")
+                , HE.onClick \_ -> ExportAllBoardsAction
+                ]
+                [ HH.text "Export All Boards" ]
+            , HH.button
+                [ HP.class_ (H.ClassName "files-btn")
+                , HE.onClick \_ -> ImportBoardsFromFileAction
+                ]
+                [ HH.text "Import Boards" ]
+            ]
+        ]
     ]
 
 handleAction :: forall o m. MonadAff m => Action -> H.HalogenM AppState Action Slots o m Unit
@@ -367,6 +409,10 @@ handleAction = case _ of
       recallPreset preset
       autoEngageIfNeeded preset
     BoardsView.FocusPedal pid -> H.modify_ _ { boardsActivePedal = Just pid }
+    BoardsView.SendEngageAll engState -> do
+      st <- H.get
+      for_ st.cardOrder \pid ->
+        sendEngage pid engState
     BoardsView.ValueChanged pid cc val -> handleAction (SetValue pid cc val)
     BoardsView.SaveBoard r -> handleSaveBoard r
     BoardsView.UpdateBoard presetId r -> handleUpdateBoard presetId r
@@ -381,6 +427,11 @@ handleAction = case _ of
       case Array.find (\a -> a.action == action) Loopy.actions of
         Just def -> sendMomentaryLoopy def.cc
         Nothing -> pure unit
+
+  ExportAllPresetsAction -> handleExportAllPresets
+  ExportAllBoardsAction -> handleExportAllBoards
+  ImportPresetsFromFileAction -> handleImportPresetsFromFile
+  ImportBoardsFromFileAction -> handleImportBoardsFromFile
 
   SelectLoopyOutput portId -> do
     st <- H.get
@@ -471,7 +522,8 @@ handleAssignSlot presetId pn = do
 
 handleExportPreset :: forall o m. MonadAff m => PedalPreset -> H.HalogenM AppState Action Slots o m Unit
 handleExportPreset preset = do
-  let json = Storage.presetsToJsonString [preset]
+  st <- H.get
+  let json = CPreset.presetsToReadableJsonString st.registry [preset]
       filename = preset.name <> ".json"
   liftEffect $ FileIO.downloadJson filename json
 
@@ -525,7 +577,8 @@ handleDeleteBoard presetId = do
 
 handleExportBoard :: forall o m. MonadAff m => BoardPreset -> H.HalogenM AppState Action Slots o m Unit
 handleExportBoard bp = do
-  let json = Storage.boardPresetsToJsonString [bp]
+  st <- H.get
+  let json = CPreset.boardPresetsToReadableJsonString st.presets [bp]
       filename = bp.name <> ".json"
   liftEffect $ FileIO.downloadJson filename json
 
@@ -536,6 +589,34 @@ handleImportBoards imported = do
       newBoards = Array.filter (\bp -> not (Array.elem bp.id existingIds)) imported
   H.modify_ \s -> s { boardPresets = newBoards <> s.boardPresets }
   persistBoardPresets
+
+-- Export All / Import from File handlers
+
+handleExportAllPresets :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
+handleExportAllPresets = do
+  st <- H.get
+  let json = CPreset.presetsToReadableJsonString st.registry st.presets
+  liftEffect $ FileIO.downloadJson "presets-export.json" json
+
+handleExportAllBoards :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
+handleExportAllBoards = do
+  st <- H.get
+  let json = CPreset.boardPresetsToReadableJsonString st.presets st.boardPresets
+  liftEffect $ FileIO.downloadJson "boards-export.json" json
+
+handleImportPresetsFromFile :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
+handleImportPresetsFromFile = do
+  text <- H.liftAff $ FileIO.readFileAsText ".json"
+  case Storage.parsePresets text of
+    Nothing -> liftEffect $ Console.log "Import failed: could not parse presets JSON"
+    Just imported -> handleImportPresets imported
+
+handleImportBoardsFromFile :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
+handleImportBoardsFromFile = do
+  text <- H.liftAff $ FileIO.readFileAsText ".json"
+  case Storage.parseBoardPresets text of
+    Nothing -> liftEffect $ Console.log "Import failed: could not parse board presets JSON"
+    Just imported -> handleImportBoards imported
 
 -- Persistence helpers
 

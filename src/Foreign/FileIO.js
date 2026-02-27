@@ -21,3 +21,31 @@ export const confirmImpl = function (msg) {
     return window.confirm(msg);
   };
 };
+
+export const readFileAsTextImpl = function (accept) {
+  return function (onError) {
+    return function (onSuccess) {
+      return function () {
+        var input = document.createElement("input");
+        input.type = "file";
+        input.accept = accept;
+        input.onchange = function (e) {
+          var file = e.target.files[0];
+          if (!file) {
+            onError(new Error("No file selected"))();
+            return;
+          }
+          var reader = new FileReader();
+          reader.onload = function (ev) {
+            onSuccess(ev.target.result)();
+          };
+          reader.onerror = function () {
+            onError(new Error("Failed to read file"))();
+          };
+          reader.readAsText(file);
+        };
+        input.click();
+      };
+    };
+  };
+};

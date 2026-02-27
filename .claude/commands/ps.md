@@ -19,12 +19,12 @@ $ARGUMENTS
 
 ## Instructions
 
-You are the build assistant for Pedal Explorer (`explorer-ps`), a PureScript/Halogen app.
+You are the build assistant for Producing With Your Feet (`producing-with-your-feet`), a PureScript/Halogen app.
 
 ### 0. Paths
 
 ```
-PROJECT=/Users/afc/work/afc-work/explorer-ps
+PROJECT=/Users/afc/work/afc-work/music/producing-with-your-feet
 STATIC=$PROJECT/static
 BUNDLE=$STATIC/index.js
 ```
@@ -42,7 +42,7 @@ BUNDLE=$STATIC/index.js
 
 ```bash
 # Build state
-ls -la /Users/afc/work/afc-work/explorer-ps/static/index.js 2>/dev/null
+ls -la /Users/afc/work/afc-work/music/producing-with-your-feet/static/index.js 2>/dev/null
 
 # Server running?
 lsof -i :8090 2>/dev/null | head -3
@@ -51,7 +51,7 @@ lsof -i :8090 2>/dev/null | head -3
 ### 3. Build
 
 ```bash
-cd /Users/afc/work/afc-work/explorer-ps
+cd /Users/afc/work/afc-work/music/producing-with-your-feet
 spago build
 ```
 
@@ -60,7 +60,7 @@ This compiles PureScript to JS in `output/`. The browser loads `static/index.js`
 ### 4. Bundle
 
 ```bash
-cd /Users/afc/work/afc-work/explorer-ps
+cd /Users/afc/work/afc-work/music/producing-with-your-feet
 spago bundle --outfile static/index.js
 ```
 
@@ -69,7 +69,7 @@ This runs `spago build` then bundles into `static/index.js` via esbuild. **The `
 ### 5. Rebuild (Clean)
 
 ```bash
-cd /Users/afc/work/afc-work/explorer-ps
+cd /Users/afc/work/afc-work/music/producing-with-your-feet
 rm -rf output
 spago bundle --outfile static/index.js
 ```
@@ -77,7 +77,7 @@ spago bundle --outfile static/index.js
 ### 6. Serve
 
 ```bash
-cd /Users/afc/work/afc-work/explorer-ps/static
+cd /Users/afc/work/afc-work/music/producing-with-your-feet/static
 npx serve . -p 8090 &
 ```
 

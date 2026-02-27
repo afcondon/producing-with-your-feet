@@ -34,7 +34,7 @@ type PedalState =
 
 type EngineState = Map PedalId PedalState
 
-data View = GridView | DetailView PedalId | BoardsView
+data View = GridView | DetailView PedalId | BoardsView | FilesView
 
 derive instance Eq View
 

@@ -68,6 +68,7 @@ render state =
     [ HH.div [ HP.class_ (H.ClassName "view-toggle") ]
         [ viewButton "Grid" GridView
         , viewButton "Boards" BoardsView
+        , viewButton "\x21C5" FilesView
         ]
     , HH.div [ HP.class_ (H.ClassName "pedal-pills") ]
         (Array.mapMaybe renderPill state.cardOrder)
@@ -88,6 +89,7 @@ render state =
   isActive = case _, state.view of
     GridView, GridView -> true
     BoardsView, BoardsView -> true
+    FilesView, FilesView -> true
     DetailView _, DetailView _ -> true
     _, _ -> false
 
