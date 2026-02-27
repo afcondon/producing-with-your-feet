@@ -21,26 +21,31 @@ type Slot = H.Slot (Const Void) Output
 
 type Input =
   { connections :: MidiConnections
+  , loopyTwisterActive :: Boolean
+  , selectedLoop :: Int
   }
 
 data Output
   = LoopSelected Int
   | ActionFired Loopy.LoopyAction
+  | TwisterModeToggled
+  | GenerateProject
 
 type State =
   { input :: Input
-  , selectedLoop :: Int
   }
 
 data Action
   = Receive Input
   | ClickLoop Int
   | ClickAction Loopy.LoopyAction
+  | ClickTitle
+  | ClickGenerate
 
 component :: forall q m. MonadAff m => H.Component q Input Output m
 component =
   H.mkComponent
-    { initialState: \i -> { input: i, selectedLoop: 0 }
+    { initialState: \i -> { input: i }
     , render
     , eval: H.mkEval H.defaultEval
         { handleAction = handleAction
@@ -51,14 +56,27 @@ component =
 render :: forall m. State -> H.ComponentHTML Action () m
 render state =
   HH.div [ HP.class_ (H.ClassName "loopy-panel") ]
-    [ HH.div [ HP.class_ (H.ClassName "loopy-header") ]
-        [ HH.span [ HP.class_ (H.ClassName "loopy-title") ] [ HH.text "LoopyPro" ] ]
+    [ HH.div
+        [ HP.class_ (H.ClassName titleClass)
+        , HE.onClick \_ -> ClickTitle
+        ]
+        [ HH.span_ [ HH.text titleText ] ]
     , HH.div [ HP.class_ (H.ClassName "loopy-grid") ]
         (map renderGroup Loopy.groups)
     , HH.div [ HP.class_ (H.ClassName "loopy-actions") ]
         (map renderAction Loopy.actions)
+    , HH.div [ HP.class_ (H.ClassName "loopy-generate") ]
+        [ HH.button
+            [ HP.class_ (H.ClassName "loopy-action-btn loopy-generate-btn")
+            , HE.onClick \_ -> ClickGenerate
+            ]
+            [ HH.text "Generate .lpproj" ]
+        ]
     ]
   where
+  titleClass = "loopy-header" <> if state.input.loopyTwisterActive then " twister-active" else ""
+  titleText = if state.input.loopyTwisterActive then "LoopyPro \x25C9" else "LoopyPro"
+
   renderGroup group =
     HH.div [ HP.class_ (H.ClassName "loopy-group") ]
       [ loopButton group.loopA group.color "A"
@@ -68,7 +86,7 @@ render state =
       ]
 
   loopButton (Loopy.LoopIndex idx) color label =
-    let isSelected = state.selectedLoop == idx
+    let isSelected = state.input.selectedLoop == idx
         style = "border-color: " <> color.color
                 <> if isSelected
                      then "; background: " <> color.color <> "; color: #fff"
@@ -90,7 +108,7 @@ render state =
 handleAction :: forall m. MonadAff m => Action -> H.HalogenM State Action () Output m Unit
 handleAction = case _ of
   Receive input -> H.modify_ _ { input = input }
-  ClickLoop idx -> do
-    H.modify_ _ { selectedLoop = idx }
-    H.raise (LoopSelected idx)
+  ClickLoop idx -> H.raise (LoopSelected idx)
   ClickAction action -> H.raise (ActionFired action)
+  ClickTitle -> H.raise TwisterModeToggled
+  ClickGenerate -> H.raise GenerateProject

@@ -31,6 +31,7 @@ import Config.Preset as CPreset
 import Engine.Storage as Storage
 import Engine.Twister as Twister
 import Foreign.FileIO as FileIO
+import Foreign.LoopyProject as LoopyProject
 import Foreign.WebMIDI as MIDI
 import Halogen as H
 import Halogen.HTML as HH
@@ -155,6 +156,8 @@ render state = case state.configError of
           , HH.div [ HP.class_ (H.ClassName "right-panels") ]
               [ HH.slot (Proxy :: _ "loopy") unit LoopyPanel.component
                   { connections: state.connections
+                  , loopyTwisterActive: state.loopyTwisterActive
+                  , selectedLoop: state.loopySelectedLoop
                   }
                   HandleLoopy
               , HH.div [ HP.class_ (H.ClassName "mc6-panel") ]
@@ -342,14 +345,20 @@ handleAction = case _ of
               MIDI.onMessage input \bytes ->
                 emit (TwisterMidiReceived bytes)
 
-  TwisterMidiReceived bytes ->
+  TwisterMidiReceived bytes -> do
+    st <- H.get
+    when st.loopyTwisterActive $
+      liftEffect $ Console.log $ "Twister (loopy mode): " <> show bytes
     case parseTwisterMsg bytes of
       Nothing -> pure unit
-      Just msg -> case msg of
-        EncoderTurn idx val -> handleEncoderTurn idx val
-        EncoderPress idx -> handleEncoderPress idx
-        EncoderRelease _ -> pure unit
-        SideButton btn -> handleTwisterSideButton btn
+      Just msg -> do
+        if st.loopyTwisterActive
+          then handleLoopyTwisterMsg msg
+          else case msg of
+            EncoderTurn idx val -> handleEncoderTurn idx val
+            EncoderPress idx -> handleEncoderPress idx
+            EncoderRelease _ -> pure unit
+            SideButton btn -> handleTwisterSideButton btn
 
   HandleHeader output -> case output of
     Header.ViewChanged view -> handleAction (SetView view)
@@ -422,11 +431,27 @@ handleAction = case _ of
     BoardsView.ImportBoards boards -> handleImportBoards boards
 
   HandleLoopy output -> case output of
-    LoopyPanel.LoopSelected idx -> sendMomentaryLoopy (Loopy.selectCC (Loopy.LoopIndex idx))
+    LoopyPanel.LoopSelected idx -> do
+      sendMomentaryLoopy (Loopy.selectCC (Loopy.LoopIndex idx))
+      H.modify_ _ { loopySelectedLoop = idx }
     LoopyPanel.ActionFired action ->
       case Array.find (\a -> a.action == action) Loopy.actions of
         Just def -> sendMomentaryLoopy def.cc
         Nothing -> pure unit
+    LoopyPanel.GenerateProject -> do
+      liftEffect $ Console.log "Generating LoopyPro project..."
+      H.liftAff $ LoopyProject.generateAndDownload "Explorer Template"
+      liftEffect $ Console.log "LoopyPro project generated."
+    LoopyPanel.TwisterModeToggled -> do
+      st <- H.get
+      let newActive = not st.loopyTwisterActive
+      liftEffect $ Console.log $ "Loopy Twister mode: " <> show newActive
+      H.modify_ _ { loopyTwisterActive = newActive }
+      if newActive
+        then sendLoopyLEDs
+        else case st.focusPedalId of
+          Just pid -> sendAllLEDs pid
+          Nothing -> dimAllLEDs
 
   ExportAllPresetsAction -> handleExportAllPresets
   ExportAllBoardsAction -> handleExportAllBoards
@@ -745,14 +770,18 @@ handleTwisterSideButton btn = do
   st <- H.get
   case btn of
     RefreshLEDs ->
-      for_ st.focusPedalId sendAllLEDs
+      if st.loopyTwisterActive
+        then sendLoopyLEDs
+        else for_ st.focusPedalId sendAllLEDs
     PrevPedal -> do
+      H.modify_ _ { loopyTwisterActive = false }
       let newFocus = Twister.handleSideButtonPrev st.focusPedalId st.cardOrder
       H.modify_ _ { focusPedalId = newFocus }
       case newFocus of
         Nothing -> dimAllLEDs
         Just pid -> sendAllLEDs pid
     NextPedal -> do
+      H.modify_ _ { loopyTwisterActive = false }
       let newFocus = Twister.handleSideButton st.focusPedalId st.cardOrder
       H.modify_ _ { focusPedalId = newFocus }
       case newFocus of
@@ -795,8 +824,76 @@ dimAllLEDs = for_ (Array.range 0 15) \i -> do
 sendMomentaryLoopy :: forall o m. MonadAff m => CC -> H.HalogenM AppState Action Slots o m Unit
 sendMomentaryLoopy ccNum = do
   st <- H.get
+  liftEffect $ Console.log $ "sendMomentaryLoopy: CC " <> show (unCC ccNum) <> " output=" <> show (map (const "connected") st.connections.loopyOutput)
   for_ st.connections.loopyOutput \output ->
     for_ (makeChannel 16) \ch -> do
       liftEffect $ MIDI.sendCC output ch ccNum (unsafeMidiValue 127)
       H.liftAff (delay (Milliseconds 50.0))
       liftEffect $ MIDI.sendCC output ch ccNum (unsafeMidiValue 0)
+
+-- | Send a sustained CC to LoopyPro (channel 16)
+sendLoopyCC :: forall o m. MonadAff m => CC -> Int -> H.HalogenM AppState Action Slots o m Unit
+sendLoopyCC ccNum val = do
+  st <- H.get
+  for_ st.connections.loopyOutput \output ->
+    for_ (makeChannel 16) \ch -> do
+      liftEffect $ Console.log $ "sendLoopyCC: CC " <> show (unCC ccNum) <> " val=" <> show val
+      liftEffect $ MIDI.sendCC output ch ccNum (unsafeMidiValue val)
+
+-- | Handle Twister messages in Loopy mode
+handleLoopyTwisterMsg :: forall o m. MonadAff m => TwisterMsg -> H.HalogenM AppState Action Slots o m Unit
+handleLoopyTwisterMsg = case _ of
+  EncoderTurn idx val
+    | idx < 8 -> do
+        -- Top 2 rows: volume for the loop at this encoder position
+        let loopIdx = Loopy.encoderToLoop idx
+        sendLoopyCC (Loopy.volumeCC (Loopy.LoopIndex loopIdx)) val
+        sendRingPosition idx val
+    | otherwise -> do
+        -- Bottom 2 rows: parameter for selected loop
+        let paramIdx = idx - 8
+            cfg = Loopy.recordAndMixConfig
+        case Array.index cfg.params paramIdx of
+          Just (Loopy.LoopyParamContinuous { cc }) -> do
+            sendLoopyCC cc val
+            sendRingPosition idx val
+          _ -> pure unit
+  EncoderPress idx
+    | idx < 8 -> do
+        -- Top 2 rows press: select the loop at this encoder position
+        let loopIdx = Loopy.encoderToLoop idx
+        sendMomentaryLoopy (Loopy.selectCC (Loopy.LoopIndex loopIdx))
+        H.modify_ _ { loopySelectedLoop = loopIdx }
+    | otherwise -> do
+        -- Bottom 2 rows press: toggle/momentary params
+        let paramIdx = idx - 8
+            cfg = Loopy.recordAndMixConfig
+        case Array.index cfg.params paramIdx of
+          Just (Loopy.LoopyParamToggle { cc }) ->
+            sendMomentaryLoopy cc
+          Just (Loopy.LoopyParamMomentary { cc }) ->
+            sendMomentaryLoopy cc
+          _ -> pure unit
+  EncoderRelease _ -> pure unit
+  SideButton btn -> handleTwisterSideButton btn
+
+-- | Send Loopy-themed LED colors to all 16 Twister encoders
+sendLoopyLEDs :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
+sendLoopyLEDs = do
+  st <- H.get
+  liftEffect $ Console.log $ "sendLoopyLEDs: twisterOutput=" <> show (map (const "connected") st.connections.twisterOutput)
+  -- Top 8: loop group colors mapped to Twister grid positions
+  for_ Loopy.groups \group -> do
+    let (Loopy.LoopIndex aLoop) = group.loopA
+        (Loopy.LoopIndex bLoop) = group.loopB
+        aEnc = Loopy.loopToEncoder aLoop
+        bEnc = Loopy.loopToEncoder bLoop
+    sendRGBColor aEnc group.color.twisterHue
+    sendRGBColor bEnc group.color.twisterHue
+    sendRingPosition aEnc 0
+    sendRingPosition bEnc 0
+  -- Bottom 8: parameter colors from config
+  let cfg = Loopy.recordAndMixConfig
+  for_ (Array.range 8 15) \idx -> do
+    sendRGBColor idx cfg.paramHue
+    sendRingPosition idx 0

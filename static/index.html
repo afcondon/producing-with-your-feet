@@ -1621,14 +1621,24 @@ body {
   align-items: center;
   gap: 12px;
   margin-bottom: 12px;
-}
-
-.loopy-title {
   font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--fg-muted);
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  transition: background 0.15s, color 0.15s;
+}
+
+.loopy-header:hover {
+  background: var(--bg-hover, #f0f0f0);
+}
+
+.loopy-header.twister-active {
+  background: var(--active-bg, #333);
+  color: var(--active-fg, #fff);
 }
 
 .loopy-midi-config {
@@ -1664,13 +1674,14 @@ body {
 }
 
 .loopy-loop {
-  width: 44px;
-  height: 44px;
+  width: 88%;
+  aspect-ratio: 1;
+  max-width: 100px;
   border: 2px solid;
   border-radius: 50%;
   background: transparent;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   font-family: inherit;
   display: flex;
@@ -1715,6 +1726,17 @@ body {
   background: var(--active-bg);
   color: var(--active-fg);
   border-color: var(--active-bg);
+}
+
+.loopy-generate {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-light);
+}
+
+.loopy-generate-btn {
+  font-size: 12px !important;
+  color: var(--fg-muted);
 }
 
 /* --- MC6 Panel --- */
@@ -2003,6 +2025,8 @@ body {
 </head>
 <body>
   <div id="app"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="./index.js"></script>
 </body>
 </html>

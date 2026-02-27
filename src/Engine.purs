@@ -65,6 +65,8 @@ type AppState =
   , boardPresets :: Array BoardPreset
   , registry :: PedalRegistry
   , configError :: Maybe String
+  , loopyTwisterActive :: Boolean
+  , loopySelectedLoop :: Int
   }
 
 defaultPedalState :: PedalDef -> PedalState
@@ -113,6 +115,8 @@ initAppState =
   , presets: []
   , boardPresets: []
   , configError: Nothing
+  , loopyTwisterActive: false
+  , loopySelectedLoop: 0
   }
 
 getValue :: PedalId -> CC -> EngineState -> Maybe MidiValue
