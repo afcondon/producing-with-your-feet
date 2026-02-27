@@ -60,6 +60,12 @@ function ccTrigger(channel, cc, value) {
   return [status, cc, value].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// Continuous CC trigger — just status + CC, no value byte (matches any value)
+function ccTriggerContinuous(channel, cc) {
+  const status = 0xB0 | (channel - 1);
+  return [status, cc].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 // ---------------------------------------------------------------------------
 // Build object graph
 // ---------------------------------------------------------------------------
@@ -326,25 +332,25 @@ ${paramsXml}${subjectXml}
   // Volume per loop (CC 40-47) — continuous, bound to specific tracks
   const VOLUME_CC_BASE = 40;
   for (let i = 0; i < allTrackIds.length; i++) {
-    const trigger = ccTrigger(MIDI_CHANNEL, VOLUME_CC_BASE + i, 0);
+    const trigger = ccTriggerContinuous(MIDI_CHANNEL, VOLUME_CC_BASE + i);
     const loopyPos = (i % 2) * GROUPS.length + Math.floor(i / 2);
-    bindings.push(bindingEntry(trigger, "Volume", String(loopyPos)));
+    bindings.push(bindingEntry(trigger, "Track Parameter", String(loopyPos), { Parameter: "Volume" }));
   }
 
   // Parameter CCs for selected loop (from recordAndMixConfig)
   // Row 3 transport actions reuse CC 20-24 (already bound above)
   // Row 4 editing parameters: Speed (53), Reverse (56), FadeIn (54), FadeOut (55)
   const PARAM_BINDINGS = [
-    { cc: 53, identifier: "Speed",              subject: "selected" },
-    { cc: 56, identifier: "Reverse",            subject: "selected" },
-    { cc: 54, identifier: "Fade In Duration",   subject: "selected" },
-    { cc: 55, identifier: "Fade Out Duration",  subject: "selected" },
+    { cc: 53, parameter: "Speed",              subject: "selected" },
+    { cc: 56, parameter: "Reverse",            subject: "selected" },
+    { cc: 54, parameter: "Fade In Duration",   subject: "selected" },
+    { cc: 55, parameter: "Fade Out Duration",  subject: "selected" },
   ];
 
   for (const param of PARAM_BINDINGS) {
-    const trigger = ccTrigger(MIDI_CHANNEL, param.cc, 0);
+    const trigger = ccTriggerContinuous(MIDI_CHANNEL, param.cc);
     const subject = param.subject === "selected" ? "Selected Track" : "";
-    bindings.push(bindingEntry(trigger, param.identifier, subject));
+    bindings.push(bindingEntry(trigger, "Track Parameter", subject, { Parameter: param.parameter }));
   }
 
   return bindings;
