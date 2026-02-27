@@ -1,0 +1,511 @@
+{
+  "meta": {
+    "id": "habit",
+    "name": "Habit",
+    "shortName": "Ht",
+    "brand": "Chase Bliss",
+    "defaultChannel": 16,
+    "color": "#d4a017",
+    "saveInstructions": "Hold both footswitches until LEDs blink, then release."
+  },
+  "engage": {
+    "type": "single",
+    "cc": 102
+  },
+  "baseline": {
+    "14": 64,
+    "15": 64,
+    "16": 64,
+    "17": 64,
+    "18": 0,
+    "19": 0,
+    "20": 64,
+    "21": 1,
+    "22": 2,
+    "23": 2,
+    "24": 0,
+    "25": 0,
+    "51": 0,
+    "102": 0
+  },
+  "resetOrder": [],
+  "twister": {
+    "hue": 12,
+    "encoders": [
+      {
+        "cc": 14
+      },
+      {
+        "cc": 15
+      },
+      {
+        "cc": 16
+      },
+      null,
+      {
+        "cc": 17,
+        "center": 64
+      },
+      {
+        "cc": 18
+      },
+      {
+        "cc": 19
+      },
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    "buttons": [
+      null,
+      null,
+      null,
+      {
+        "type": "set",
+        "cc": 23,
+        "value": 1
+      },
+      null,
+      {
+        "type": "set",
+        "cc": 18,
+        "value": 0
+      },
+      {
+        "type": "set",
+        "cc": 19,
+        "value": 0
+      },
+      {
+        "type": "set",
+        "cc": 23,
+        "value": 2
+      },
+      {
+        "type": "set",
+        "cc": 22,
+        "value": 1
+      },
+      {
+        "type": "set",
+        "cc": 22,
+        "value": 2
+      },
+      {
+        "type": "set",
+        "cc": 22,
+        "value": 3
+      },
+      {
+        "type": "set",
+        "cc": 23,
+        "value": 3
+      },
+      {
+        "type": "set",
+        "cc": 21,
+        "value": 1
+      },
+      {
+        "type": "set",
+        "cc": 21,
+        "value": 2
+      },
+      {
+        "type": "set",
+        "cc": 21,
+        "value": 3
+      },
+      {
+        "type": "set",
+        "cc": 17,
+        "value": 64
+      }
+    ]
+  },
+  "modes": null,
+  "sections": [
+    {
+      "name": "Engage",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "toggle",
+          "cc": 102,
+          "label": "Bypass",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 24,
+          "label": "Loop",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Freeze echo, play overtop"
+        },
+        {
+          "type": "toggle",
+          "cc": 25,
+          "label": "Scan Hold",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Momentary auto-scanning"
+        },
+        {
+          "type": "momentary",
+          "cc": 26,
+          "label": "Clear Memory",
+          "value": 127
+        },
+        {
+          "type": "momentary",
+          "cc": 93,
+          "label": "Tap Tempo",
+          "value": 127
+        }
+      ]
+    },
+    {
+      "name": "Main Controls",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "slider",
+          "cc": 14,
+          "label": "Volume",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Silent"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ],
+          "description": "Echo wet level"
+        },
+        {
+          "type": "slider",
+          "cc": 15,
+          "label": "Repeats",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Single"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Infinite"
+            }
+          ],
+          "description": "Echo repeats. Max = infinite loop."
+        },
+        {
+          "type": "slider",
+          "cc": 16,
+          "label": "Size",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "50ms"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "60s"
+            }
+          ],
+          "description": "Delay time (50ms to 60s)"
+        },
+        {
+          "type": "slider",
+          "cc": 17,
+          "label": "Modify",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "CCW"
+            },
+            {
+              "position": 64,
+              "label": "Neutral"
+            },
+            {
+              "position": 127,
+              "label": "CW"
+            }
+          ],
+          "description": "Modifier depth. Noon = neutral."
+        },
+        {
+          "type": "slider",
+          "cc": 18,
+          "label": "Spread",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Off"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ],
+          "description": "Secondary echo / multi-tap distance"
+        },
+        {
+          "type": "slider",
+          "cc": 19,
+          "label": "Scan",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Off/Now"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max/Past"
+            }
+          ],
+          "description": "Auto: scan frequency. Manual: memory position."
+        }
+      ]
+    },
+    {
+      "name": "Modifier",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "radioGroup",
+          "label": "Modifier",
+          "mapping": [
+            {
+              "label": "Stepped Speed",
+              "values": {
+                "21": 1,
+                "22": 1
+              }
+            },
+            {
+              "label": "Stability",
+              "values": {
+                "21": 2,
+                "22": 1
+              }
+            },
+            {
+              "label": "Trimmer",
+              "values": {
+                "21": 3,
+                "22": 1
+              }
+            },
+            {
+              "label": "Off",
+              "values": {
+                "21": 1,
+                "22": 2
+              }
+            },
+            {
+              "label": "Smooth Speed",
+              "values": {
+                "21": 1,
+                "22": 3
+              }
+            },
+            {
+              "label": "Filter",
+              "values": {
+                "21": 2,
+                "22": 3
+              }
+            },
+            {
+              "label": "Dropper",
+              "values": {
+                "21": 3,
+                "22": 3
+              }
+            }
+          ]
+        },
+        {
+          "type": "segmented",
+          "cc": 23,
+          "label": "Mode",
+          "options": [
+            {
+              "label": "In",
+              "value": 1,
+              "description": "Accumulating: modifier stacks on each echo"
+            },
+            {
+              "label": "Out",
+              "value": 2,
+              "description": "Consistent: each echo sounds the same"
+            },
+            {
+              "label": "Feed",
+              "value": 3,
+              "description": "Output re-recorded to memory"
+            }
+          ]
+        }
+      ],
+      "description": "Select modifier. MOD knob controls the selected modifier."
+    },
+    {
+      "name": "DIP Switches",
+      "compact": true,
+      "collapsed": true,
+      "layout": "dip-grid",
+      "controls": [
+        {
+          "type": "infoToggle",
+          "key": "dip:repeats",
+          "label": "Repeats"
+        },
+        {
+          "type": "infoToggle",
+          "key": "dip:size",
+          "label": "Size"
+        },
+        {
+          "type": "infoToggle",
+          "key": "dip:modify",
+          "label": "Modify"
+        },
+        {
+          "type": "infoToggle",
+          "key": "dip:spread",
+          "label": "Spread"
+        },
+        {
+          "type": "infoToggle",
+          "key": "dip:scan",
+          "label": "Scan"
+        },
+        {
+          "type": "infoToggle",
+          "key": "dip:bounce",
+          "label": "Bounce"
+        },
+        {
+          "type": "infoToggle",
+          "key": "dip:random",
+          "label": "Random"
+        },
+        {
+          "type": "infoToggle",
+          "key": "dip:shape",
+          "label": "Shape"
+        },
+        {
+          "type": "infoToggle",
+          "key": "dip:manual",
+          "label": "Manual"
+        },
+        {
+          "type": "infoToggle",
+          "key": "dip:collect",
+          "label": "Collect"
+        },
+        {
+          "type": "infoToggle",
+          "key": "dip:dry_kill",
+          "label": "Dry Kill"
+        },
+        {
+          "type": "infoToggle",
+          "key": "dip:always",
+          "label": "Always"
+        },
+        {
+          "type": "infoToggle",
+          "key": "dip:latch",
+          "label": "Latch"
+        },
+        {
+          "type": "infoToggle",
+          "key": "dip:wipe",
+          "label": "Wipe"
+        },
+        {
+          "type": "infoToggle",
+          "key": "dip:sweep",
+          "label": "Sweep"
+        },
+        {
+          "type": "infoToggle",
+          "key": "dip:polarity",
+          "label": "Polarity"
+        }
+      ],
+      "description": "Physical DIP switches — not MIDI controllable. Mark to match your pedal."
+    },
+    {
+      "name": "Other",
+      "compact": true,
+      "collapsed": true,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "toggle",
+          "cc": 51,
+          "label": "MIDI Clock Follow",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "slider",
+          "cc": 20,
+          "label": "Ramp Speed",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Slow"
+            },
+            {
+              "position": 127,
+              "label": "Fast"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

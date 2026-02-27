@@ -1,0 +1,438 @@
+{
+  "meta": {
+    "id": "iridium",
+    "name": "Iridium",
+    "shortName": "Ir",
+    "brand": "Strymon",
+    "defaultChannel": 10,
+    "color": "#5a6a8a",
+    "saveInstructions": "Hold the footswitch for 3 seconds until LED flashes."
+  },
+  "engage": {
+    "type": "single",
+    "cc": 102
+  },
+  "baseline": {
+    "7": 127,
+    "9": 0,
+    "12": 100,
+    "13": 64,
+    "14": 64,
+    "15": 64,
+    "16": 64,
+    "17": 0,
+    "18": 1,
+    "19": 1,
+    "20": 0,
+    "21": 0,
+    "60": 0,
+    "102": 127
+  },
+  "resetOrder": [],
+  "twister": {
+    "hue": 127,
+    "encoders": [
+      {
+        "cc": 12
+      },
+      {
+        "cc": 13
+      },
+      {
+        "cc": 14,
+        "center": 64
+      },
+      {
+        "cc": 15,
+        "center": 64
+      },
+      {
+        "cc": 16,
+        "center": 64
+      },
+      {
+        "cc": 17
+      },
+      {
+        "cc": 19,
+        "options": [
+          1,
+          2,
+          3
+        ]
+      },
+      {
+        "cc": 18,
+        "options": [
+          1,
+          2,
+          3
+        ]
+      },
+      {
+        "cc": 20,
+        "options": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ]
+      },
+      {
+        "cc": 7
+      },
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    "buttons": [
+      {
+        "type": "toggle",
+        "cc": 102
+      },
+      {
+        "type": "toggle",
+        "cc": 21
+      },
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "modes": null,
+  "sections": [
+    {
+      "name": "Engage",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "toggle",
+          "cc": 102,
+          "label": "Bypass",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 21,
+          "label": "Amp Disable",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Bypass amp modeling (cab/room/EQ remain)"
+        }
+      ]
+    },
+    {
+      "name": "Amp & Cab",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "segmented",
+          "cc": 19,
+          "label": "Amp",
+          "options": [
+            {
+              "label": "Round",
+              "value": 1,
+              "description": "Fender Deluxe Reverb"
+            },
+            {
+              "label": "Chime",
+              "value": 2,
+              "description": "Vox AC30TB"
+            },
+            {
+              "label": "Punch",
+              "value": 3,
+              "description": "Marshall Plexi"
+            }
+          ]
+        },
+        {
+          "type": "dropdown",
+          "cc": 20,
+          "label": "Cabinet",
+          "options": [
+            {
+              "label": "Round A (1x12 Deluxe)",
+              "value": 0
+            },
+            {
+              "label": "Round B (1x12 Blues Jr)",
+              "value": 1
+            },
+            {
+              "label": "Round C (2x10 Vibrolux)",
+              "value": 2
+            },
+            {
+              "label": "Chime A (2x12 AC30 Blue)",
+              "value": 3
+            },
+            {
+              "label": "Chime B (1x12 AlNiCo)",
+              "value": 4
+            },
+            {
+              "label": "Chime C (4x12 Mesa)",
+              "value": 5
+            },
+            {
+              "label": "Punch A (4x12 G12M-25)",
+              "value": 6
+            },
+            {
+              "label": "Punch B (2x12 V30)",
+              "value": 7
+            },
+            {
+              "label": "Punch C (8x12 Marshall)",
+              "value": 8
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Controls",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "slider",
+          "cc": 12,
+          "label": "Level",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Min"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ],
+          "description": "Output level"
+        },
+        {
+          "type": "slider",
+          "cc": 13,
+          "label": "Drive",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Clean"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ],
+          "description": "Gain/overdrive amount"
+        },
+        {
+          "type": "slider",
+          "cc": 14,
+          "label": "Bass",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Cut"
+            },
+            {
+              "position": 64,
+              "label": "Flat"
+            },
+            {
+              "position": 127,
+              "label": "Boost"
+            }
+          ]
+        },
+        {
+          "type": "slider",
+          "cc": 15,
+          "label": "Mid",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Cut"
+            },
+            {
+              "position": 64,
+              "label": "Flat"
+            },
+            {
+              "position": 127,
+              "label": "Boost"
+            }
+          ],
+          "description": "Tone cut on Chime amp"
+        },
+        {
+          "type": "slider",
+          "cc": 16,
+          "label": "Treble",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Cut"
+            },
+            {
+              "position": 64,
+              "label": "Flat"
+            },
+            {
+              "position": 127,
+              "label": "Boost"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Room",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "slider",
+          "cc": 17,
+          "label": "Room Level",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Off"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ]
+        },
+        {
+          "type": "segmented",
+          "cc": 18,
+          "label": "Room Size",
+          "options": [
+            {
+              "label": "Small",
+              "value": 1
+            },
+            {
+              "label": "Medium",
+              "value": 2
+            },
+            {
+              "label": "Large",
+              "value": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Volume & Expression",
+      "compact": true,
+      "collapsed": true,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "slider",
+          "cc": 7,
+          "label": "Volume Pedal",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Off"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Full"
+            }
+          ]
+        },
+        {
+          "type": "segmented",
+          "cc": 9,
+          "label": "Vol Pre/Post",
+          "options": [
+            {
+              "label": "Pre",
+              "value": 0,
+              "description": "Before amp/cab"
+            },
+            {
+              "label": "Post",
+              "value": 127,
+              "description": "After amp/cab"
+            }
+          ]
+        },
+        {
+          "type": "toggle",
+          "cc": 60,
+          "label": "MIDI Expression",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "slider",
+          "cc": 100,
+          "label": "Expression",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Heel"
+            },
+            {
+              "position": 127,
+              "label": "Toe"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

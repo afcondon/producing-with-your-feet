@@ -1,0 +1,401 @@
+{
+  "meta": {
+    "id": "riverside",
+    "name": "Riverside",
+    "shortName": "Rv",
+    "brand": "Strymon",
+    "defaultChannel": 11,
+    "color": "#b8860b",
+    "saveInstructions": "Hold the footswitch for 3 seconds until LED flashes."
+  },
+  "engage": {
+    "type": "single",
+    "cc": 102
+  },
+  "baseline": {
+    "7": 127,
+    "12": 64,
+    "13": 64,
+    "14": 64,
+    "15": 64,
+    "16": 64,
+    "17": 0,
+    "18": 0,
+    "19": 2,
+    "20": 2,
+    "21": 2,
+    "22": 0,
+    "60": 0,
+    "102": 0
+  },
+  "resetOrder": [],
+  "twister": {
+    "hue": 10,
+    "encoders": [
+      {
+        "cc": 12
+      },
+      {
+        "cc": 13
+      },
+      {
+        "cc": 14,
+        "center": 64
+      },
+      {
+        "cc": 15,
+        "center": 64
+      },
+      {
+        "cc": 16,
+        "center": 64
+      },
+      {
+        "cc": 17
+      },
+      {
+        "cc": 19,
+        "options": [
+          2,
+          1
+        ]
+      },
+      {
+        "cc": 21,
+        "options": [
+          1,
+          2,
+          3
+        ]
+      },
+      {
+        "cc": 20,
+        "options": [
+          2,
+          1
+        ]
+      },
+      {
+        "cc": 22
+      },
+      {
+        "cc": 7
+      },
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    "buttons": [
+      {
+        "type": "toggle",
+        "cc": 102
+      },
+      {
+        "type": "toggle",
+        "cc": 18
+      },
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "modes": null,
+  "sections": [
+    {
+      "name": "Engage",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "toggle",
+          "cc": 102,
+          "label": "Bypass",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 18,
+          "label": "Boost",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Post-drive analog boost (+6dB)"
+        }
+      ]
+    },
+    {
+      "name": "Controls",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "slider",
+          "cc": 12,
+          "label": "Level",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Min"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ],
+          "description": "Output volume when engaged"
+        },
+        {
+          "type": "slider",
+          "cc": 13,
+          "label": "Drive",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Clean"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ],
+          "description": "Gain/overdrive amount"
+        },
+        {
+          "type": "slider",
+          "cc": 14,
+          "label": "Bass",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Cut"
+            },
+            {
+              "position": 64,
+              "label": "Flat"
+            },
+            {
+              "position": 127,
+              "label": "Boost"
+            }
+          ],
+          "description": "Active shelving low EQ"
+        },
+        {
+          "type": "slider",
+          "cc": 15,
+          "label": "Mid",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Cut"
+            },
+            {
+              "position": 64,
+              "label": "Flat"
+            },
+            {
+              "position": 127,
+              "label": "Boost"
+            }
+          ],
+          "description": "Parametric mid boost/cut"
+        },
+        {
+          "type": "slider",
+          "cc": 16,
+          "label": "Treble",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Cut"
+            },
+            {
+              "position": 64,
+              "label": "Flat"
+            },
+            {
+              "position": 127,
+              "label": "Boost"
+            }
+          ],
+          "description": "Active shelf high EQ"
+        },
+        {
+          "type": "slider",
+          "cc": 17,
+          "label": "Boost Level",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Off"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "+6dB"
+            }
+          ],
+          "description": "Post-drive boost amount"
+        }
+      ]
+    },
+    {
+      "name": "Character",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "segmented",
+          "cc": 19,
+          "label": "Gain",
+          "options": [
+            {
+              "label": "Low",
+              "value": 2,
+              "description": "Lower gain structure"
+            },
+            {
+              "label": "High",
+              "value": 1,
+              "description": "Higher gain structure"
+            }
+          ]
+        },
+        {
+          "type": "segmented",
+          "cc": 20,
+          "label": "Push",
+          "options": [
+            {
+              "label": "Norm",
+              "value": 2
+            },
+            {
+              "label": "Mid",
+              "value": 1,
+              "description": "Mid-band EQ push"
+            }
+          ]
+        },
+        {
+          "type": "segmented",
+          "cc": 21,
+          "label": "Presence",
+          "options": [
+            {
+              "label": "+",
+              "value": 1,
+              "description": "Enhanced top end"
+            },
+            {
+              "label": "-",
+              "value": 2,
+              "description": "Reduced top end"
+            },
+            {
+              "label": "Mid",
+              "value": 3,
+              "description": "Center position"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Other",
+      "compact": true,
+      "collapsed": true,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "slider",
+          "cc": 22,
+          "label": "Noise Gate",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Off"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ],
+          "description": "Gate threshold"
+        },
+        {
+          "type": "slider",
+          "cc": 7,
+          "label": "Volume Pedal",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Off"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Full"
+            }
+          ]
+        },
+        {
+          "type": "toggle",
+          "cc": 60,
+          "label": "MIDI Expression",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "slider",
+          "cc": 100,
+          "label": "Expression",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Heel"
+            },
+            {
+              "position": 127,
+              "label": "Toe"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

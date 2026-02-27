@@ -1,0 +1,457 @@
+{
+  "meta": {
+    "id": "mercury7",
+    "name": "Mercury7",
+    "shortName": "M7",
+    "brand": "Meris",
+    "defaultChannel": 12,
+    "color": "#2a5a8a",
+    "saveInstructions": "Hold ALT and tap the preset footswitch."
+  },
+  "engage": {
+    "type": "single",
+    "cc": 14
+  },
+  "baseline": {
+    "4": 0,
+    "14": 0,
+    "16": 80,
+    "17": 12,
+    "18": 77,
+    "19": 127,
+    "20": 0,
+    "21": 127,
+    "22": 0,
+    "23": 21,
+    "24": 88,
+    "25": 127,
+    "26": 63,
+    "27": 0,
+    "29": 0
+  },
+  "resetOrder": [],
+  "twister": {
+    "hue": 80,
+    "encoders": [
+      {
+        "cc": 16
+      },
+      {
+        "cc": 17
+      },
+      {
+        "cc": 18,
+        "center": 64
+      },
+      {
+        "cc": 20,
+        "center": 64
+      },
+      {
+        "cc": 19
+      },
+      {
+        "cc": 21
+      },
+      {
+        "cc": 24
+      },
+      {
+        "cc": 29,
+        "options": [
+          0,
+          127
+        ]
+      },
+      {
+        "cc": 22
+      },
+      {
+        "cc": 23
+      },
+      {
+        "cc": 25
+      },
+      {
+        "cc": 26
+      },
+      {
+        "cc": 27
+      },
+      null,
+      null,
+      null
+    ],
+    "buttons": [
+      {
+        "type": "toggle",
+        "cc": 14
+      },
+      null,
+      null,
+      {
+        "type": "toggle",
+        "cc": 28
+      },
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "modes": null,
+  "sections": [
+    {
+      "name": "Engage",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "toggle",
+          "cc": 14,
+          "label": "Bypass",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 28,
+          "label": "Swell",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Auto swell — hold ALT to max decay sustain"
+        },
+        {
+          "type": "rangeSelect",
+          "cc": 29,
+          "label": "Algorithm",
+          "ranges": [
+            {
+              "lo": 0,
+              "hi": 63,
+              "label": "Ultraplate"
+            },
+            {
+              "lo": 64,
+              "hi": 127,
+              "label": "Cathedra"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Reverb",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "slider",
+          "cc": 16,
+          "label": "Space Decay",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Short"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Infinite"
+            }
+          ],
+          "description": "Decay energy of the reverb space"
+        },
+        {
+          "type": "slider",
+          "cc": 17,
+          "label": "Modulate",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "None"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ],
+          "description": "Overall modulation depth"
+        },
+        {
+          "type": "slider",
+          "cc": 18,
+          "label": "Mix",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Dry"
+            },
+            {
+              "position": 64,
+              "label": "Even"
+            },
+            {
+              "position": 127,
+              "label": "Wet"
+            }
+          ],
+          "description": "Dry/wet balance"
+        }
+      ]
+    },
+    {
+      "name": "Tone",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "slider",
+          "cc": 19,
+          "label": "Lo Frequency",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Attenuated"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Extended"
+            }
+          ],
+          "description": "Low frequency behavior"
+        },
+        {
+          "type": "slider",
+          "cc": 21,
+          "label": "Hi Frequency",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Attenuated"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Extended"
+            }
+          ],
+          "description": "High frequency absorption"
+        }
+      ]
+    },
+    {
+      "name": "Pitch",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "slider",
+          "cc": 20,
+          "label": "Pitch Vector",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "-Oct"
+            },
+            {
+              "position": 32,
+              "label": "Down"
+            },
+            {
+              "position": 64,
+              "label": "Off"
+            },
+            {
+              "position": 96,
+              "label": "Up"
+            },
+            {
+              "position": 127,
+              "label": "+Oct"
+            }
+          ],
+          "description": "Intra-tank pitch interval"
+        },
+        {
+          "type": "slider",
+          "cc": 24,
+          "label": "Pitch Vector Mix",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Pitch"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Normal"
+            }
+          ],
+          "description": "Pitch-shifted vs normal reflections"
+        }
+      ]
+    },
+    {
+      "name": "Alt Functions",
+      "compact": true,
+      "collapsed": true,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "slider",
+          "cc": 22,
+          "label": "Predelay",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "None"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ],
+          "description": "Time before reverb onset"
+        },
+        {
+          "type": "slider",
+          "cc": 23,
+          "label": "Mod Speed",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Slow"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Fast"
+            }
+          ],
+          "description": "Dominant modulation speed"
+        },
+        {
+          "type": "slider",
+          "cc": 25,
+          "label": "Density",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Sparse"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ],
+          "description": "Initial echo density"
+        },
+        {
+          "type": "slider",
+          "cc": 26,
+          "label": "Attack Time",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Fast"
+            },
+            {
+              "position": 64,
+              "label": "~600ms"
+            },
+            {
+              "position": 127,
+              "label": "Slow"
+            }
+          ],
+          "description": "Swell envelope attack"
+        },
+        {
+          "type": "slider",
+          "cc": 27,
+          "label": "Vibrato Depth",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Off"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ],
+          "description": "Vibrato added to reverb input"
+        }
+      ],
+      "description": "Hold ALT to access these on the pedal"
+    },
+    {
+      "name": "Other",
+      "compact": false,
+      "collapsed": true,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "slider",
+          "cc": 4,
+          "label": "Expression",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Heel"
+            },
+            {
+              "position": 127,
+              "label": "Toe"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

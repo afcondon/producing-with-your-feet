@@ -1,0 +1,836 @@
+{
+  "meta": {
+    "id": "onward",
+    "name": "Onward",
+    "shortName": "On",
+    "brand": "Chase Bliss",
+    "defaultChannel": 2,
+    "color": "#c8a96e",
+    "saveInstructions": "Hold both footswitches until LEDs blink, then release."
+  },
+  "engage": {
+    "type": "dual",
+    "a": {
+      "cc": 102,
+      "label": "Freeze"
+    },
+    "b": {
+      "cc": 103,
+      "label": "Glitch"
+    }
+  },
+  "baseline": {
+    "14": 64,
+    "15": 64,
+    "16": 64,
+    "17": 0,
+    "18": 64,
+    "19": 64,
+    "20": 64,
+    "21": 2,
+    "22": 0,
+    "23": 2,
+    "24": 64,
+    "25": 64,
+    "26": 0,
+    "27": 0,
+    "28": 64,
+    "29": 64,
+    "31": 0,
+    "32": 0,
+    "33": 0,
+    "51": 0,
+    "52": 0,
+    "53": 6,
+    "57": 0,
+    "58": 127,
+    "61": 0,
+    "62": 0,
+    "63": 0,
+    "64": 0,
+    "65": 0,
+    "66": 0,
+    "67": 0,
+    "68": 0,
+    "71": 0,
+    "72": 0,
+    "73": 0,
+    "74": 0,
+    "75": 0,
+    "76": 0,
+    "77": 0,
+    "78": 0,
+    "100": 0,
+    "102": 0,
+    "103": 0,
+    "105": 0,
+    "106": 0
+  },
+  "resetOrder": [],
+  "twister": {
+    "hue": 15,
+    "encoders": [
+      {
+        "cc": 14
+      },
+      {
+        "cc": 15,
+        "center": 64
+      },
+      {
+        "cc": 16,
+        "center": 64
+      },
+      null,
+      {
+        "cc": 17
+      },
+      {
+        "cc": 18
+      },
+      {
+        "cc": 19,
+        "center": 64
+      },
+      null,
+      {
+        "cc": 24
+      },
+      {
+        "cc": 25,
+        "center": 64
+      },
+      {
+        "cc": 26
+      },
+      null,
+      {
+        "cc": 27
+      },
+      {
+        "cc": 28
+      },
+      {
+        "cc": 29,
+        "center": 64
+      },
+      null
+    ],
+    "buttons": [
+      null,
+      null,
+      null,
+      {
+        "type": "toggle",
+        "cc": 103
+      },
+      null,
+      null,
+      null,
+      {
+        "type": "toggle",
+        "cc": 102
+      },
+      null,
+      null,
+      null,
+      {
+        "type": "toggle",
+        "cc": 105
+      },
+      null,
+      null,
+      null,
+      {
+        "type": "toggle",
+        "cc": 106
+      }
+    ]
+  },
+  "modes": null,
+  "sections": [
+    {
+      "name": "Channels",
+      "compact": true,
+      "collapsed": false,
+      "layout": "dual-column",
+      "controls": [
+        {
+          "type": "toggle",
+          "cc": 103,
+          "label": "Glitch",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 105,
+          "label": "Glitch Hold",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "momentary",
+          "cc": 108,
+          "label": "Retrigger Glitch",
+          "value": 127
+        },
+        {
+          "type": "toggle",
+          "cc": 102,
+          "label": "Freeze",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 106,
+          "label": "Freeze Hold",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "momentary",
+          "cc": 109,
+          "label": "Retrigger Freeze",
+          "value": 127
+        }
+      ]
+    },
+    {
+      "name": "Main Controls",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "slider",
+          "cc": 14,
+          "label": "Size",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Tiny"
+            },
+            {
+              "position": 64,
+              "label": "Medium"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ],
+          "description": "Glitch length & overall timing"
+        },
+        {
+          "type": "slider",
+          "cc": 15,
+          "label": "Mix",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Dry"
+            },
+            {
+              "position": 64,
+              "label": "Even"
+            },
+            {
+              "position": 127,
+              "label": "Wet"
+            }
+          ],
+          "description": "Wet/dry balance (ramp speed when ramping)"
+        },
+        {
+          "type": "slider",
+          "cc": 16,
+          "label": "Octave",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Oct Down"
+            },
+            {
+              "position": 64,
+              "label": "Off"
+            },
+            {
+              "position": 127,
+              "label": "Oct Up"
+            }
+          ],
+          "description": "Blends pitched voice"
+        },
+        {
+          "type": "slider",
+          "cc": 17,
+          "label": "Error",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "None"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ],
+          "description": "Likelihood & intensity of randomization"
+        },
+        {
+          "type": "slider",
+          "cc": 18,
+          "label": "Sustain",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Short"
+            },
+            {
+              "position": 64,
+              "label": "Medium"
+            },
+            {
+              "position": 127,
+              "label": "Infinite"
+            }
+          ],
+          "description": "Hold time"
+        },
+        {
+          "type": "slider",
+          "cc": 19,
+          "label": "Texture",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Sample rate"
+            },
+            {
+              "position": 64,
+              "label": "Off"
+            },
+            {
+              "position": 127,
+              "label": "Soft-clip"
+            }
+          ],
+          "description": "Digital/analog character"
+        }
+      ]
+    },
+    {
+      "name": "Shape & Error",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "segmented",
+          "cc": 21,
+          "label": "Error Type",
+          "options": [
+            {
+              "label": "Timing",
+              "value": 0,
+              "description": "Manipulates sample length"
+            },
+            {
+              "label": "Condition",
+              "value": 2,
+              "description": "Dropouts & sample rate shifts"
+            },
+            {
+              "label": "Playback",
+              "value": 3,
+              "description": "Speed & direction changes"
+            }
+          ]
+        },
+        {
+          "type": "segmented",
+          "cc": 22,
+          "label": "Fade",
+          "options": [
+            {
+              "label": "Long",
+              "value": 0,
+              "description": "Soft, swell-y"
+            },
+            {
+              "label": "User",
+              "value": 2,
+              "description": "Custom (set in Hidden Options)"
+            },
+            {
+              "label": "Short",
+              "value": 3,
+              "description": "Immediate, responsive"
+            }
+          ]
+        },
+        {
+          "type": "segmented",
+          "cc": 23,
+          "label": "Animate",
+          "options": [
+            {
+              "label": "Vibrato",
+              "value": 0,
+              "description": "Speed set by Size knob"
+            },
+            {
+              "label": "Off",
+              "value": 2
+            },
+            {
+              "label": "Chorus",
+              "value": 3,
+              "description": "Slow, fixed atmospheric speed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Routing",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "segmented",
+          "cc": 31,
+          "label": "Error Routing",
+          "options": [
+            {
+              "label": "Glitch",
+              "value": 0
+            },
+            {
+              "label": "Both",
+              "value": 2
+            },
+            {
+              "label": "Freeze",
+              "value": 3
+            }
+          ]
+        },
+        {
+          "type": "segmented",
+          "cc": 32,
+          "label": "Sustain Routing",
+          "options": [
+            {
+              "label": "Glitch",
+              "value": 0
+            },
+            {
+              "label": "Both",
+              "value": 2
+            },
+            {
+              "label": "Freeze",
+              "value": 3
+            }
+          ]
+        },
+        {
+          "type": "segmented",
+          "cc": 33,
+          "label": "Effects Routing",
+          "options": [
+            {
+              "label": "Glitch",
+              "value": 0
+            },
+            {
+              "label": "Both",
+              "value": 2
+            },
+            {
+              "label": "Freeze",
+              "value": 3
+            }
+          ]
+        }
+      ],
+      "description": "Route each section to Glitch, Both, or Freeze channel"
+    },
+    {
+      "name": "Hidden Options",
+      "compact": true,
+      "collapsed": true,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "slider",
+          "cc": 24,
+          "label": "Sensitivity",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Less"
+            },
+            {
+              "position": 64,
+              "label": "Default"
+            },
+            {
+              "position": 127,
+              "label": "More"
+            }
+          ],
+          "description": "How easily playing triggers resampling"
+        },
+        {
+          "type": "slider",
+          "cc": 25,
+          "label": "Balance",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Glitch"
+            },
+            {
+              "position": 64,
+              "label": "Even"
+            },
+            {
+              "position": 127,
+              "label": "Freeze"
+            }
+          ],
+          "description": "Relative loudness of Glitch vs Freeze"
+        },
+        {
+          "type": "slider",
+          "cc": 26,
+          "label": "Duck Depth",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Less"
+            },
+            {
+              "position": 127,
+              "label": "More"
+            }
+          ],
+          "description": "Ducking/sidechain intensity"
+        },
+        {
+          "type": "slider",
+          "cc": 27,
+          "label": "Error Blend",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "None"
+            },
+            {
+              "position": 127,
+              "label": "All three"
+            }
+          ],
+          "description": "Mix in unselected error types"
+        },
+        {
+          "type": "slider",
+          "cc": 28,
+          "label": "User Fade",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Slower"
+            },
+            {
+              "position": 127,
+              "label": "Faster"
+            }
+          ],
+          "description": "Custom fade time for User position"
+        },
+        {
+          "type": "slider",
+          "cc": 29,
+          "label": "Filter",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Dark"
+            },
+            {
+              "position": 64,
+              "label": "Flat"
+            },
+            {
+              "position": 127,
+              "label": "Thin"
+            }
+          ],
+          "description": "EQ: thin/darken the signal"
+        }
+      ]
+    },
+    {
+      "name": "DIP Switches",
+      "compact": true,
+      "collapsed": true,
+      "layout": "dip-grid",
+      "controls": [
+        {
+          "type": "toggle",
+          "cc": 61,
+          "label": "Size",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 62,
+          "label": "Error",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 63,
+          "label": "Sustain",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 64,
+          "label": "Texture",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 65,
+          "label": "Octave",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 66,
+          "label": "Bounce",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 67,
+          "label": "Sweep",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 68,
+          "label": "Polarity",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 71,
+          "label": "Miso",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Mono in, stereo out"
+        },
+        {
+          "type": "toggle",
+          "cc": 72,
+          "label": "Spread",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Stereo widening tied to Error"
+        },
+        {
+          "type": "toggle",
+          "cc": 73,
+          "label": "Latch",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Hold becomes latch instead of momentary"
+        },
+        {
+          "type": "toggle",
+          "cc": 74,
+          "label": "Sidechain",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Freeze dips when Glitch resets"
+        },
+        {
+          "type": "toggle",
+          "cc": 75,
+          "label": "Duck",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Both channels dip when input detected"
+        },
+        {
+          "type": "toggle",
+          "cc": 76,
+          "label": "Reverse",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Glitch plays in reverse"
+        },
+        {
+          "type": "toggle",
+          "cc": 77,
+          "label": "1/2 Speed",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Doubles sample size, lo-fi quality"
+        },
+        {
+          "type": "toggle",
+          "cc": 78,
+          "label": "Manual",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Disable dynamic control, manual resample only"
+        }
+      ],
+      "description": "Physical DIP switches — left bank (ramping), right bank (customize)"
+    },
+    {
+      "name": "Ramping",
+      "compact": true,
+      "collapsed": true,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "toggle",
+          "cc": 52,
+          "label": "Ramp/Bounce Active",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "slider",
+          "cc": 20,
+          "label": "Ramp Speed",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Slow"
+            },
+            {
+              "position": 127,
+              "label": "Fast"
+            }
+          ]
+        }
+      ],
+      "description": "Automate knob movement (bounce or one-shot ramp)"
+    },
+    {
+      "name": "Other",
+      "compact": true,
+      "collapsed": true,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "toggle",
+          "cc": 57,
+          "label": "Dry Kill",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Remove dry signal from output"
+        },
+        {
+          "type": "toggle",
+          "cc": 58,
+          "label": "Trails",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Fade away when bypassed"
+        },
+        {
+          "type": "toggle",
+          "cc": 51,
+          "label": "MIDI Clock Follow",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Sync timing to external clock"
+        },
+        {
+          "type": "dropdown",
+          "cc": 53,
+          "label": "Sync Subdivision",
+          "options": [
+            {
+              "label": "Whole",
+              "value": 0
+            },
+            {
+              "label": "Dotted Half",
+              "value": 1
+            },
+            {
+              "label": "Half",
+              "value": 2
+            },
+            {
+              "label": "Dotted Quarter",
+              "value": 3
+            },
+            {
+              "label": "Quarter",
+              "value": 4
+            },
+            {
+              "label": "Dotted 8th",
+              "value": 5
+            },
+            {
+              "label": "8th",
+              "value": 6
+            },
+            {
+              "label": "8th Triplet",
+              "value": 7
+            },
+            {
+              "label": "16th",
+              "value": 8
+            }
+          ]
+        },
+        {
+          "type": "slider",
+          "cc": 100,
+          "label": "Expression",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Min"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ]
+        },
+        {
+          "type": "momentary",
+          "cc": 93,
+          "label": "Tap Tempo",
+          "value": 127
+        }
+      ]
+    }
+  ]
+}

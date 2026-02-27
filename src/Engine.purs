@@ -4,7 +4,7 @@ module Engine
   , MidiConnections
   , View(..)
   , AppState
-  , initEngine
+  , initEngineFromPedals
   , initAppState
   , getValue
   , getInfo
@@ -14,6 +14,9 @@ module Engine
 
 import Prelude
 
+import Config.Registry (PedalRegistry)
+import Config.Registry as CRegistry
+import Config.Types (MidiRouting)
 import Data.Map (Map)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
@@ -22,7 +25,6 @@ import Data.Pedal (PedalDef, PedalId)
 import Data.Preset (BoardPreset, PedalPreset)
 import Data.Tuple (Tuple(..))
 import Foreign.WebMIDI (MIDIAccess, MIDIInput, MIDIOutput, MidiPort)
-import Pedals.Registry as Registry
 
 type PedalState =
   { channel :: Int
@@ -61,6 +63,8 @@ type AppState =
   , suppressTwister :: Boolean
   , presets :: Array PedalPreset
   , boardPresets :: Array BoardPreset
+  , registry :: PedalRegistry
+  , configError :: Maybe String
   }
 
 defaultPedalState :: PedalDef -> PedalState
@@ -70,14 +74,24 @@ defaultPedalState def =
   , info: Map.empty
   }
 
-initEngine :: EngineState
-initEngine = Map.fromFoldable $
-  map (\def -> Tuple def.meta.id (defaultPedalState def)) Registry.pedals
+initEngineFromPedals :: Array PedalDef -> EngineState
+initEngineFromPedals pedals = Map.fromFoldable $
+  map (\def -> Tuple def.meta.id (defaultPedalState def)) pedals
+
+emptyRouting :: MidiRouting
+emptyRouting =
+  { pedalOutput: { match: "" }
+  , twisterInput: { match: "" }
+  , twisterOutput: { match: "" }
+  , loopyOutput: { match: "" }
+  , loopyChannel: 1
+  }
 
 initAppState :: AppState
 initAppState =
   { view: GridView
-  , engine: initEngine
+  , engine: Map.empty
+  , registry: CRegistry.mkRegistry [] [] emptyRouting
   , connections:
       { access: Nothing
       , pedalOutput: Nothing
@@ -91,13 +105,14 @@ initAppState =
       , availableOutputs: []
       , availableInputs: []
       }
-  , cardOrder: map _.meta.id Registry.pedals
+  , cardOrder: []
   , hiddenPedals: []
   , focusPedalId: Nothing
   , boardsActivePedal: Nothing
   , suppressTwister: false
   , presets: []
   , boardPresets: []
+  , configError: Nothing
   }
 
 getValue :: PedalId -> CC -> EngineState -> Maybe MidiValue

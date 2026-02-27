@@ -25,6 +25,7 @@ pedal =
   { meta:
       { id: PedalId "brig"
       , name: "Brig"
+      , shortName: "Br"
       , brand: "Strymon"
       , color: fromHexString "#2d6a4f"
       , defaultChannel: 14
@@ -38,7 +39,8 @@ pedal =
       ]
   , resetOrder: []
   , twister: Just
-      { encoders:
+      { hue: 50
+      , encoders:
           [ Just (TwisterCC { cc: cc 11, center: Nothing, options: Just [ mv 1, mv 2, mv 3 ] })
           , Just (TwisterCC { cc: cc 12, center: Nothing, options: Nothing })
           , Just (TwisterCC { cc: cc 13, center: Nothing, options: Nothing })

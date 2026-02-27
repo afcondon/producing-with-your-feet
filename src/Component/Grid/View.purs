@@ -29,7 +29,8 @@ import Halogen as H
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
-import Pedals.Registry as Registry
+import Config.Registry (PedalRegistry)
+import Config.Registry as CRegistry
 
 -- Note: Pedal order pills are rendered in the Header component
 
@@ -39,6 +40,7 @@ type Input =
   , hiddenPedals :: Array PedalId
   , presets :: Array PedalPreset
   , connections :: MidiConnections
+  , registry :: PedalRegistry
   }
 
 data Output
@@ -125,7 +127,7 @@ render state =
   visibleOrder = Array.filter (\pid -> not (Array.elem pid state.input.hiddenPedals)) state.input.cardOrder
 
   renderCard pid = do
-    def <- Registry.findPedal pid
+    def <- CRegistry.findPedal state.input.registry pid
     ps <- Map.lookup pid state.input.engine
     let pedalPresets = Array.filter (\p -> p.pedalId == pid) state.input.presets
         isExpanded = Array.elem pid state.expandedPresets
@@ -227,7 +229,7 @@ render state =
           then HH.div [ HP.class_ (H.ClassName "empty-state") ] [ HH.text "No presets saved" ]
           else HH.div [ HP.class_ (H.ClassName "preset-list") ]
             (map (renderPresetItem st def) presets)
-      , case slotRange def.meta.brand of
+      , case CRegistry.slotRange st.input.registry def.meta.brand of
           Nothing -> HH.text ""
           Just range -> renderSlotGrid def range presets
       ]
@@ -358,7 +360,7 @@ render state =
         [ HH.text "LIB" ]
 
   badgeColor :: PedalId -> String
-  badgeColor pid = case Registry.findPedal pid of
+  badgeColor pid = case CRegistry.findPedal state.input.registry pid of
     Just def -> case def.meta.color of
       Just c -> "background: " <> toHexString c
       Nothing -> ""
@@ -386,15 +388,6 @@ render state =
 
   formatDate :: String -> String
   formatDate iso = SCU.take 10 iso
-
--- Slot ranges by brand
-slotRange :: String -> Maybe { start :: Int, count :: Int }
-slotRange = case _ of
-  "Meris"      -> Just { start: 0, count: 16 }
-  "Strymon"    -> Just { start: 50, count: 26 }
-  "Chase Bliss" -> Just { start: 1, count: 122 }
-  _            -> Nothing
-
 
 
 handleAction :: forall m. MonadAff m => Action -> H.HalogenM State Action () Output m Unit

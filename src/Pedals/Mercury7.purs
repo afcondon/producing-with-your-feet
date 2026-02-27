@@ -28,6 +28,7 @@ pedal =
   { meta:
       { id: PedalId "mercury7"
       , name: "Mercury7"
+      , shortName: "M7"
       , brand: "Meris"
       , color: fromHexString "#2a5a8a"
       , defaultChannel: 12
@@ -44,7 +45,8 @@ pedal =
       ]
   , resetOrder: []
   , twister: Just
-      { encoders:
+      { hue: 80
+      , encoders:
           [ Just (TwisterCC { cc: cc 16, center: Nothing, options: Nothing })
           , Just (TwisterCC { cc: cc 17, center: Nothing, options: Nothing })
           , Just (TwisterCC { cc: cc 18, center: Just (mv 64), options: Nothing })

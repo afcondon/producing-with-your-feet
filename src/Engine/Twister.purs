@@ -15,7 +15,7 @@ import Data.Int (round, toNumber)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Midi (CC, MidiValue, unMidiValue, unsafeMidiValue)
-import Data.Pedal (PedalDef, PedalId(..))
+import Data.Pedal (PedalDef, PedalId)
 import Data.Twister (TwisterButton(..), TwisterEncoder(..))
 import Engine (PedalState)
 
@@ -115,7 +115,9 @@ encoderLED index mEnc def ps =
   case mEnc of
     Nothing -> { index, ring: 0, hue: 0 }
     Just enc ->
-      let hue = pedalHue def.meta.id
+      let hue = case def.twister of
+                  Just tw -> tw.hue
+                  Nothing -> 0
       in case enc of
         TwisterCC { cc, center, options } ->
           let currentVal = fromMaybe 0 (map unMidiValue (Map.lookup cc ps.values))
@@ -164,18 +166,7 @@ ringValueForEncoder mEnc val =
           Nothing -> val
           Just c -> ringValue val (unMidiValue c)
 
-pedalHue :: PedalId -> Int
-pedalHue (PedalId pid) = case pid of
-  "onward" -> 15
-  "mood" -> 95
-  "clean" -> 60
-  "habit" -> 12
-  "hedra" -> 127
-  "brig" -> 50
-  "riverside" -> 10
-  "flint" -> 127
-  "iridium" -> 127
-  "lostandfound" -> 40
-  "lex" -> 8
-  "mercury7" -> 80
-  _ -> 0
+pedalHue :: PedalDef -> Int
+pedalHue def = case def.twister of
+  Just tw -> tw.hue
+  Nothing -> 0

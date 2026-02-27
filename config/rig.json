@@ -1,0 +1,94 @@
+{
+  "name": "Andrew's Board",
+  "storagePrefix": "pedal-explorer-",
+  "pedals": [
+    {
+      "file": "pedals/onward.json",
+      "channel": 2
+    },
+    {
+      "file": "pedals/mood.json",
+      "channel": 3
+    },
+    {
+      "file": "pedals/clean.json",
+      "channel": 4
+    },
+    {
+      "file": "pedals/habit.json",
+      "channel": 16
+    },
+    {
+      "file": "pedals/hedra.json",
+      "channel": 5
+    },
+    {
+      "file": "pedals/flint.json",
+      "channel": 7
+    },
+    {
+      "file": "pedals/lex.json",
+      "channel": 8
+    },
+    {
+      "file": "pedals/iridium.json",
+      "channel": 10
+    },
+    {
+      "file": "pedals/riverside.json",
+      "channel": 11
+    },
+    {
+      "file": "pedals/mercury7.json",
+      "channel": 12
+    },
+    {
+      "file": "pedals/brig.json",
+      "channel": 14
+    },
+    {
+      "file": "pedals/lostandfound.json",
+      "channel": 6
+    }
+  ],
+  "midiRouting": {
+    "pedalOutput": {
+      "match": "Morningstar"
+    },
+    "twisterInput": {
+      "match": "Midi Fighter Twister"
+    },
+    "twisterOutput": {
+      "match": "Midi Fighter Twister"
+    },
+    "loopyOutput": {
+      "match": "AUDIO4c"
+    },
+    "loopyChannel": 16
+  },
+  "slotRanges": [
+    {
+      "brand": "Meris",
+      "range": {
+        "start": 0,
+        "count": 16
+      }
+    },
+    {
+      "brand": "Strymon",
+      "range": {
+        "start": 50,
+        "count": 26
+      }
+    },
+    {
+      "brand": "Chase Bliss",
+      "range": {
+        "start": 1,
+        "count": 122
+      }
+    }
+  ],
+  "looper": "loopers/loopypro.json",
+  "controller": "controllers/mc6-banks.json"
+}

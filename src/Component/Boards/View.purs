@@ -27,13 +27,15 @@ import Halogen as H
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
-import Pedals.Registry as Registry
+import Config.Registry (PedalRegistry)
+import Config.Registry as CRegistry
 
 type Input =
   { engine :: EngineState
   , connections :: MidiConnections
   , presets :: Array PedalPreset
   , boardPresets :: Array BoardPreset
+  , registry :: PedalRegistry
   }
 
 data Output
@@ -107,7 +109,7 @@ component =
 initialState :: Input -> State
 initialState i =
   { input: i
-  , grid: Map.fromFoldable $ map (\def -> Tuple def.meta.id { engage: EngageNoChange, selectedPresetId: Nothing }) Registry.pedals
+  , grid: Map.fromFoldable $ map (\def -> Tuple def.meta.id { engage: EngageNoChange, selectedPresetId: Nothing }) (CRegistry.registryPedals i.registry)
   , recalling: Nothing
   , showSaveForm: false
   , saveName: ""
@@ -140,7 +142,7 @@ renderBuilderGrid state =
         then renderBoardSaveForm state
         else HH.text ""
     , HH.div [ HP.class_ (H.ClassName "boards-pedal-grid") ]
-        (map (renderPedalRow state) Registry.pedals)
+        (map (renderPedalRow state) (CRegistry.registryPedals state.input.registry))
     ]
 
 renderBoardSaveForm :: forall m. State -> H.ComponentHTML Action () m
@@ -275,7 +277,7 @@ renderBoardItemNormal state bp =
         then HH.div [ HP.class_ (H.ClassName "preset-description") ] [ HH.text bp.notes ]
         else HH.text ""
     , HH.div [ HP.class_ (H.ClassName "preset-description") ]
-        [ HH.text (boardSummary bp state.input.presets) ]
+        [ HH.text (boardSummary state.input.registry bp state.input.presets) ]
     , HH.div [ HP.class_ (H.ClassName "boards-item-actions") ]
         [ HH.button
             [ HP.class_ (H.ClassName "recall-btn")
@@ -328,8 +330,8 @@ renderEditForm state bp =
         ]
     ]
 
-boardSummary :: BoardPreset -> Array PedalPreset -> String
-boardSummary bp allPresets =
+boardSummary :: PedalRegistry -> BoardPreset -> Array PedalPreset -> String
+boardSummary reg bp allPresets =
   let entries = Map.toUnfoldable bp.pedals :: Array (Tuple PedalId BoardPresetEntry)
       parts = Array.mapMaybe summarizeEntry entries
   in if Array.null parts then "Empty" else Array.intercalate "  " parts
@@ -337,10 +339,10 @@ boardSummary bp allPresets =
   summarizeEntry (Tuple pid entry) = case entry.engage of
     EngageNoChange -> Nothing
     EngageOff -> do
-      def <- Registry.findPedal pid
+      def <- CRegistry.findPedal reg pid
       Just (def.meta.name <> " off")
     _ -> do
-      def <- Registry.findPedal pid
+      def <- CRegistry.findPedal reg pid
       let presetLabel = case entry.presetId of
             Just presetId -> case Array.find (\p -> p.id == presetId) allPresets of
               Just preset -> case preset.savedSlot of
@@ -388,7 +390,7 @@ handleAction = case _ of
           in case Map.lookup pid input.engine of
                Nothing -> g
                Just ps -> Map.update (\e -> Just e { engage = inferEngageState def ps.values }) pid g
-          ) st.grid Registry.pedals
+          ) st.grid (CRegistry.registryPedals input.registry)
     H.modify_ _ { input = input, grid = updatedGrid }
 
   ChangeEngage pid valStr -> do

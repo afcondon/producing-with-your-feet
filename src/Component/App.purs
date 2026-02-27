@@ -24,7 +24,9 @@ import Effect.Aff (Milliseconds(..), delay)
 import Effect.Aff.Class (class MonadAff)
 import Effect.Class (liftEffect)
 import Effect.Console as Console
-import Engine (AppState, View(..), initAppState)
+import Config.Decode as Decode
+import Data.Either (Either(..))
+import Engine (AppState, View(..), initAppState, initEngineFromPedals)
 import Engine.Storage as Storage
 import Engine.Twister as Twister
 import Foreign.FileIO as FileIO
@@ -33,7 +35,7 @@ import Halogen as H
 import Halogen.HTML as HH
 import Halogen.HTML.Properties as HP
 import Halogen.Subscription as HS
-import Pedals.Registry as Registry
+import Config.Registry as CRegistry
 import Type.Proxy (Proxy(..))
 import Web.DOM.Element as Element
 import Web.HTML (window)
@@ -79,8 +81,15 @@ component =
     }
 
 render :: forall m. MonadAff m => AppState -> H.ComponentHTML Action Slots m
-render state =
-  HH.div
+render state = case state.configError of
+  Just err ->
+    HH.div [ HP.class_ (H.ClassName "config-error") ]
+      [ HH.h2_ [ HH.text "Configuration Error" ]
+      , HH.p_ [ HH.text err ]
+      , HH.p_ [ HH.text "Check that config/rig.json and config/pedals/*.json are accessible." ]
+      ]
+  Nothing ->
+   HH.div
     [ HP.class_ (H.ClassName "app") ]
     [ HH.slot (Proxy :: _ "header") unit Header.component
         { view: state.view
@@ -88,6 +97,7 @@ render state =
         , cardOrder: state.cardOrder
         , hiddenPedals: state.hiddenPedals
         , boardsActivePedal: state.boardsActivePedal
+        , registry: state.registry
         }
         HandleHeader
     , case state.view of
@@ -98,6 +108,7 @@ render state =
             , hiddenPedals: state.hiddenPedals
             , presets: state.presets
             , connections: state.connections
+            , registry: state.registry
             }
             HandleGrid
         DetailView pid ->
@@ -105,6 +116,7 @@ render state =
             { engine: state.engine
             , pedalId: pid
             , cardOrder: state.cardOrder
+            , registry: state.registry
             }
             HandleDetail
         BoardsView -> HH.text ""
@@ -119,6 +131,7 @@ render state =
                   , hiddenPedals: []
                   , presets: state.presets
                   , connections: state.connections
+                  , registry: state.registry
                   }
                   HandleSideGrid
               ]
@@ -129,6 +142,7 @@ render state =
               , connections: state.connections
               , presets: state.presets
               , boardPresets: state.boardPresets
+              , registry: state.registry
               }
               HandleBoards
           , HH.div [ HP.class_ (H.ClassName "right-panels") ]
@@ -148,47 +162,61 @@ render state =
 handleAction :: forall o m. MonadAff m => Action -> H.HalogenM AppState Action Slots o m Unit
 handleAction = case _ of
   Initialize -> do
-    mEngine <- liftEffect Storage.loadEngineState
-    case mEngine of
-      Just eng -> H.modify_ _ { engine = eng }
-      Nothing -> pure unit
-    cardOrder <- liftEffect Storage.loadCardOrderParsed
-    H.modify_ _ { cardOrder = cardOrder }
-    presets <- liftEffect Storage.loadPresetsParsed
-    boardPresets <- liftEffect Storage.loadBoardPresetsParsed
-    H.modify_ _ { presets = presets, boardPresets = boardPresets }
-    st <- H.get
-    liftEffect do
-      w <- window
-      d <- document w
-      mb <- HTMLDocument.body d
-      for_ mb \b -> case st.view of
-        GridView -> Element.setClassName "grid-mode" (HTMLElement.toElement b)
-        _ -> pure unit
-    -- MIDI initialization
-    mAccess <- H.liftAff MIDI.requestMIDIAccess
-    outputs <- liftEffect $ MIDI.getOutputs mAccess
-    inputs <- liftEffect $ MIDI.getInputs mAccess
-    H.modify_ _ { connections { access = Just mAccess
-                               , availableOutputs = outputs
-                               , availableInputs = inputs } }
-    -- Auto-select Twister input
-    let mTwisterIn = Array.find (\p -> contains (Pattern "Midi Fighter Twister") p.name) inputs
-    for_ mTwisterIn \port ->
-      handleAction (SelectTwisterInput port.id)
-    -- Auto-select Twister output
-    let mTwisterOut = Array.find (\p -> contains (Pattern "Midi Fighter Twister") p.name) outputs
-    for_ mTwisterOut \port -> do
-      mOut <- liftEffect $ MIDI.openOutput mAccess port.id
-      H.modify_ _ { connections { twisterOutput = mOut, twisterOutputId = Just port.id } }
-    -- Auto-select pedal output (MC6 via USB)
-    let mPedalOut = Array.find (\p -> contains (Pattern "Morningstar") p.name) outputs
-    for_ mPedalOut \port ->
-      handleAction (SelectPedalOutput port.id)
-    -- Auto-select LoopyPro output (iPad via iConnectivity AUDIO4c)
-    let mLoopyOut = Array.find (\p -> contains (Pattern "AUDIO4c") p.name) outputs
-    for_ mLoopyOut \port ->
-      handleAction (SelectLoopyOutput port.id)
+    -- Load configuration from JSON files
+    eConfig <- H.liftAff $ Decode.loadRig "./"
+    case eConfig of
+      Left err -> do
+        liftEffect $ Console.log $ "Config load failed: " <> show err
+        H.modify_ _ { configError = Just (show err) }
+      Right { rig, pedals } -> do
+        let registry = CRegistry.mkRegistry pedals rig.slotRanges rig.midiRouting
+            defaultEngine = initEngineFromPedals pedals
+            defaultCardOrder = map _.meta.id pedals
+        H.modify_ _ { registry = registry, engine = defaultEngine, cardOrder = defaultCardOrder }
+        -- Load saved state from localStorage (overrides defaults)
+        mEngine <- liftEffect Storage.loadEngineState
+        case mEngine of
+          Just eng -> H.modify_ _ { engine = eng }
+          Nothing -> pure unit
+        cardOrder <- liftEffect $ Storage.loadCardOrderParsed defaultCardOrder
+        H.modify_ _ { cardOrder = cardOrder }
+        presets <- liftEffect Storage.loadPresetsParsed
+        boardPresets <- liftEffect Storage.loadBoardPresetsParsed
+        H.modify_ _ { presets = presets, boardPresets = boardPresets }
+        st <- H.get
+        liftEffect do
+          w <- window
+          d <- document w
+          mb <- HTMLDocument.body d
+          for_ mb \b -> case st.view of
+            GridView -> Element.setClassName "grid-mode" (HTMLElement.toElement b)
+            _ -> pure unit
+        -- MIDI initialization
+        mAccess <- H.liftAff MIDI.requestMIDIAccess
+        outputs <- liftEffect $ MIDI.getOutputs mAccess
+        inputs <- liftEffect $ MIDI.getInputs mAccess
+        H.modify_ _ { connections { access = Just mAccess
+                                   , availableOutputs = outputs
+                                   , availableInputs = inputs } }
+        -- Auto-select MIDI ports using routing patterns from registry
+        let routing = rig.midiRouting
+        -- Auto-select Twister input
+        let mTwisterIn = Array.find (\p -> contains (Pattern routing.twisterInput.match) p.name) inputs
+        for_ mTwisterIn \port ->
+          handleAction (SelectTwisterInput port.id)
+        -- Auto-select Twister output
+        let mTwisterOut = Array.find (\p -> contains (Pattern routing.twisterOutput.match) p.name) outputs
+        for_ mTwisterOut \port -> do
+          mOut <- liftEffect $ MIDI.openOutput mAccess port.id
+          H.modify_ _ { connections { twisterOutput = mOut, twisterOutputId = Just port.id } }
+        -- Auto-select pedal output (MC6 via USB)
+        let mPedalOut = Array.find (\p -> contains (Pattern routing.pedalOutput.match) p.name) outputs
+        for_ mPedalOut \port ->
+          handleAction (SelectPedalOutput port.id)
+        -- Auto-select LoopyPro output
+        let mLoopyOut = Array.find (\p -> contains (Pattern routing.loopyOutput.match) p.name) outputs
+        for_ mLoopyOut \port ->
+          handleAction (SelectLoopyOutput port.id)
 
   SetView view -> do
     H.modify_ _ { view = view }
@@ -227,7 +255,7 @@ handleAction = case _ of
     unless st.suppressTwister do
       for_ st.focusPedalId \focusPid ->
         when (focusPid == pid) do
-          case Registry.findPedal pid of
+          case CRegistry.findPedal st.registry pid of
             Nothing -> pure unit
             Just def -> case def.twister of
               Nothing -> pure unit
@@ -566,26 +594,29 @@ recallBoard board = do
 sendEngage :: forall o m. MonadAff m => PedalId -> EngageState -> H.HalogenM AppState Action Slots o m Unit
 sendEngage pid engState = case engState of
   EngageNoChange -> pure unit
-  _ -> for_ (Registry.findPedal pid) \def -> case def.engage of
-    SingleEngage cc -> case engState of
-      EngageOn  -> handleAction (SetValue pid cc (unsafeMidiValue 127))
-      EngageOff -> handleAction (SetValue pid cc (unsafeMidiValue 0))
-      _ -> pure unit
-    DualEngage { a, b } -> case engState of
-      EngageOn  -> do handleAction (SetValue pid a.cc (unsafeMidiValue 127))
-                      handleAction (SetValue pid b.cc (unsafeMidiValue 127))
-      EngageOff -> do handleAction (SetValue pid a.cc (unsafeMidiValue 0))
-                      handleAction (SetValue pid b.cc (unsafeMidiValue 0))
-      EngageA   -> do handleAction (SetValue pid a.cc (unsafeMidiValue 127))
-                      handleAction (SetValue pid b.cc (unsafeMidiValue 0))
-      EngageB   -> do handleAction (SetValue pid a.cc (unsafeMidiValue 0))
-                      handleAction (SetValue pid b.cc (unsafeMidiValue 127))
-      _ -> pure unit
+  _ -> do
+    st <- H.get
+    for_ (CRegistry.findPedal st.registry pid) \def -> case def.engage of
+      SingleEngage cc -> case engState of
+        EngageOn  -> handleAction (SetValue pid cc (unsafeMidiValue 127))
+        EngageOff -> handleAction (SetValue pid cc (unsafeMidiValue 0))
+        _ -> pure unit
+      DualEngage { a, b } -> case engState of
+        EngageOn  -> do handleAction (SetValue pid a.cc (unsafeMidiValue 127))
+                        handleAction (SetValue pid b.cc (unsafeMidiValue 127))
+        EngageOff -> do handleAction (SetValue pid a.cc (unsafeMidiValue 0))
+                        handleAction (SetValue pid b.cc (unsafeMidiValue 0))
+        EngageA   -> do handleAction (SetValue pid a.cc (unsafeMidiValue 127))
+                        handleAction (SetValue pid b.cc (unsafeMidiValue 0))
+        EngageB   -> do handleAction (SetValue pid a.cc (unsafeMidiValue 0))
+                        handleAction (SetValue pid b.cc (unsafeMidiValue 127))
+        _ -> pure unit
 
 -- Auto-engage: if a preset doesn't contain any engage CCs, send EngageOn
 autoEngageIfNeeded :: forall o m. MonadAff m => PedalPreset -> H.HalogenM AppState Action Slots o m Unit
-autoEngageIfNeeded preset =
-  for_ (Registry.findPedal preset.pedalId) \def ->
+autoEngageIfNeeded preset = do
+  st <- H.get
+  for_ (CRegistry.findPedal st.registry preset.pedalId) \def ->
     let ccs = engageCCs def.engage
     in unless (any (\cc -> Map.member cc preset.values) ccs) do
          sendEngage preset.pedalId EngageOn
@@ -597,7 +628,7 @@ handleEncoderTurn idx val = do
   st <- H.get
   case st.focusPedalId of
     Nothing -> pure unit
-    Just pid -> case Registry.findPedal pid of
+    Just pid -> case CRegistry.findPedal st.registry pid of
       Nothing -> pure unit
       Just def -> case Map.lookup pid st.engine of
         Nothing -> pure unit
@@ -615,7 +646,7 @@ handleEncoderPress idx = do
   st <- H.get
   case st.focusPedalId of
     Nothing -> pure unit
-    Just pid -> case Registry.findPedal pid of
+    Just pid -> case CRegistry.findPedal st.registry pid of
       Nothing -> pure unit
       Just def -> case Map.lookup pid st.engine of
         Nothing -> pure unit
@@ -664,7 +695,7 @@ sendRGBColor idx hue = do
 sendAllLEDs :: forall o m. MonadAff m => PedalId -> H.HalogenM AppState Action Slots o m Unit
 sendAllLEDs pid = do
   st <- H.get
-  case Registry.findPedal pid of
+  case CRegistry.findPedal st.registry pid of
     Nothing -> pure unit
     Just def -> case Map.lookup pid st.engine of
       Nothing -> pure unit

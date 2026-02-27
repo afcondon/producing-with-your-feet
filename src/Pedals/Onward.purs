@@ -23,6 +23,7 @@ pedal =
   { meta:
       { id: PedalId "onward"
       , name: "Onward"
+      , shortName: "On"
       , brand: "Chase Bliss"
       , color: fromHexString "#c8a96e"
       , defaultChannel: 2
@@ -68,7 +69,8 @@ infixr 6 Tuple as /\
 
 twisterMapping :: TwisterMapping
 twisterMapping =
-  { encoders:
+  { hue: 15
+  , encoders:
       [ Just (TwisterCC { cc: cc 14, center: Nothing, options: Nothing })
       , Just (TwisterCC { cc: cc 15, center: Just (mv 64), options: Nothing })
       , Just (TwisterCC { cc: cc 16, center: Just (mv 64), options: Nothing })

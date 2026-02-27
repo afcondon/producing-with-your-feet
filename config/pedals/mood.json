@@ -1,0 +1,880 @@
+{
+  "meta": {
+    "id": "mood",
+    "name": "MOOD",
+    "shortName": "MD",
+    "brand": "Chase Bliss",
+    "defaultChannel": 3,
+    "color": "#7b4f8a",
+    "saveInstructions": "Hold both footswitches until LEDs blink, then release."
+  },
+  "engage": {
+    "type": "dual",
+    "a": {
+      "cc": 102,
+      "label": "ML"
+    },
+    "b": {
+      "cc": 103,
+      "label": "Wet"
+    }
+  },
+  "baseline": {
+    "14": 64,
+    "15": 64,
+    "16": 64,
+    "17": 64,
+    "18": 64,
+    "19": 64,
+    "20": 64,
+    "21": 0,
+    "22": 0,
+    "23": 0,
+    "24": 64,
+    "25": 55,
+    "26": 127,
+    "27": 64,
+    "28": 64,
+    "29": 0,
+    "31": 2,
+    "32": 2,
+    "33": 0,
+    "51": 0,
+    "52": 0,
+    "53": 5,
+    "54": 5,
+    "55": 0,
+    "61": 0,
+    "62": 0,
+    "63": 0,
+    "64": 0,
+    "65": 0,
+    "66": 0,
+    "67": 0,
+    "68": 0,
+    "71": 0,
+    "72": 0,
+    "73": 0,
+    "74": 0,
+    "75": 0,
+    "76": 0,
+    "77": 0,
+    "78": 0,
+    "100": 0,
+    "102": 0,
+    "103": 0,
+    "105": 0,
+    "106": 0
+  },
+  "resetOrder": [],
+  "twister": {
+    "hue": 95,
+    "encoders": [
+      {
+        "cc": 14
+      },
+      {
+        "cc": 15,
+        "center": 64
+      },
+      {
+        "cc": 16
+      },
+      null,
+      {
+        "cc": 17
+      },
+      {
+        "cc": 18
+      },
+      {
+        "cc": 19
+      },
+      null,
+      {
+        "cc": 24
+      },
+      {
+        "cc": 25
+      },
+      {
+        "cc": 26
+      },
+      null,
+      {
+        "cc": 27
+      },
+      {
+        "cc": 28,
+        "center": 64
+      },
+      {
+        "cc": 29
+      },
+      null
+    ],
+    "buttons": [
+      null,
+      null,
+      null,
+      {
+        "type": "toggle",
+        "cc": 102
+      },
+      null,
+      null,
+      null,
+      {
+        "type": "toggle",
+        "cc": 103
+      },
+      null,
+      null,
+      null,
+      {
+        "type": "toggle",
+        "cc": 105
+      },
+      null,
+      null,
+      null,
+      {
+        "type": "toggle",
+        "cc": 106
+      }
+    ]
+  },
+  "modes": null,
+  "sections": [
+    {
+      "name": "Channels",
+      "compact": true,
+      "collapsed": false,
+      "layout": "dual-column",
+      "controls": [
+        {
+          "type": "toggle",
+          "cc": 102,
+          "label": "Micro-Looper",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 106,
+          "label": "ML Overdub",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "momentary",
+          "cc": 107,
+          "label": "Tap Tempo",
+          "value": 127
+        },
+        {
+          "type": "toggle",
+          "cc": 103,
+          "label": "Wet Channel",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 105,
+          "label": "Wet Freeze",
+          "onLabel": "On",
+          "offLabel": "Off"
+        }
+      ]
+    },
+    {
+      "name": "Mix & Routing",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "slider",
+          "cc": 15,
+          "label": "Mix",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Dry"
+            },
+            {
+              "position": 64,
+              "label": "Even"
+            },
+            {
+              "position": 127,
+              "label": "Wet"
+            }
+          ],
+          "description": "Wet/dry balance (ramp speed when ramping)"
+        },
+        {
+          "type": "slider",
+          "cc": 18,
+          "label": "Clock",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Lo-fi"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Hi-fi"
+            }
+          ],
+          "description": "Sample rate (2k-64k). Resolution/quality tradeoff."
+        },
+        {
+          "type": "segmented",
+          "cc": 22,
+          "label": "Routing",
+          "options": [
+            {
+              "label": "IN",
+              "value": 0,
+              "description": "Wet processes input only"
+            },
+            {
+              "label": "ML+IN",
+              "value": 2,
+              "description": "Input + micro-looper"
+            },
+            {
+              "label": "ML",
+              "value": 3,
+              "description": "Micro-looper only"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Micro-Looper",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "segmented",
+          "cc": 23,
+          "label": "Mode",
+          "options": [
+            {
+              "label": "Env",
+              "value": 0,
+              "description": "Audio-controlled looper"
+            },
+            {
+              "label": "Tape",
+              "value": 2,
+              "description": "Tape-style looper"
+            },
+            {
+              "label": "Stretch",
+              "value": 3,
+              "description": "Time-stretching looper"
+            }
+          ]
+        },
+        {
+          "type": "slider",
+          "cc": 16,
+          "label": "Length",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Short"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Long"
+            }
+          ],
+          "description": "Micro-Looper slice/loop length"
+        },
+        {
+          "type": "slider",
+          "cc": 19,
+          "label": {
+            "modeMap": {
+              "cc": 23,
+              "labels": {
+                "0": "Sensitivity",
+                "2": "Speed/Dir",
+                "3": "Amount"
+              }
+            }
+          },
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Min"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Wet Channel",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "segmented",
+          "cc": 21,
+          "label": "Mode",
+          "options": [
+            {
+              "label": "Reverb",
+              "value": 0,
+              "description": "Shimmer-y, smearable reverb"
+            },
+            {
+              "label": "Delay",
+              "value": 2,
+              "description": "Clock-rate delay with feedback"
+            },
+            {
+              "label": "Slip",
+              "value": 3,
+              "description": "Granular time slip"
+            }
+          ]
+        },
+        {
+          "type": "slider",
+          "cc": 14,
+          "label": {
+            "modeMap": {
+              "cc": 21,
+              "labels": {
+                "0": "Decay",
+                "2": "Delay Time",
+                "3": "Refresh Rate"
+              }
+            }
+          },
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Min"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ]
+        },
+        {
+          "type": "slider",
+          "cc": 17,
+          "label": {
+            "modeMap": {
+              "cc": 21,
+              "labels": {
+                "0": "Smear",
+                "2": "Feedback",
+                "3": "Speed"
+              }
+            }
+          },
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Min"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Hidden Options",
+      "compact": true,
+      "collapsed": true,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "slider",
+          "cc": 24,
+          "label": "Stereo Width",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Narrow"
+            },
+            {
+              "position": 127,
+              "label": "Wide"
+            }
+          ],
+          "description": "Panning width when Spread is on"
+        },
+        {
+          "type": "rangeSelect",
+          "cc": 25,
+          "label": "Ramp Waveform",
+          "ranges": [
+            {
+              "lo": 0,
+              "hi": 7,
+              "label": "Triangle"
+            },
+            {
+              "lo": 8,
+              "hi": 35,
+              "label": "Square"
+            },
+            {
+              "lo": 36,
+              "hi": 68,
+              "label": "Sine"
+            },
+            {
+              "lo": 69,
+              "hi": 104,
+              "label": "Random"
+            },
+            {
+              "lo": 105,
+              "hi": 127,
+              "label": "Smooth"
+            }
+          ]
+        },
+        {
+          "type": "slider",
+          "cc": 26,
+          "label": "Fade",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Fast fade"
+            },
+            {
+              "position": 127,
+              "label": "No fade"
+            }
+          ],
+          "description": "Loop fade during overdub"
+        },
+        {
+          "type": "slider",
+          "cc": 27,
+          "label": "Tone",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Dark"
+            },
+            {
+              "position": 127,
+              "label": "Bright"
+            }
+          ],
+          "description": "Hi-cut filter for Wet Channel"
+        },
+        {
+          "type": "slider",
+          "cc": 28,
+          "label": "Level Balance",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "ML loud"
+            },
+            {
+              "position": 64,
+              "label": "Even"
+            },
+            {
+              "position": 127,
+              "label": "Wet loud"
+            }
+          ],
+          "description": "Relative loudness of channels"
+        },
+        {
+          "type": "slider",
+          "cc": 29,
+          "label": "Direct ML",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "None"
+            },
+            {
+              "position": 127,
+              "label": "Full"
+            }
+          ],
+          "description": "Clean micro-loop blended into Wet"
+        },
+        {
+          "type": "segmented",
+          "cc": 31,
+          "label": "Sync",
+          "options": [
+            {
+              "label": "ML>Wet",
+              "value": 0,
+              "description": "ML synced to Wet"
+            },
+            {
+              "label": "None",
+              "value": 2
+            },
+            {
+              "label": "Wet>ML",
+              "value": 3,
+              "description": "Wet synced to ML"
+            }
+          ]
+        },
+        {
+          "type": "segmented",
+          "cc": 32,
+          "label": "Spread Solo",
+          "options": [
+            {
+              "label": "Wet",
+              "value": 0
+            },
+            {
+              "label": "Both",
+              "value": 2
+            },
+            {
+              "label": "ML",
+              "value": 3
+            }
+          ]
+        },
+        {
+          "type": "segmented",
+          "cc": 33,
+          "label": "Buffer Length",
+          "options": [
+            {
+              "label": "Half",
+              "value": 0,
+              "description": "MKI-style shorter"
+            },
+            {
+              "label": "Full",
+              "value": 127
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "DIP Switches",
+      "compact": true,
+      "collapsed": true,
+      "layout": "dip-grid",
+      "controls": [
+        {
+          "type": "toggle",
+          "cc": 61,
+          "label": "Time",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 62,
+          "label": "Modify L",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 63,
+          "label": "Clock",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 64,
+          "label": "Modify R",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 65,
+          "label": "Length",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 66,
+          "label": "Bounce",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 67,
+          "label": "Sweep",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 68,
+          "label": "Polarity",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 71,
+          "label": "Classic",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "MKI-style: noisy, deteriorating, resonant"
+        },
+        {
+          "type": "toggle",
+          "cc": 72,
+          "label": "Miso",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Mono in, stereo out"
+        },
+        {
+          "type": "toggle",
+          "cc": 73,
+          "label": "Spread",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Stereo processing"
+        },
+        {
+          "type": "toggle",
+          "cc": 74,
+          "label": "Dry Kill",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Remove dry signal"
+        },
+        {
+          "type": "toggle",
+          "cc": 75,
+          "label": "Trails",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Wet fades on bypass"
+        },
+        {
+          "type": "toggle",
+          "cc": 76,
+          "label": "Latch",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Hold becomes latch"
+        },
+        {
+          "type": "toggle",
+          "cc": 77,
+          "label": "No Dub",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Disable ML feedback/overdub"
+        },
+        {
+          "type": "toggle",
+          "cc": 78,
+          "label": "Smooth",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Smooth Clock knob (no stepping)"
+        }
+      ],
+      "description": "Physical DIP switches — left bank (ramping), right bank (customize)"
+    },
+    {
+      "name": "Ramping",
+      "compact": true,
+      "collapsed": true,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "toggle",
+          "cc": 52,
+          "label": "Ramp Active",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "slider",
+          "cc": 20,
+          "label": "Ramp Speed",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Slow"
+            },
+            {
+              "position": 127,
+              "label": "Fast"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Other",
+      "compact": true,
+      "collapsed": true,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "toggle",
+          "cc": 51,
+          "label": "MIDI Clock Follow",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "dropdown",
+          "cc": 53,
+          "label": "Wet Clock Div",
+          "options": [
+            {
+              "label": "32nd",
+              "value": 0
+            },
+            {
+              "label": "16th",
+              "value": 1
+            },
+            {
+              "label": "8th trip",
+              "value": 2
+            },
+            {
+              "label": "8th",
+              "value": 3
+            },
+            {
+              "label": "Dot 8th",
+              "value": 4
+            },
+            {
+              "label": "Quarter",
+              "value": 5
+            },
+            {
+              "label": "Half",
+              "value": 6
+            },
+            {
+              "label": "Whole",
+              "value": 7
+            }
+          ]
+        },
+        {
+          "type": "dropdown",
+          "cc": 54,
+          "label": "ML Clock Div",
+          "options": [
+            {
+              "label": "32nd",
+              "value": 0
+            },
+            {
+              "label": "16th",
+              "value": 1
+            },
+            {
+              "label": "8th trip",
+              "value": 2
+            },
+            {
+              "label": "8th",
+              "value": 3
+            },
+            {
+              "label": "Dot 8th",
+              "value": 4
+            },
+            {
+              "label": "Quarter",
+              "value": 5
+            },
+            {
+              "label": "Half",
+              "value": 6
+            },
+            {
+              "label": "Whole",
+              "value": 7
+            }
+          ]
+        },
+        {
+          "type": "toggle",
+          "cc": 55,
+          "label": "True Bypass",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "slider",
+          "cc": 100,
+          "label": "Expression",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Min"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

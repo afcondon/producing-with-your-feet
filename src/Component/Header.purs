@@ -19,7 +19,8 @@ import Halogen as H
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
-import Pedals.Registry as Registry
+import Config.Registry (PedalRegistry)
+import Config.Registry as CRegistry
 
 type Input =
   { view :: View
@@ -27,6 +28,7 @@ type Input =
   , cardOrder :: Array PedalId
   , hiddenPedals :: Array PedalId
   , boardsActivePedal :: Maybe PedalId
+  , registry :: PedalRegistry
   }
 
 data Output
@@ -95,7 +97,7 @@ render state =
     _ -> false
 
   renderPill pid = do
-    def <- Registry.findPedal pid
+    def <- CRegistry.findPedal state.registry pid
     let colorStyle = case def.meta.color of
           Just c -> "background: " <> toHexString c
           Nothing -> ""
@@ -108,7 +110,7 @@ render state =
       , HP.attr (HH.AttrName "style") colorStyle
       , HE.onClick \_ -> ClickPedal pid
       ]
-      [ HH.text (shortName def.meta.name) ]
+      [ HH.text def.meta.shortName ]
 
   midiPicker label selectedId ports onChange =
     let disconnected = selectedId == Nothing
@@ -128,22 +130,6 @@ render state =
         , HP.selected (selectedId == Just port.id)
         ]
         [ HH.text port.name ]
-
-shortName :: String -> String
-shortName = case _ of
-  "Flint"        -> "Fl"
-  "Brig"         -> "Br"
-  "Lex"          -> "Lx"
-  "MOOD"         -> "MD"
-  "Hedra"        -> "Ha"
-  "Riverside"    -> "Rv"
-  "Habit"        -> "Ht"
-  "Clean"        -> "Cl"
-  "Onward"       -> "On"
-  "Lost + Found" -> "LF"
-  "Iridium"      -> "Ir"
-  "Mercury7"     -> "M7"
-  other          -> other
 
 handleAction :: forall m. MonadAff m => Action -> H.HalogenM State Action () Output m Unit
 handleAction = case _ of

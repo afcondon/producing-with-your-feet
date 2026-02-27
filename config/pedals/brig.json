@@ -1,0 +1,308 @@
+{
+  "meta": {
+    "id": "brig",
+    "name": "Brig",
+    "shortName": "Br",
+    "brand": "Strymon",
+    "defaultChannel": 14,
+    "color": "#2d6a4f",
+    "saveInstructions": "Hold the footswitch for 3 seconds until LED flashes."
+  },
+  "engage": {
+    "type": "single",
+    "cc": 102
+  },
+  "baseline": {
+    "11": 1,
+    "12": 64,
+    "13": 64,
+    "14": 64,
+    "15": 0,
+    "16": 64,
+    "17": 1,
+    "102": 0
+  },
+  "resetOrder": [],
+  "twister": {
+    "hue": 50,
+    "encoders": [
+      {
+        "cc": 11,
+        "options": [
+          1,
+          2,
+          3
+        ]
+      },
+      {
+        "cc": 12
+      },
+      {
+        "cc": 13
+      },
+      {
+        "cc": 14
+      },
+      {
+        "cc": 15
+      },
+      {
+        "cc": 16,
+        "center": 64
+      },
+      {
+        "cc": 17,
+        "options": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    "buttons": [
+      {
+        "type": "toggle",
+        "cc": 102
+      },
+      {
+        "type": "toggle",
+        "cc": 97
+      },
+      null,
+      null,
+      {
+        "type": "momentary",
+        "cc": 93
+      },
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "modes": null,
+  "sections": [
+    {
+      "name": "Engage",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "toggle",
+          "cc": 102,
+          "label": "Bypass",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 97,
+          "label": "Infinite",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Hold repeats indefinitely"
+        },
+        {
+          "type": "momentary",
+          "cc": 93,
+          "label": "Tap Tempo",
+          "value": 127
+        }
+      ]
+    },
+    {
+      "name": "Controls",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "segmented",
+          "cc": 11,
+          "label": "Voice",
+          "options": [
+            {
+              "label": "3205",
+              "value": 1,
+              "description": "MN3205 chip: warm, dark"
+            },
+            {
+              "label": "3005",
+              "value": 2,
+              "description": "MN3005 chip: clear, bright"
+            },
+            {
+              "label": "Multi",
+              "value": 3,
+              "description": "Multi-head: rhythmic patterns"
+            }
+          ]
+        },
+        {
+          "type": "slider",
+          "cc": 12,
+          "label": "Time",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Short"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Long"
+            }
+          ],
+          "description": "Delay time"
+        },
+        {
+          "type": "slider",
+          "cc": 13,
+          "label": "Filter",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Dark"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Bright"
+            }
+          ],
+          "description": "EQ, noise, bucket loss of repeats"
+        },
+        {
+          "type": "slider",
+          "cc": 14,
+          "label": "Repeats",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Single"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Runaway"
+            }
+          ],
+          "description": "Feedback. High = oscillation."
+        },
+        {
+          "type": "slider",
+          "cc": 15,
+          "label": "Mod",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Off"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ],
+          "description": "LFO modulation of delay time"
+        },
+        {
+          "type": "slider",
+          "cc": 16,
+          "label": "Mix",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Dry"
+            },
+            {
+              "position": 64,
+              "label": "Even"
+            },
+            {
+              "position": 127,
+              "label": "Wet"
+            }
+          ],
+          "description": "Wet/dry balance"
+        }
+      ]
+    },
+    {
+      "name": "Settings",
+      "compact": true,
+      "collapsed": true,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "dropdown",
+          "cc": 17,
+          "label": "Tap Division",
+          "options": [
+            {
+              "label": "Triplet",
+              "value": 0
+            },
+            {
+              "label": "Eighth",
+              "value": 1
+            },
+            {
+              "label": "Dotted 8th",
+              "value": 2
+            },
+            {
+              "label": "Quarter",
+              "value": 3
+            }
+          ]
+        },
+        {
+          "type": "slider",
+          "cc": 100,
+          "label": "Expression",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Heel"
+            },
+            {
+              "position": 127,
+              "label": "Toe"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1029 @@
+{
+  "meta": {
+    "id": "lostandfound",
+    "name": "Lost + Found",
+    "shortName": "LF",
+    "brand": "Chase Bliss",
+    "defaultChannel": 6,
+    "color": "#5a8a3c",
+    "saveInstructions": "Hold both footswitches until LEDs blink, then release."
+  },
+  "engage": {
+    "type": "dual",
+    "a": {
+      "cc": 102,
+      "label": "Right"
+    },
+    "b": {
+      "cc": 103,
+      "label": "Left"
+    }
+  },
+  "baseline": {
+    "14": 64,
+    "15": 64,
+    "16": 64,
+    "17": 64,
+    "18": 64,
+    "19": 64,
+    "20": 64,
+    "21": 0,
+    "22": 2,
+    "23": 0,
+    "24": 64,
+    "25": 0,
+    "26": 64,
+    "27": 64,
+    "28": 0,
+    "29": 64,
+    "30": 100,
+    "32": 2,
+    "51": 0,
+    "52": 0,
+    "53": 6,
+    "54": 6,
+    "57": 0,
+    "61": 0,
+    "62": 0,
+    "63": 0,
+    "64": 0,
+    "65": 0,
+    "66": 0,
+    "67": 0,
+    "68": 0,
+    "71": 0,
+    "72": 0,
+    "73": 0,
+    "74": 0,
+    "75": 0,
+    "76": 0,
+    "77": 0,
+    "78": 0,
+    "100": 0,
+    "102": 0,
+    "103": 0,
+    "105": 0,
+    "106": 0
+  },
+  "resetOrder": [],
+  "twister": {
+    "hue": 40,
+    "encoders": [
+      {
+        "cc": 14
+      },
+      {
+        "cc": 15,
+        "center": 64
+      },
+      {
+        "cc": 16
+      },
+      null,
+      {
+        "cc": 17,
+        "center": 64
+      },
+      {
+        "cc": 18,
+        "center": 64
+      },
+      {
+        "cc": 19,
+        "center": 64
+      },
+      null,
+      {
+        "cc": 24
+      },
+      {
+        "cc": 25
+      },
+      {
+        "cc": 26
+      },
+      null,
+      {
+        "cc": 27,
+        "center": 64
+      },
+      {
+        "cc": 28
+      },
+      {
+        "cc": 29,
+        "center": 64
+      },
+      {
+        "cc": 30
+      }
+    ],
+    "buttons": [
+      null,
+      null,
+      null,
+      {
+        "type": "toggle",
+        "cc": 103
+      },
+      null,
+      null,
+      null,
+      {
+        "type": "toggle",
+        "cc": 102
+      },
+      null,
+      null,
+      null,
+      {
+        "type": "toggle",
+        "cc": 105
+      },
+      null,
+      null,
+      null,
+      {
+        "type": "toggle",
+        "cc": 106
+      }
+    ]
+  },
+  "modes": {
+    "effects": [
+      {
+        "id": "reverb",
+        "label": "Reverb",
+        "a": {
+          "name": "Slow-verb",
+          "time": "Size",
+          "modify": "Decay",
+          "alt": "Diffusion"
+        },
+        "b": {
+          "name": "Useful Ambience",
+          "time": "Size",
+          "modify": "Decay",
+          "alt": "Diffusion"
+        },
+        "hold": "Freeze"
+      },
+      {
+        "id": "pitch",
+        "label": "Pitch",
+        "a": {
+          "name": "Orchestral Swell",
+          "time": "Swell Time",
+          "modify": "Pitch",
+          "alt": "Feedback"
+        },
+        "b": {
+          "name": "Pitch Repeater",
+          "time": "Delay",
+          "modify": "Pitch",
+          "alt": "Repeats"
+        },
+        "hold": "Freeze"
+      },
+      {
+        "id": "warp",
+        "label": "Warp",
+        "a": {
+          "name": "Pinging Phaser",
+          "time": "Rate",
+          "modify": "Poles",
+          "alt": "Resonance"
+        },
+        "b": {
+          "name": "Spectral Modulator",
+          "time": "Rate",
+          "modify": "Depth",
+          "alt": "Resonance"
+        },
+        "hold": "Pause"
+      },
+      {
+        "id": "delay",
+        "label": "Delay",
+        "a": {
+          "name": "Tape Echo",
+          "time": "Delay Time",
+          "modify": "Feedback",
+          "alt": "Stability"
+        },
+        "b": {
+          "name": "Grain Tumbler",
+          "time": "Grain Size",
+          "modify": "Feedback",
+          "alt": "Grain Shape"
+        },
+        "hold": "Infinite"
+      },
+      {
+        "id": "synth",
+        "label": "Synth",
+        "a": {
+          "name": "Impulse Synth",
+          "time": "Portamento",
+          "modify": "Texture",
+          "alt": "Atk / Rel"
+        },
+        "b": {
+          "name": "Sympathetic Resonator",
+          "time": "Onset",
+          "modify": "Feedback",
+          "alt": "Octave"
+        },
+        "hold": "Infinite / Freeze"
+      },
+      {
+        "id": "bend",
+        "label": "Bend",
+        "a": {
+          "name": "Ensemble Expander",
+          "time": "Rate",
+          "modify": "Depth",
+          "alt": "Voices"
+        },
+        "b": {
+          "name": "Gen Lite",
+          "time": "Rate",
+          "modify": "Depth",
+          "alt": "Crinkles"
+        },
+        "hold": "Random / Tape Stop"
+      }
+    ],
+    "left": {
+      "modeCC": 21,
+      "swapCC": 74,
+      "native": [
+        "reverb",
+        "pitch",
+        "warp"
+      ]
+    },
+    "right": {
+      "modeCC": 23,
+      "swapCC": 75,
+      "native": [
+        "delay",
+        "synth",
+        "bend"
+      ]
+    }
+  },
+  "sections": [
+    {
+      "name": "Channels",
+      "compact": true,
+      "collapsed": false,
+      "layout": "dual-column",
+      "controls": [
+        {
+          "type": "toggle",
+          "cc": 103,
+          "label": "Left",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 105,
+          "label": "L Hold",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "labelSource": {
+            "channelMode": {
+              "channel": "left",
+              "role": "hold"
+            }
+          }
+        },
+        {
+          "type": "toggle",
+          "cc": 102,
+          "label": "Right",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 106,
+          "label": "R Hold",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "labelSource": {
+            "channelMode": {
+              "channel": "right",
+              "role": "hold"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Mix & Routing",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "slider",
+          "cc": 15,
+          "label": "Mix",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Dry"
+            },
+            {
+              "position": 64,
+              "label": "Even"
+            },
+            {
+              "position": 127,
+              "label": "Wet"
+            }
+          ],
+          "description": "Wet/dry balance"
+        },
+        {
+          "type": "slider",
+          "cc": 18,
+          "label": "Blend",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Left"
+            },
+            {
+              "position": 64,
+              "label": "Even"
+            },
+            {
+              "position": 127,
+              "label": "Right"
+            }
+          ],
+          "description": "Balance between L and R channels"
+        },
+        {
+          "type": "segmented",
+          "cc": 22,
+          "label": "Routing",
+          "options": [
+            {
+              "label": "L > R",
+              "value": 0,
+              "description": "Series: Left into Right"
+            },
+            {
+              "label": "L + R",
+              "value": 2,
+              "description": "Parallel"
+            },
+            {
+              "label": "L < R",
+              "value": 3,
+              "description": "Series: Right into Left"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Left Channel",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "modeRadio",
+          "label": "Left Effect",
+          "modeChannel": "left"
+        },
+        {
+          "type": "slider",
+          "cc": 14,
+          "label": {
+            "channelMode": {
+              "channel": "left",
+              "role": "time"
+            }
+          },
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Min"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ]
+        },
+        {
+          "type": "slider",
+          "cc": 17,
+          "label": {
+            "channelMode": {
+              "channel": "left",
+              "role": "modify"
+            }
+          },
+          "annotations": [
+            {
+              "position": 0,
+              "label": "A"
+            },
+            {
+              "position": 64,
+              "label": "Neutral"
+            },
+            {
+              "position": 127,
+              "label": "B"
+            }
+          ]
+        },
+        {
+          "type": "slider",
+          "cc": 24,
+          "label": {
+            "channelMode": {
+              "channel": "left",
+              "role": "alt"
+            }
+          },
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Min"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ]
+        },
+        {
+          "type": "slider",
+          "cc": 27,
+          "label": "L EQ",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Dark"
+            },
+            {
+              "position": 64,
+              "label": "Flat"
+            },
+            {
+              "position": 127,
+              "label": "Thin"
+            }
+          ],
+          "description": "Left channel tone"
+        }
+      ]
+    },
+    {
+      "name": "Right Channel",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "modeRadio",
+          "label": "Right Effect",
+          "modeChannel": "right"
+        },
+        {
+          "type": "slider",
+          "cc": 16,
+          "label": {
+            "channelMode": {
+              "channel": "right",
+              "role": "time"
+            }
+          },
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Min"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ]
+        },
+        {
+          "type": "slider",
+          "cc": 19,
+          "label": {
+            "channelMode": {
+              "channel": "right",
+              "role": "modify"
+            }
+          },
+          "annotations": [
+            {
+              "position": 0,
+              "label": "A"
+            },
+            {
+              "position": 64,
+              "label": "Neutral"
+            },
+            {
+              "position": 127,
+              "label": "B"
+            }
+          ]
+        },
+        {
+          "type": "slider",
+          "cc": 26,
+          "label": {
+            "channelMode": {
+              "channel": "right",
+              "role": "alt"
+            }
+          },
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Min"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ]
+        },
+        {
+          "type": "slider",
+          "cc": 29,
+          "label": "R EQ",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Dark"
+            },
+            {
+              "position": 64,
+              "label": "Flat"
+            },
+            {
+              "position": 127,
+              "label": "Thin"
+            }
+          ],
+          "description": "Right channel tone"
+        }
+      ]
+    },
+    {
+      "name": "Hidden Options",
+      "compact": true,
+      "collapsed": true,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "slider",
+          "cc": 28,
+          "label": "Glue",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Off"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ],
+          "description": "Compressor / saturator"
+        },
+        {
+          "type": "slider",
+          "cc": 25,
+          "label": "Spill",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "None"
+            },
+            {
+              "position": 127,
+              "label": "Full"
+            }
+          ],
+          "description": "In series routing, apply second effect to dry signal too"
+        },
+        {
+          "type": "slider",
+          "cc": 30,
+          "label": "Master Wet Vol",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Off"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ]
+        },
+        {
+          "type": "segmented",
+          "cc": 32,
+          "label": "Spread Routing",
+          "options": [
+            {
+              "label": "L Only",
+              "value": 0
+            },
+            {
+              "label": "Both",
+              "value": 2
+            },
+            {
+              "label": "R Only",
+              "value": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "DIP Switches",
+      "compact": true,
+      "collapsed": true,
+      "layout": "dip-grid",
+      "controls": [
+        {
+          "type": "toggle",
+          "cc": 61,
+          "label": "L Time",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 62,
+          "label": "L Modify",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 63,
+          "label": "Blend",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 64,
+          "label": "R Modify",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 65,
+          "label": "R Time",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 66,
+          "label": "Bounce",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 67,
+          "label": "Sweep",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 68,
+          "label": "Polarity",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 71,
+          "label": "Miso",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Mono in, stereo out"
+        },
+        {
+          "type": "toggle",
+          "cc": 72,
+          "label": "Spread",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Stereo processing (each mode has unique stereo image)"
+        },
+        {
+          "type": "toggle",
+          "cc": 73,
+          "label": "Latch",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Hold becomes latch instead of momentary"
+        },
+        {
+          "type": "toggle",
+          "cc": 74,
+          "label": "L Swap",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Swap left channel effects with right"
+        },
+        {
+          "type": "toggle",
+          "cc": 75,
+          "label": "R Swap",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Swap right channel effects with left"
+        },
+        {
+          "type": "toggle",
+          "cc": 76,
+          "label": "Unsync",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Disconnect channel tempos for free timing"
+        },
+        {
+          "type": "toggle",
+          "cc": 77,
+          "label": "Trails",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Effects fade out naturally after bypass"
+        },
+        {
+          "type": "toggle",
+          "cc": 78,
+          "label": "Bank",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Switch to alternate preset bank (3 & 4)"
+        }
+      ],
+      "description": "Physical DIP switches — left bank (ramping), right bank (customize)"
+    },
+    {
+      "name": "Ramping",
+      "compact": true,
+      "collapsed": true,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "toggle",
+          "cc": 52,
+          "label": "Ramp/Bounce Active",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "slider",
+          "cc": 20,
+          "label": "Ramp Speed",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Slow"
+            },
+            {
+              "position": 127,
+              "label": "Fast"
+            }
+          ]
+        }
+      ],
+      "description": "Automate knob movement (bounce or one-shot ramp)"
+    },
+    {
+      "name": "Other",
+      "compact": true,
+      "collapsed": true,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "toggle",
+          "cc": 57,
+          "label": "Dry Kill",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Remove dry signal from output"
+        },
+        {
+          "type": "toggle",
+          "cc": 51,
+          "label": "MIDI Clock Follow",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Sync timing to external clock"
+        },
+        {
+          "type": "dropdown",
+          "cc": 53,
+          "label": "L Subdivision",
+          "options": [
+            {
+              "label": "32nd",
+              "value": 0
+            },
+            {
+              "label": "16th",
+              "value": 1
+            },
+            {
+              "label": "Triplet 16th",
+              "value": 2
+            },
+            {
+              "label": "8th",
+              "value": 3
+            },
+            {
+              "label": "Triplet 8th",
+              "value": 4
+            },
+            {
+              "label": "Dotted 8th",
+              "value": 5
+            },
+            {
+              "label": "Quarter",
+              "value": 6
+            },
+            {
+              "label": "Triplet Qtr",
+              "value": 7
+            },
+            {
+              "label": "Dotted Qtr",
+              "value": 8
+            },
+            {
+              "label": "Half",
+              "value": 9
+            },
+            {
+              "label": "Dotted Half",
+              "value": 10
+            },
+            {
+              "label": "Whole",
+              "value": 11
+            },
+            {
+              "label": "Double Whole",
+              "value": 12
+            }
+          ]
+        },
+        {
+          "type": "dropdown",
+          "cc": 54,
+          "label": "R Subdivision",
+          "options": [
+            {
+              "label": "32nd",
+              "value": 0
+            },
+            {
+              "label": "16th",
+              "value": 1
+            },
+            {
+              "label": "Triplet 16th",
+              "value": 2
+            },
+            {
+              "label": "8th",
+              "value": 3
+            },
+            {
+              "label": "Triplet 8th",
+              "value": 4
+            },
+            {
+              "label": "Dotted 8th",
+              "value": 5
+            },
+            {
+              "label": "Quarter",
+              "value": 6
+            },
+            {
+              "label": "Triplet Qtr",
+              "value": 7
+            },
+            {
+              "label": "Dotted Qtr",
+              "value": 8
+            },
+            {
+              "label": "Half",
+              "value": 9
+            },
+            {
+              "label": "Dotted Half",
+              "value": 10
+            },
+            {
+              "label": "Whole",
+              "value": 11
+            },
+            {
+              "label": "Double Whole",
+              "value": 12
+            }
+          ]
+        },
+        {
+          "type": "momentary",
+          "cc": 112,
+          "label": "Random L Mode",
+          "value": 127
+        },
+        {
+          "type": "momentary",
+          "cc": 113,
+          "label": "Random R Mode",
+          "value": 127
+        },
+        {
+          "type": "momentary",
+          "cc": 114,
+          "label": "Random Both",
+          "value": 127
+        },
+        {
+          "type": "slider",
+          "cc": 100,
+          "label": "Expression",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Min"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ]
+        },
+        {
+          "type": "momentary",
+          "cc": 93,
+          "label": "Tap Tempo",
+          "value": 127
+        }
+      ]
+    }
+  ]
+}

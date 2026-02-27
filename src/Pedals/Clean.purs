@@ -25,6 +25,7 @@ pedal =
   { meta:
       { id: PedalId "clean"
       , name: "Clean"
+      , shortName: "Cl"
       , brand: "Chase Bliss"
       , color: fromHexString "#2a9d8f"
       , defaultChannel: 4
@@ -48,7 +49,8 @@ pedal =
       ]
   , resetOrder: []
   , twister: Just
-      { encoders:
+      { hue: 60
+      , encoders:
           [ Just (TwisterCC { cc: cc 14, center: Nothing, options: Nothing })
           , Just (TwisterCC { cc: cc 15, center: Nothing, options: Nothing })
           , Just (TwisterCC { cc: cc 16, center: Nothing, options: Nothing })

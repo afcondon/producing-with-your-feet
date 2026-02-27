@@ -28,6 +28,7 @@ pedal =
   { meta:
       { id: PedalId "mood"
       , name: "MOOD"
+      , shortName: "MD"
       , brand: "Chase Bliss"
       , color: fromHexString "#7b4f8a"
       , defaultChannel: 3
@@ -54,7 +55,8 @@ pedal =
       ]
   , resetOrder: []
   , twister: Just
-      { encoders:
+      { hue: 95
+      , encoders:
           [ Just (TwisterCC { cc: cc 14, center: Nothing, options: Nothing })
           , Just (TwisterCC { cc: cc 15, center: Just (mv 64), options: Nothing })
           , Just (TwisterCC { cc: cc 16, center: Nothing, options: Nothing })

@@ -45,7 +45,6 @@ import Data.Tuple (Tuple(..))
 import Effect (Effect)
 import Engine (EngineState, PedalState)
 import Foreign.Object as FO
-import Pedals.Registry as Registry
 import Web.HTML (window)
 import Web.HTML.Window (localStorage)
 import Web.Storage.Storage as Storage
@@ -306,10 +305,10 @@ loadEngineState = do
       mEngine <- getItem EngineKey
       pure (mEngine >>= parseEngine)
 
-loadCardOrderParsed :: Effect (Array PedalId)
-loadCardOrderParsed = do
+loadCardOrderParsed :: Array PedalId -> Effect (Array PedalId)
+loadCardOrderParsed defaultOrder = do
   mStr <- getItem CardOrderKey
-  pure $ fromMaybe (map _.meta.id Registry.pedals) (mStr >>= parseCardOrder)
+  pure $ fromMaybe defaultOrder (mStr >>= parseCardOrder)
 
 loadPresetsParsed :: Effect (Array PedalPreset)
 loadPresetsParsed = do

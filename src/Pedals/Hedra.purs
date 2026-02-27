@@ -55,6 +55,7 @@ pedal =
   { meta:
       { id: PedalId "hedra"
       , name: "Hedra"
+      , shortName: "Ha"
       , brand: "Meris"
       , color: fromHexString "#8a8f94"
       , defaultChannel: 5
@@ -71,7 +72,8 @@ pedal =
       ]
   , resetOrder: []
   , twister: Just
-      { encoders:
+      { hue: 127
+      , encoders:
           [ Just (TwisterCC { cc: cc 19, center: Just (mv 56), options: Nothing })
           , Just (TwisterCC { cc: cc 20, center: Just (mv 56), options: Nothing })
           , Just (TwisterCC { cc: cc 21, center: Just (mv 56), options: Nothing })

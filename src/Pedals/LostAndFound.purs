@@ -26,6 +26,7 @@ pedal =
   { meta:
       { id: PedalId "lostandfound"
       , name: "Lost + Found"
+      , shortName: "LF"
       , brand: "Chase Bliss"
       , color: fromHexString "#5a8a3c"
       , defaultChannel: 6
@@ -55,7 +56,8 @@ pedal =
       ]
   , resetOrder: []
   , twister: Just
-      { encoders:
+      { hue: 40
+      , encoders:
           [ Just (TwisterCC { cc: cc 14, center: Nothing, options: Nothing })
           , Just (TwisterCC { cc: cc 15, center: Just (mv 64), options: Nothing })
           , Just (TwisterCC { cc: cc 16, center: Nothing, options: Nothing })

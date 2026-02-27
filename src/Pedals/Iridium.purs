@@ -25,6 +25,7 @@ pedal =
   { meta:
       { id: PedalId "iridium"
       , name: "Iridium"
+      , shortName: "Ir"
       , brand: "Strymon"
       , color: fromHexString "#5a6a8a"
       , defaultChannel: 10
@@ -39,7 +40,8 @@ pedal =
       ]
   , resetOrder: []
   , twister: Just
-      { encoders:
+      { hue: 127
+      , encoders:
           [ Just (TwisterCC { cc: cc 12, center: Nothing, options: Nothing })
           , Just (TwisterCC { cc: cc 13, center: Nothing, options: Nothing })
           , Just (TwisterCC { cc: cc 14, center: Just (mv 64), options: Nothing })

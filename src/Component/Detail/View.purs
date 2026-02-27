@@ -23,12 +23,14 @@ import Halogen as H
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
-import Pedals.Registry as Registry
+import Config.Registry (PedalRegistry)
+import Config.Registry as CRegistry
 
 type Input =
   { engine :: EngineState
   , pedalId :: PedalId
   , cardOrder :: Array PedalId
+  , registry :: PedalRegistry
   }
 
 data Output
@@ -71,7 +73,7 @@ render state =
           Just ps -> renderPedal def ps state
     ]
   where
-  mDef = Registry.findPedal state.input.pedalId
+  mDef = CRegistry.findPedal state.input.registry state.input.pedalId
   mPs = Map.lookup state.input.pedalId state.input.engine
 
 renderPedal :: forall m. PedalDef -> PedalState -> State -> H.ComponentHTML Action () m

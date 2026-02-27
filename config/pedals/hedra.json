@@ -1,0 +1,1117 @@
+{
+  "meta": {
+    "id": "hedra",
+    "name": "Hedra",
+    "shortName": "Ha",
+    "brand": "Meris",
+    "defaultChannel": 5,
+    "color": "#8a8f94",
+    "saveInstructions": "Hold ALT and tap the preset footswitch."
+  },
+  "engage": {
+    "type": "single",
+    "cc": 14
+  },
+  "baseline": {
+    "4": 0,
+    "9": 0,
+    "14": 0,
+    "15": 64,
+    "16": 0,
+    "17": 0,
+    "18": 64,
+    "19": 56,
+    "20": 56,
+    "21": 56,
+    "22": 0,
+    "23": 64,
+    "24": 0,
+    "25": 125,
+    "26": 125,
+    "27": 125,
+    "28": 0,
+    "29": 0,
+    "30": 0,
+    "31": 0
+  },
+  "resetOrder": [],
+  "twister": {
+    "hue": 127,
+    "encoders": [
+      {
+        "cc": 19,
+        "center": 56
+      },
+      {
+        "cc": 20,
+        "center": 56
+      },
+      {
+        "cc": 21,
+        "center": 56
+      },
+      {
+        "cc": 15
+      },
+      {
+        "cc": 18,
+        "center": 64
+      },
+      {
+        "cc": 24
+      },
+      {
+        "cc": 16,
+        "options": [
+          0,
+          7,
+          18,
+          31,
+          42,
+          53,
+          62,
+          72,
+          82,
+          92,
+          103,
+          114,
+          123
+        ]
+      },
+      {
+        "cc": 22,
+        "options": [
+          5,
+          24,
+          48,
+          68,
+          88,
+          108,
+          123
+        ]
+      },
+      {
+        "cc": 25
+      },
+      {
+        "cc": 26
+      },
+      {
+        "cc": 27
+      },
+      {
+        "cc": 29,
+        "options": [
+          15,
+          47,
+          79,
+          111
+        ]
+      },
+      {
+        "cc": 17
+      },
+      {
+        "cc": 23,
+        "center": 64
+      },
+      null,
+      null
+    ],
+    "buttons": [
+      {
+        "type": "toggle",
+        "cc": 14
+      },
+      {
+        "type": "toggle",
+        "cc": 9
+      },
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      {
+        "type": "momentary",
+        "cc": 28
+      },
+      null,
+      null,
+      null,
+      {
+        "type": "toggle",
+        "cc": 30
+      },
+      {
+        "type": "toggle",
+        "cc": 31
+      },
+      null,
+      null
+    ]
+  },
+  "modes": null,
+  "sections": [
+    {
+      "name": "Engage",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "toggle",
+          "cc": 14,
+          "label": "Bypass",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 9,
+          "label": "Half Speed",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Delay runs at half speed"
+        },
+        {
+          "type": "momentary",
+          "cc": 28,
+          "label": "Tap Tempo",
+          "value": 127
+        }
+      ]
+    },
+    {
+      "name": "Pitch Voices",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "modeRanges",
+          "cc": 19,
+          "label": "Pitch 1",
+          "modeCC": 22,
+          "modes": [
+            {
+              "lo": 0,
+              "hi": 97,
+              "ranges": [
+                [
+                  {
+                    "lo": 0,
+                    "hi": 0,
+                    "label": "Off"
+                  },
+                  {
+                    "lo": 1,
+                    "hi": 7,
+                    "label": "-2Oct"
+                  },
+                  {
+                    "lo": 8,
+                    "hi": 11,
+                    "label": "-1Oct"
+                  },
+                  {
+                    "lo": 116,
+                    "hi": 119,
+                    "label": "+1Oct"
+                  },
+                  {
+                    "lo": 120,
+                    "hi": 127,
+                    "label": "+2Oct"
+                  }
+                ],
+                [
+                  {
+                    "lo": 12,
+                    "hi": 19,
+                    "label": "-7"
+                  },
+                  {
+                    "lo": 20,
+                    "hi": 27,
+                    "label": "-6"
+                  },
+                  {
+                    "lo": 28,
+                    "hi": 35,
+                    "label": "-5"
+                  },
+                  {
+                    "lo": 36,
+                    "hi": 43,
+                    "label": "-4"
+                  },
+                  {
+                    "lo": 44,
+                    "hi": 51,
+                    "label": "-3"
+                  },
+                  {
+                    "lo": 52,
+                    "hi": 59,
+                    "label": "-2"
+                  },
+                  {
+                    "lo": 60,
+                    "hi": 67,
+                    "label": "U"
+                  },
+                  {
+                    "lo": 68,
+                    "hi": 75,
+                    "label": "+2"
+                  },
+                  {
+                    "lo": 76,
+                    "hi": 83,
+                    "label": "+3"
+                  },
+                  {
+                    "lo": 84,
+                    "hi": 91,
+                    "label": "+4"
+                  },
+                  {
+                    "lo": 92,
+                    "hi": 99,
+                    "label": "+5"
+                  },
+                  {
+                    "lo": 100,
+                    "hi": 107,
+                    "label": "+6"
+                  },
+                  {
+                    "lo": 108,
+                    "hi": 115,
+                    "label": "+7"
+                  }
+                ]
+              ]
+            },
+            {
+              "lo": 98,
+              "hi": 127,
+              "ranges": [
+                [
+                  {
+                    "lo": 0,
+                    "hi": 0,
+                    "label": "Off"
+                  },
+                  {
+                    "lo": 1,
+                    "hi": 19,
+                    "label": "-2Oct"
+                  },
+                  {
+                    "lo": 20,
+                    "hi": 27,
+                    "label": "-1Oct"
+                  },
+                  {
+                    "lo": 100,
+                    "hi": 107,
+                    "label": "+1Oct"
+                  },
+                  {
+                    "lo": 108,
+                    "hi": 127,
+                    "label": "+2Oct"
+                  }
+                ],
+                [
+                  {
+                    "lo": 28,
+                    "hi": 35,
+                    "label": "-5"
+                  },
+                  {
+                    "lo": 36,
+                    "hi": 43,
+                    "label": "-4"
+                  },
+                  {
+                    "lo": 44,
+                    "hi": 51,
+                    "label": "-3"
+                  },
+                  {
+                    "lo": 52,
+                    "hi": 59,
+                    "label": "-2"
+                  },
+                  {
+                    "lo": 60,
+                    "hi": 67,
+                    "label": "U"
+                  },
+                  {
+                    "lo": 68,
+                    "hi": 75,
+                    "label": "+2"
+                  },
+                  {
+                    "lo": 76,
+                    "hi": 83,
+                    "label": "+3"
+                  },
+                  {
+                    "lo": 84,
+                    "hi": 91,
+                    "label": "+4"
+                  },
+                  {
+                    "lo": 92,
+                    "hi": 99,
+                    "label": "+5"
+                  }
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "type": "modeRanges",
+          "cc": 20,
+          "label": "Pitch 2",
+          "modeCC": 22,
+          "modes": [
+            {
+              "lo": 0,
+              "hi": 97,
+              "ranges": [
+                [
+                  {
+                    "lo": 0,
+                    "hi": 0,
+                    "label": "Off"
+                  },
+                  {
+                    "lo": 1,
+                    "hi": 7,
+                    "label": "-2Oct"
+                  },
+                  {
+                    "lo": 8,
+                    "hi": 11,
+                    "label": "-1Oct"
+                  },
+                  {
+                    "lo": 116,
+                    "hi": 119,
+                    "label": "+1Oct"
+                  },
+                  {
+                    "lo": 120,
+                    "hi": 127,
+                    "label": "+2Oct"
+                  }
+                ],
+                [
+                  {
+                    "lo": 12,
+                    "hi": 19,
+                    "label": "-7"
+                  },
+                  {
+                    "lo": 20,
+                    "hi": 27,
+                    "label": "-6"
+                  },
+                  {
+                    "lo": 28,
+                    "hi": 35,
+                    "label": "-5"
+                  },
+                  {
+                    "lo": 36,
+                    "hi": 43,
+                    "label": "-4"
+                  },
+                  {
+                    "lo": 44,
+                    "hi": 51,
+                    "label": "-3"
+                  },
+                  {
+                    "lo": 52,
+                    "hi": 59,
+                    "label": "-2"
+                  },
+                  {
+                    "lo": 60,
+                    "hi": 67,
+                    "label": "U"
+                  },
+                  {
+                    "lo": 68,
+                    "hi": 75,
+                    "label": "+2"
+                  },
+                  {
+                    "lo": 76,
+                    "hi": 83,
+                    "label": "+3"
+                  },
+                  {
+                    "lo": 84,
+                    "hi": 91,
+                    "label": "+4"
+                  },
+                  {
+                    "lo": 92,
+                    "hi": 99,
+                    "label": "+5"
+                  },
+                  {
+                    "lo": 100,
+                    "hi": 107,
+                    "label": "+6"
+                  },
+                  {
+                    "lo": 108,
+                    "hi": 115,
+                    "label": "+7"
+                  }
+                ]
+              ]
+            },
+            {
+              "lo": 98,
+              "hi": 127,
+              "ranges": [
+                [
+                  {
+                    "lo": 0,
+                    "hi": 0,
+                    "label": "Off"
+                  },
+                  {
+                    "lo": 1,
+                    "hi": 19,
+                    "label": "-2Oct"
+                  },
+                  {
+                    "lo": 20,
+                    "hi": 27,
+                    "label": "-1Oct"
+                  },
+                  {
+                    "lo": 100,
+                    "hi": 107,
+                    "label": "+1Oct"
+                  },
+                  {
+                    "lo": 108,
+                    "hi": 127,
+                    "label": "+2Oct"
+                  }
+                ],
+                [
+                  {
+                    "lo": 28,
+                    "hi": 35,
+                    "label": "-5"
+                  },
+                  {
+                    "lo": 36,
+                    "hi": 43,
+                    "label": "-4"
+                  },
+                  {
+                    "lo": 44,
+                    "hi": 51,
+                    "label": "-3"
+                  },
+                  {
+                    "lo": 52,
+                    "hi": 59,
+                    "label": "-2"
+                  },
+                  {
+                    "lo": 60,
+                    "hi": 67,
+                    "label": "U"
+                  },
+                  {
+                    "lo": 68,
+                    "hi": 75,
+                    "label": "+2"
+                  },
+                  {
+                    "lo": 76,
+                    "hi": 83,
+                    "label": "+3"
+                  },
+                  {
+                    "lo": 84,
+                    "hi": 91,
+                    "label": "+4"
+                  },
+                  {
+                    "lo": 92,
+                    "hi": 99,
+                    "label": "+5"
+                  }
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "type": "modeRanges",
+          "cc": 21,
+          "label": "Pitch 3",
+          "modeCC": 22,
+          "modes": [
+            {
+              "lo": 0,
+              "hi": 97,
+              "ranges": [
+                [
+                  {
+                    "lo": 0,
+                    "hi": 0,
+                    "label": "Off"
+                  },
+                  {
+                    "lo": 1,
+                    "hi": 7,
+                    "label": "-2Oct"
+                  },
+                  {
+                    "lo": 8,
+                    "hi": 11,
+                    "label": "-1Oct"
+                  },
+                  {
+                    "lo": 116,
+                    "hi": 119,
+                    "label": "+1Oct"
+                  },
+                  {
+                    "lo": 120,
+                    "hi": 127,
+                    "label": "+2Oct"
+                  }
+                ],
+                [
+                  {
+                    "lo": 12,
+                    "hi": 19,
+                    "label": "-7"
+                  },
+                  {
+                    "lo": 20,
+                    "hi": 27,
+                    "label": "-6"
+                  },
+                  {
+                    "lo": 28,
+                    "hi": 35,
+                    "label": "-5"
+                  },
+                  {
+                    "lo": 36,
+                    "hi": 43,
+                    "label": "-4"
+                  },
+                  {
+                    "lo": 44,
+                    "hi": 51,
+                    "label": "-3"
+                  },
+                  {
+                    "lo": 52,
+                    "hi": 59,
+                    "label": "-2"
+                  },
+                  {
+                    "lo": 60,
+                    "hi": 67,
+                    "label": "U"
+                  },
+                  {
+                    "lo": 68,
+                    "hi": 75,
+                    "label": "+2"
+                  },
+                  {
+                    "lo": 76,
+                    "hi": 83,
+                    "label": "+3"
+                  },
+                  {
+                    "lo": 84,
+                    "hi": 91,
+                    "label": "+4"
+                  },
+                  {
+                    "lo": 92,
+                    "hi": 99,
+                    "label": "+5"
+                  },
+                  {
+                    "lo": 100,
+                    "hi": 107,
+                    "label": "+6"
+                  },
+                  {
+                    "lo": 108,
+                    "hi": 115,
+                    "label": "+7"
+                  }
+                ]
+              ]
+            },
+            {
+              "lo": 98,
+              "hi": 127,
+              "ranges": [
+                [
+                  {
+                    "lo": 0,
+                    "hi": 0,
+                    "label": "Off"
+                  },
+                  {
+                    "lo": 1,
+                    "hi": 19,
+                    "label": "-2Oct"
+                  },
+                  {
+                    "lo": 20,
+                    "hi": 27,
+                    "label": "-1Oct"
+                  },
+                  {
+                    "lo": 100,
+                    "hi": 107,
+                    "label": "+1Oct"
+                  },
+                  {
+                    "lo": 108,
+                    "hi": 127,
+                    "label": "+2Oct"
+                  }
+                ],
+                [
+                  {
+                    "lo": 28,
+                    "hi": 35,
+                    "label": "-5"
+                  },
+                  {
+                    "lo": 36,
+                    "hi": 43,
+                    "label": "-4"
+                  },
+                  {
+                    "lo": 44,
+                    "hi": 51,
+                    "label": "-3"
+                  },
+                  {
+                    "lo": 52,
+                    "hi": 59,
+                    "label": "-2"
+                  },
+                  {
+                    "lo": 60,
+                    "hi": 67,
+                    "label": "U"
+                  },
+                  {
+                    "lo": 68,
+                    "hi": 75,
+                    "label": "+2"
+                  },
+                  {
+                    "lo": 76,
+                    "hi": 83,
+                    "label": "+3"
+                  },
+                  {
+                    "lo": 84,
+                    "hi": 91,
+                    "label": "+4"
+                  },
+                  {
+                    "lo": 92,
+                    "hi": 99,
+                    "label": "+5"
+                  }
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "description": "Three independent pitch-shifted delay voices"
+    },
+    {
+      "name": "Key & Scale",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "pianoKey",
+          "cc": 16,
+          "label": "Key",
+          "options": [
+            {
+              "label": "C",
+              "value": 0
+            },
+            {
+              "label": "D♭",
+              "value": 7
+            },
+            {
+              "label": "D",
+              "value": 18
+            },
+            {
+              "label": "E♭",
+              "value": 31
+            },
+            {
+              "label": "E",
+              "value": 42
+            },
+            {
+              "label": "F",
+              "value": 53
+            },
+            {
+              "label": "G♭",
+              "value": 62
+            },
+            {
+              "label": "G",
+              "value": 72
+            },
+            {
+              "label": "A♭",
+              "value": 82
+            },
+            {
+              "label": "A",
+              "value": 92
+            },
+            {
+              "label": "B♭",
+              "value": 103
+            },
+            {
+              "label": "B",
+              "value": 114
+            }
+          ],
+          "chromaticValue": 123
+        },
+        {
+          "type": "rangeSelect",
+          "cc": 22,
+          "label": "Scale",
+          "ranges": [
+            {
+              "lo": 0,
+              "hi": 11,
+              "label": "Major"
+            },
+            {
+              "lo": 12,
+              "hi": 37,
+              "label": "Minor"
+            },
+            {
+              "lo": 38,
+              "hi": 58,
+              "label": "Mel Min"
+            },
+            {
+              "lo": 59,
+              "hi": 78,
+              "label": "Harm Min"
+            },
+            {
+              "lo": 79,
+              "hi": 97,
+              "label": "Dbl Harm"
+            },
+            {
+              "lo": 98,
+              "hi": 119,
+              "label": "Lyd Pent"
+            },
+            {
+              "lo": 120,
+              "hi": 127,
+              "label": "Min Pent"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Delay",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "slider",
+          "cc": 15,
+          "label": "Tempo",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Short"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Long"
+            }
+          ],
+          "description": "Delay time (10ms intervals)"
+        },
+        {
+          "type": "slider",
+          "cc": 18,
+          "label": "Mix",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Dry"
+            },
+            {
+              "position": 64,
+              "label": "Even"
+            },
+            {
+              "position": 127,
+              "label": "Wet"
+            }
+          ],
+          "description": "Dry/wet balance"
+        },
+        {
+          "type": "slider",
+          "cc": 24,
+          "label": "Feedback",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "None"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ],
+          "description": "Delay feedback amount"
+        },
+        {
+          "type": "rangeSelect",
+          "cc": 29,
+          "label": "Delay Mode",
+          "ranges": [
+            {
+              "lo": 0,
+              "hi": 31,
+              "label": "Series+Pitch Fdbk"
+            },
+            {
+              "lo": 32,
+              "hi": 63,
+              "label": "Series"
+            },
+            {
+              "lo": 64,
+              "hi": 95,
+              "label": "Dual+Cross Fdbk"
+            },
+            {
+              "lo": 96,
+              "hi": 127,
+              "label": "Dual"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Time Divisions",
+      "compact": true,
+      "collapsed": true,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "slider",
+          "cc": 25,
+          "label": "Div 1",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Off"
+            },
+            {
+              "position": 59,
+              "label": "1/2"
+            },
+            {
+              "position": 92,
+              "label": "Dot 8th"
+            },
+            {
+              "position": 125,
+              "label": "Quarter"
+            }
+          ],
+          "description": "Voice 1 time division"
+        },
+        {
+          "type": "slider",
+          "cc": 26,
+          "label": "Div 2",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Off"
+            },
+            {
+              "position": 59,
+              "label": "1/2"
+            },
+            {
+              "position": 92,
+              "label": "Dot 8th"
+            },
+            {
+              "position": 125,
+              "label": "Quarter"
+            }
+          ],
+          "description": "Voice 2 time division"
+        },
+        {
+          "type": "slider",
+          "cc": 27,
+          "label": "Div 3",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Off"
+            },
+            {
+              "position": 59,
+              "label": "1/2"
+            },
+            {
+              "position": 92,
+              "label": "Dot 8th"
+            },
+            {
+              "position": 125,
+              "label": "Quarter"
+            }
+          ],
+          "description": "Voice 3 time division"
+        }
+      ],
+      "description": "Rhythmic subdivision per voice (fraction of tempo)"
+    },
+    {
+      "name": "Other",
+      "compact": true,
+      "collapsed": true,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "slider",
+          "cc": 17,
+          "label": "Micro Tune",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "None"
+            },
+            {
+              "position": 127,
+              "label": "Max detune"
+            }
+          ],
+          "description": "Detune all voices slightly"
+        },
+        {
+          "type": "slider",
+          "cc": 23,
+          "label": "Pitch Correct / Glide",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "No correct"
+            },
+            {
+              "position": 64,
+              "label": "Strict"
+            },
+            {
+              "position": 127,
+              "label": "Max glide"
+            }
+          ],
+          "description": "Low: correction mode. High: glide amount."
+        },
+        {
+          "type": "toggle",
+          "cc": 30,
+          "label": "Pitch Smoothing",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Smooth pitch knob transitions"
+        },
+        {
+          "type": "toggle",
+          "cc": 31,
+          "label": "Volume Swell",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Auto swell on pick attack"
+        },
+        {
+          "type": "slider",
+          "cc": 4,
+          "label": "Expression",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Heel"
+            },
+            {
+              "position": 127,
+              "label": "Toe"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

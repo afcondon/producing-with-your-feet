@@ -25,6 +25,7 @@ pedal =
   { meta:
       { id: PedalId "riverside"
       , name: "Riverside"
+      , shortName: "Rv"
       , brand: "Strymon"
       , color: fromHexString "#b8860b"
       , defaultChannel: 11
@@ -39,7 +40,8 @@ pedal =
       ]
   , resetOrder: []
   , twister: Just
-      { encoders:
+      { hue: 10
+      , encoders:
           [ Just (TwisterCC { cc: cc 12, center: Nothing, options: Nothing })
           , Just (TwisterCC { cc: cc 13, center: Nothing, options: Nothing })
           , Just (TwisterCC { cc: cc 14, center: Just (mv 64), options: Nothing })

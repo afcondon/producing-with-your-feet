@@ -1,0 +1,716 @@
+{
+  "meta": {
+    "id": "clean",
+    "name": "Clean",
+    "shortName": "Cl",
+    "brand": "Chase Bliss",
+    "defaultChannel": 4,
+    "color": "#2a9d8f",
+    "saveInstructions": "Hold both footswitches until LEDs blink, then release."
+  },
+  "engage": {
+    "type": "single",
+    "cc": 102
+  },
+  "baseline": {
+    "14": 64,
+    "15": 64,
+    "16": 64,
+    "17": 64,
+    "18": 64,
+    "19": 64,
+    "20": 64,
+    "21": 0,
+    "22": 2,
+    "23": 2,
+    "24": 64,
+    "25": 64,
+    "26": 64,
+    "27": 64,
+    "28": 64,
+    "29": 64,
+    "31": 0,
+    "32": 0,
+    "33": 2,
+    "52": 0,
+    "61": 0,
+    "62": 0,
+    "63": 0,
+    "64": 0,
+    "65": 0,
+    "66": 0,
+    "67": 0,
+    "68": 0,
+    "71": 0,
+    "72": 0,
+    "73": 0,
+    "74": 0,
+    "75": 0,
+    "76": 0,
+    "77": 0,
+    "78": 0,
+    "100": 0,
+    "102": 0,
+    "103": 0,
+    "105": 0,
+    "106": 0
+  },
+  "resetOrder": [],
+  "twister": {
+    "hue": 60,
+    "encoders": [
+      {
+        "cc": 14
+      },
+      {
+        "cc": 15
+      },
+      {
+        "cc": 16
+      },
+      null,
+      {
+        "cc": 17
+      },
+      {
+        "cc": 18,
+        "center": 64
+      },
+      {
+        "cc": 19
+      },
+      null,
+      {
+        "cc": 24
+      },
+      {
+        "cc": 25
+      },
+      {
+        "cc": 26
+      },
+      null,
+      {
+        "cc": 27
+      },
+      {
+        "cc": 28
+      },
+      {
+        "cc": 29
+      },
+      null
+    ],
+    "buttons": [
+      null,
+      null,
+      null,
+      {
+        "type": "toggle",
+        "cc": 102
+      },
+      null,
+      null,
+      null,
+      {
+        "type": "toggle",
+        "cc": 103
+      },
+      null,
+      null,
+      null,
+      {
+        "type": "toggle",
+        "cc": 106
+      },
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "modes": null,
+  "sections": [
+    {
+      "name": "Engage",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "toggle",
+          "cc": 102,
+          "label": "Bypass",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 103,
+          "label": "Swell",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 106,
+          "label": "Dynamics Max",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Maximize sag effect"
+        }
+      ]
+    },
+    {
+      "name": "Main Controls",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "slider",
+          "cc": 14,
+          "label": "Dynamics",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Light"
+            },
+            {
+              "position": 64,
+              "label": "Limit"
+            },
+            {
+              "position": 127,
+              "label": "Sag"
+            }
+          ],
+          "description": "Compression amount: compress > limit > sag"
+        },
+        {
+          "type": "slider",
+          "cc": 15,
+          "label": "Sensitivity",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Low"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "High"
+            }
+          ],
+          "description": "Dynamic threshold (ramp speed when ramping)"
+        },
+        {
+          "type": "slider",
+          "cc": 16,
+          "label": "Wet",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Off"
+            },
+            {
+              "position": 64,
+              "label": "Unity"
+            },
+            {
+              "position": 127,
+              "label": "Boost"
+            }
+          ],
+          "description": "Compressed signal level"
+        },
+        {
+          "type": "slider",
+          "cc": 17,
+          "label": "Attack",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Fast"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Slow"
+            }
+          ],
+          "description": "Compression onset (0.5ms to 300ms)"
+        },
+        {
+          "type": "slider",
+          "cc": 18,
+          "label": "EQ",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Cut highs"
+            },
+            {
+              "position": 64,
+              "label": "Flat"
+            },
+            {
+              "position": 127,
+              "label": "Cut lows"
+            }
+          ],
+          "description": "Dynamic one-knob EQ"
+        },
+        {
+          "type": "slider",
+          "cc": 19,
+          "label": "Dry",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Off"
+            },
+            {
+              "position": 64,
+              "label": "Unity"
+            },
+            {
+              "position": 127,
+              "label": "Boost"
+            }
+          ],
+          "description": "Unprocessed signal level (parallel blend)"
+        }
+      ]
+    },
+    {
+      "name": "Character",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "segmented",
+          "cc": 21,
+          "label": "Release",
+          "options": [
+            {
+              "label": "Fast",
+              "value": 0,
+              "description": "50ms release"
+            },
+            {
+              "label": "User",
+              "value": 2,
+              "description": "Custom (set in Hidden Options)"
+            },
+            {
+              "label": "Slow",
+              "value": 3,
+              "description": "1.5s release"
+            }
+          ]
+        },
+        {
+          "type": "segmented",
+          "cc": 22,
+          "label": "EQ Mode",
+          "options": [
+            {
+              "label": "Shifty",
+              "value": 0,
+              "description": "EQ shifts on playing, sweeps back on stop"
+            },
+            {
+              "label": "Manual",
+              "value": 2,
+              "description": "Classic fixed EQ"
+            },
+            {
+              "label": "Modulated",
+              "value": 3,
+              "description": "EQ modulates when playing"
+            }
+          ]
+        },
+        {
+          "type": "segmented",
+          "cc": 23,
+          "label": "Physics",
+          "options": [
+            {
+              "label": "Wobbly",
+              "value": 0,
+              "description": "Subtle spring-like movement"
+            },
+            {
+              "label": "Off",
+              "value": 2
+            },
+            {
+              "label": "Twitchy",
+              "value": 3,
+              "description": "Unstable, erratic movement"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Hidden Options",
+      "compact": true,
+      "collapsed": true,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "slider",
+          "cc": 24,
+          "label": "Gate Release",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Fast"
+            },
+            {
+              "position": 127,
+              "label": "Slow"
+            }
+          ],
+          "description": "Noise gate re-engage speed"
+        },
+        {
+          "type": "slider",
+          "cc": 25,
+          "label": "Gate Sensitivity",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Low"
+            },
+            {
+              "position": 127,
+              "label": "High"
+            }
+          ],
+          "description": "Noise gate threshold"
+        },
+        {
+          "type": "slider",
+          "cc": 26,
+          "label": "Swell In",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Fast"
+            },
+            {
+              "position": 127,
+              "label": "Slow"
+            }
+          ],
+          "description": "Time to reach full volume"
+        },
+        {
+          "type": "slider",
+          "cc": 27,
+          "label": "User Release",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "50ms"
+            },
+            {
+              "position": 64,
+              "label": "500ms"
+            },
+            {
+              "position": 127,
+              "label": "1s"
+            }
+          ],
+          "description": "Custom release for User position"
+        },
+        {
+          "type": "slider",
+          "cc": 28,
+          "label": "Balance Filter",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Full range"
+            },
+            {
+              "position": 127,
+              "label": "Highs only"
+            }
+          ],
+          "description": "Filter bass from envelope follower"
+        },
+        {
+          "type": "slider",
+          "cc": 29,
+          "label": "Swell Out",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Fast"
+            },
+            {
+              "position": 127,
+              "label": "Slow"
+            }
+          ],
+          "description": "Time to fade to silence"
+        },
+        {
+          "type": "segmented",
+          "cc": 31,
+          "label": "Envelope",
+          "options": [
+            {
+              "label": "Analog",
+              "value": 0,
+              "description": "Classic envelope follower"
+            },
+            {
+              "label": "Combo",
+              "value": 2,
+              "description": "Analog attack, adaptive release"
+            },
+            {
+              "label": "Adaptive",
+              "value": 3,
+              "description": "Dynamically adjusts to playing"
+            }
+          ]
+        },
+        {
+          "type": "segmented",
+          "cc": 32,
+          "label": "Shifty Sub",
+          "options": [
+            {
+              "label": "ASR",
+              "value": 0,
+              "description": "Attack-sustain-release shifting"
+            },
+            {
+              "label": "ENV",
+              "value": 127,
+              "description": "Envelope-following shifting"
+            }
+          ]
+        },
+        {
+          "type": "segmented",
+          "cc": 33,
+          "label": "Spread Route",
+          "options": [
+            {
+              "label": "EQ",
+              "value": 0,
+              "description": "Stereo from EQ only"
+            },
+            {
+              "label": "Both",
+              "value": 2
+            },
+            {
+              "label": "Vol/Comp",
+              "value": 3,
+              "description": "Stereo from dynamics"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "DIP Switches",
+      "compact": true,
+      "collapsed": true,
+      "layout": "dip-grid",
+      "controls": [
+        {
+          "type": "toggle",
+          "cc": 61,
+          "label": "Dynamics",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 62,
+          "label": "Attack",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 63,
+          "label": "EQ",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 64,
+          "label": "Dry",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 65,
+          "label": "Wet",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 66,
+          "label": "Bounce",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 67,
+          "label": "Sweep",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 68,
+          "label": "Polarity",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 71,
+          "label": "Miso",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Mono in, stereo out"
+        },
+        {
+          "type": "toggle",
+          "cc": 72,
+          "label": "Spread",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Independent L/R dynamics"
+        },
+        {
+          "type": "toggle",
+          "cc": 73,
+          "label": "Latch",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Hold becomes latch"
+        },
+        {
+          "type": "toggle",
+          "cc": 74,
+          "label": "Sidechain",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "External signal triggers compression"
+        },
+        {
+          "type": "toggle",
+          "cc": 75,
+          "label": "Noise Gate",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Mute input when not playing"
+        },
+        {
+          "type": "toggle",
+          "cc": 76,
+          "label": "Motion",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Modulate compression amount"
+        },
+        {
+          "type": "toggle",
+          "cc": 77,
+          "label": "Swell Aux",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Manual swell per press"
+        },
+        {
+          "type": "toggle",
+          "cc": 78,
+          "label": "Dusty",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Clipping/overdrive circuit"
+        }
+      ],
+      "description": "Physical DIP switches — left bank (ramping), right bank (customize)"
+    },
+    {
+      "name": "Ramping",
+      "compact": true,
+      "collapsed": true,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "toggle",
+          "cc": 52,
+          "label": "Ramp Active",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "slider",
+          "cc": 20,
+          "label": "Ramp Speed",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Slow"
+            },
+            {
+              "position": 127,
+              "label": "Fast"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Other",
+      "compact": true,
+      "collapsed": true,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "slider",
+          "cc": 100,
+          "label": "Expression",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Min"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

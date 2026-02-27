@@ -25,6 +25,7 @@ pedal =
   { meta:
       { id: PedalId "habit"
       , name: "Habit"
+      , shortName: "Ht"
       , brand: "Chase Bliss"
       , color: fromHexString "#d4a017"
       , defaultChannel: 16
@@ -40,7 +41,8 @@ pedal =
       ]
   , resetOrder: []
   , twister: Just
-      { encoders:
+      { hue: 12
+      , encoders:
           [ Just (TwisterCC { cc: cc 14, center: Nothing, options: Nothing })
           , Just (TwisterCC { cc: cc 15, center: Nothing, options: Nothing })
           , Just (TwisterCC { cc: cc 16, center: Nothing, options: Nothing })

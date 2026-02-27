@@ -23,7 +23,8 @@ data TwisterButton
   | TwisterSet { cc :: CC, value :: MidiValue }
 
 type TwisterMapping =
-  { encoders :: Array (Maybe TwisterEncoder)
+  { hue :: Int
+  , encoders :: Array (Maybe TwisterEncoder)
   , buttons :: Array (Maybe TwisterButton)
   }
 

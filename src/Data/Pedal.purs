@@ -31,6 +31,7 @@ derive newtype instance Show PedalId
 type PedalMeta =
   { id :: PedalId
   , name :: String
+  , shortName :: String
   , brand :: String
   , color :: Maybe Color
   , defaultChannel :: Int

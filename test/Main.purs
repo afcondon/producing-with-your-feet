@@ -11,7 +11,8 @@ import Data.Pedal (PedalId(..))
 import Data.Pedal.Engage (EngageState(..))
 import Effect (Effect)
 import Effect.Console (log)
-import Engine (initEngine)
+import Config.Registry as CRegistry
+import Engine (initEngineFromPedals)
 import Engine.Storage (engineToJson, parseEngine, parseCardOrder, parsePresets, parseBoardPresets, parseEngageState)
 import Pedals.Registry as Registry
 
@@ -47,9 +48,10 @@ main = do
   let allHaveSections = Array.all (\p -> not (Array.null p.sections)) Registry.pedals
   assert "All pedals have sections" allHaveSections
 
-  -- findPedal works
-  assert "findPedal MOOD" (isJust (Registry.findPedal (PedalId "mood")))
-  assert "findPedal nonexistent returns Nothing" (isNothing (Registry.findPedal (PedalId "nonexistent")))
+  -- findPedal works (via registry)
+  let reg = CRegistry.mkRegistry Registry.pedals [] { pedalOutput: { match: "" }, twisterInput: { match: "" }, twisterOutput: { match: "" }, loopyOutput: { match: "" }, loopyChannel: 1 }
+  assert "findPedal MOOD" (isJust (CRegistry.findPedal reg (PedalId "mood")))
+  assert "findPedal nonexistent returns Nothing" (isNothing (CRegistry.findPedal reg (PedalId "nonexistent")))
 
   log ""
   log "Running decoder tests..."
@@ -81,9 +83,10 @@ main = do
             Nothing -> assert "Onward CC16 found" false
             Just mv -> assert "Onward CC16 value is 60" (mv == unsafeMV 60)
 
-  -- 2. Round-trip: encode then parse initEngine
-  let roundTripped = parseEngine (stringify (engineToJson initEngine))
-  assert "Round-trip: encode then parse initEngine" (roundTripped == Just initEngine)
+  -- 2. Round-trip: encode then parse initEngineFromPedals
+  let testEngine = initEngineFromPedals Registry.pedals
+      roundTripped = parseEngine (stringify (engineToJson testEngine))
+  assert "Round-trip: encode then parse engine" (roundTripped == Just testEngine)
 
   -- 3. Parse card order
   let mOrder = parseCardOrder cardOrderFixture

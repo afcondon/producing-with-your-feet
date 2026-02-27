@@ -25,6 +25,7 @@ pedal =
   { meta:
       { id: PedalId "lex"
       , name: "Lex"
+      , shortName: "Lx"
       , brand: "Strymon"
       , color: fromHexString "#8b4513"
       , defaultChannel: 8
@@ -41,7 +42,8 @@ pedal =
       ]
   , resetOrder: []
   , twister: Just
-      { encoders:
+      { hue: 8
+      , encoders:
           [ Just (TwisterCC { cc: cc 12, center: Nothing, options: Nothing })
           , Just (TwisterCC { cc: cc 17, center: Just (mv 64), options: Nothing })
           , Just (TwisterCC { cc: cc 19, center: Nothing, options: Nothing })

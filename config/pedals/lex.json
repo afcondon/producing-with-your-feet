@@ -1,0 +1,522 @@
+{
+  "meta": {
+    "id": "lex",
+    "name": "Lex",
+    "shortName": "Lx",
+    "brand": "Strymon",
+    "defaultChannel": 8,
+    "color": "#8b4513",
+    "saveInstructions": "Hold the footswitch for 3 seconds until LED flashes."
+  },
+  "engage": {
+    "type": "single",
+    "cc": 102
+  },
+  "baseline": {
+    "0": 0,
+    "11": 1,
+    "12": 64,
+    "13": 64,
+    "14": 64,
+    "15": 64,
+    "16": 1,
+    "17": 64,
+    "18": 64,
+    "19": 64,
+    "20": 0,
+    "21": 0,
+    "22": 0,
+    "23": 64,
+    "24": 64,
+    "25": 0,
+    "60": 0,
+    "63": 0,
+    "102": 0
+  },
+  "resetOrder": [],
+  "twister": {
+    "hue": 8,
+    "encoders": [
+      {
+        "cc": 12
+      },
+      {
+        "cc": 17,
+        "center": 64
+      },
+      {
+        "cc": 19
+      },
+      {
+        "cc": 18
+      },
+      {
+        "cc": 14
+      },
+      {
+        "cc": 15
+      },
+      {
+        "cc": 11,
+        "options": [
+          1,
+          2
+        ]
+      },
+      {
+        "cc": 16,
+        "options": [
+          1,
+          2,
+          3
+        ]
+      },
+      {
+        "cc": 23
+      },
+      {
+        "cc": 24
+      },
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    "buttons": [
+      {
+        "type": "toggle",
+        "cc": 102
+      },
+      {
+        "type": "toggle",
+        "cc": 22
+      },
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      {
+        "type": "momentary",
+        "cc": 93
+      },
+      null,
+      null,
+      {
+        "type": "momentary",
+        "cc": 97
+      },
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "modes": null,
+  "sections": [
+    {
+      "name": "Bypass",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "toggle",
+          "cc": 102,
+          "label": "On",
+          "onLabel": "On",
+          "offLabel": "Bypass"
+        },
+        {
+          "type": "toggle",
+          "cc": 22,
+          "label": "Slow/Fast",
+          "onLabel": "Fast",
+          "offLabel": "Slow",
+          "description": "Toggle rotor speed"
+        }
+      ]
+    },
+    {
+      "name": "Rotary",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "segmented",
+          "cc": 11,
+          "label": "Mic",
+          "options": [
+            {
+              "label": "Front",
+              "value": 1
+            },
+            {
+              "label": "Rear",
+              "value": 2
+            }
+          ]
+        },
+        {
+          "type": "slider",
+          "cc": 12,
+          "label": "Speed",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Slow"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Fast"
+            }
+          ],
+          "description": "Rotor speed for current Slow/Fast mode"
+        },
+        {
+          "type": "slider",
+          "cc": 13,
+          "label": "Speed (Full Range)",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Slow"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Fast"
+            }
+          ],
+          "description": "Full 0-127 speed control"
+        },
+        {
+          "type": "slider",
+          "cc": 14,
+          "label": "Mic Distance",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Pronounced"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Ambient"
+            }
+          ],
+          "description": "Stereo mic distance from cabinet"
+        },
+        {
+          "type": "slider",
+          "cc": 15,
+          "label": "Horn Level",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Min"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ],
+          "description": "High-frequency horn volume"
+        },
+        {
+          "type": "segmented",
+          "cc": 16,
+          "label": "Ramp",
+          "options": [
+            {
+              "label": "Slow",
+              "value": 1,
+              "description": "Slow acceleration"
+            },
+            {
+              "label": "Med",
+              "value": 2,
+              "description": "Medium acceleration"
+            },
+            {
+              "label": "Fast",
+              "value": 3,
+              "description": "Fast acceleration"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Amp",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "slider",
+          "cc": 17,
+          "label": "Volume",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "-6dB"
+            },
+            {
+              "position": 64,
+              "label": "Unity"
+            },
+            {
+              "position": 127,
+              "label": "+6dB"
+            }
+          ],
+          "description": "+/- 6dB boost/cut"
+        },
+        {
+          "type": "slider",
+          "cc": 19,
+          "label": "Preamp Drive",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Clean"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Driven"
+            }
+          ],
+          "description": "Tube preamp drive"
+        },
+        {
+          "type": "slider",
+          "cc": 18,
+          "label": "Dry",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Off"
+            },
+            {
+              "position": 64,
+              "label": "50/50"
+            },
+            {
+              "position": 127,
+              "label": "Full"
+            }
+          ],
+          "description": "Dry signal blend"
+        }
+      ]
+    },
+    {
+      "name": "Settings",
+      "compact": true,
+      "collapsed": true,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "segmented",
+          "cc": 20,
+          "label": "Bi-Amp Mode",
+          "options": [
+            {
+              "label": "Stereo",
+              "value": 0
+            },
+            {
+              "label": "Bi-Amp",
+              "value": 1
+            }
+          ]
+        },
+        {
+          "type": "segmented",
+          "cc": 21,
+          "label": "Cab Filter",
+          "options": [
+            {
+              "label": "Guitar Amp",
+              "value": 0
+            },
+            {
+              "label": "Full Range",
+              "value": 1
+            }
+          ]
+        },
+        {
+          "type": "slider",
+          "cc": 23,
+          "label": "Slow Speed",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Min"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ],
+          "description": "Speed in Slow mode"
+        },
+        {
+          "type": "slider",
+          "cc": 24,
+          "label": "Fast Speed",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Min"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ],
+          "description": "Speed in Fast mode"
+        },
+        {
+          "type": "dropdown",
+          "cc": 25,
+          "label": "Clock Tempo Mult/Div",
+          "options": [
+            {
+              "label": "x4",
+              "value": 0
+            },
+            {
+              "label": "x3",
+              "value": 1
+            },
+            {
+              "label": "x2",
+              "value": 2
+            },
+            {
+              "label": "x1",
+              "value": 3
+            },
+            {
+              "label": "1/2",
+              "value": 4
+            },
+            {
+              "label": "1/3",
+              "value": 5
+            },
+            {
+              "label": "1/4",
+              "value": 6
+            }
+          ]
+        },
+        {
+          "type": "toggle",
+          "cc": 60,
+          "label": "MIDI Expression",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Respond to CC#100"
+        },
+        {
+          "type": "toggle",
+          "cc": 63,
+          "label": "MIDI Clock",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Sync to incoming clock"
+        },
+        {
+          "type": "slider",
+          "cc": 100,
+          "label": "Expression",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Heel"
+            },
+            {
+              "position": 127,
+              "label": "Toe"
+            }
+          ]
+        },
+        {
+          "type": "momentary",
+          "cc": 93,
+          "label": "Tap",
+          "value": 127
+        },
+        {
+          "type": "slider",
+          "cc": 97,
+          "label": "Brake",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Release"
+            },
+            {
+              "position": 127,
+              "label": "Hold"
+            }
+          ],
+          "description": "Hold to engage brake"
+        },
+        {
+          "type": "segmented",
+          "cc": 0,
+          "label": "Bank Select",
+          "options": [
+            {
+              "label": "Bank 1",
+              "value": 0
+            },
+            {
+              "label": "Bank 2",
+              "value": 1
+            },
+            {
+              "label": "Bank 3",
+              "value": 2
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

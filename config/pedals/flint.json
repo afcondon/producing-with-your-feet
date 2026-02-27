@@ -1,0 +1,526 @@
+{
+  "meta": {
+    "id": "flint",
+    "name": "Flint",
+    "shortName": "Fl",
+    "brand": "Strymon",
+    "defaultChannel": 7,
+    "color": "#a85a50",
+    "saveInstructions": "Hold the footswitch for 3 seconds until LED flashes."
+  },
+  "engage": {
+    "type": "dual",
+    "a": {
+      "cc": 10,
+      "label": "Trem"
+    },
+    "b": {
+      "cc": 16,
+      "label": "Verb"
+    }
+  },
+  "baseline": {
+    "0": 0,
+    "10": 127,
+    "11": 1,
+    "12": 64,
+    "13": 64,
+    "14": 64,
+    "15": 64,
+    "16": 127,
+    "17": 1,
+    "18": 64,
+    "19": 64,
+    "20": 64,
+    "21": 0,
+    "22": 64,
+    "23": 0,
+    "25": 3,
+    "60": 0,
+    "63": 0
+  },
+  "resetOrder": [],
+  "twister": {
+    "hue": 127,
+    "encoders": [
+      {
+        "cc": 11,
+        "options": [
+          1,
+          2,
+          3
+        ]
+      },
+      {
+        "cc": 12
+      },
+      {
+        "cc": 13
+      },
+      {
+        "cc": 14
+      },
+      {
+        "cc": 17,
+        "options": [
+          1,
+          2,
+          3
+        ]
+      },
+      {
+        "cc": 18,
+        "center": 64
+      },
+      {
+        "cc": 19,
+        "center": 64
+      },
+      {
+        "cc": 20
+      },
+      {
+        "cc": 15,
+        "center": 64
+      },
+      {
+        "cc": 21
+      },
+      {
+        "cc": 22,
+        "center": 64
+      },
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    "buttons": [
+      {
+        "type": "toggle",
+        "cc": 23
+      },
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      {
+        "type": "toggle",
+        "cc": 10
+      },
+      {
+        "type": "toggle",
+        "cc": 16
+      },
+      {
+        "type": "toggle",
+        "cc": 33
+      },
+      {
+        "type": "momentary",
+        "cc": 93
+      },
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "modes": null,
+  "sections": [
+    {
+      "name": "Channels",
+      "compact": true,
+      "collapsed": false,
+      "layout": "dual-column",
+      "controls": [
+        {
+          "type": "toggle",
+          "cc": 10,
+          "label": "Tremolo",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 33,
+          "label": "Both",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Master bypass for both engines"
+        },
+        {
+          "type": "toggle",
+          "cc": 16,
+          "label": "Reverb",
+          "onLabel": "On",
+          "offLabel": "Off"
+        },
+        {
+          "type": "toggle",
+          "cc": 23,
+          "label": "Effect Order",
+          "onLabel": "Trm > Rvb",
+          "offLabel": "Rvb > Trm"
+        }
+      ]
+    },
+    {
+      "name": "Tremolo",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "segmented",
+          "cc": 11,
+          "label": "Type",
+          "options": [
+            {
+              "label": "'61 Harm",
+              "value": 1,
+              "description": "Harmonic tremolo"
+            },
+            {
+              "label": "'63 Tube",
+              "value": 2,
+              "description": "Tube bias tremolo"
+            },
+            {
+              "label": "'65 Photo",
+              "value": 3,
+              "description": "Photo-cell tremolo"
+            }
+          ]
+        },
+        {
+          "type": "slider",
+          "cc": 12,
+          "label": "Intensity",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Off"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ],
+          "description": "Tremolo depth"
+        },
+        {
+          "type": "slider",
+          "cc": 13,
+          "label": "Speed",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Slow"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Fast"
+            }
+          ],
+          "description": "LFO rate"
+        },
+        {
+          "type": "slider",
+          "cc": 14,
+          "label": "Tap Subdivision",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "1/16"
+            },
+            {
+              "position": 42,
+              "label": "Triplet"
+            },
+            {
+              "position": 84,
+              "label": "1/8"
+            },
+            {
+              "position": 127,
+              "label": "1/4"
+            }
+          ]
+        },
+        {
+          "type": "slider",
+          "cc": 15,
+          "label": "Boost/Cut",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "-3dB"
+            },
+            {
+              "position": 64,
+              "label": "Unity"
+            },
+            {
+              "position": 127,
+              "label": "+3dB"
+            }
+          ],
+          "description": "Volume when tremolo engaged"
+        }
+      ]
+    },
+    {
+      "name": "Reverb",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "segmented",
+          "cc": 17,
+          "label": "Type",
+          "options": [
+            {
+              "label": "'60s Spring",
+              "value": 1,
+              "description": "Spring tank"
+            },
+            {
+              "label": "'70s Plate",
+              "value": 2,
+              "description": "Electronic plate"
+            },
+            {
+              "label": "'80s Hall",
+              "value": 3,
+              "description": "Digital hall"
+            }
+          ]
+        },
+        {
+          "type": "slider",
+          "cc": 18,
+          "label": "Mix",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Dry"
+            },
+            {
+              "position": 64,
+              "label": "50/50"
+            },
+            {
+              "position": 127,
+              "label": "Wet"
+            }
+          ],
+          "description": "Reverb wet/dry"
+        },
+        {
+          "type": "slider",
+          "cc": 19,
+          "label": "Color",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Dark"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Bright"
+            }
+          ],
+          "description": "Reverb tone"
+        },
+        {
+          "type": "slider",
+          "cc": 20,
+          "label": "Decay",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Short"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Infinite"
+            }
+          ],
+          "description": "Reverb tail length"
+        },
+        {
+          "type": "slider",
+          "cc": 21,
+          "label": "Pre-Delay",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "None"
+            },
+            {
+              "position": 64,
+              "label": "Mid"
+            },
+            {
+              "position": 127,
+              "label": "Max"
+            }
+          ]
+        },
+        {
+          "type": "slider",
+          "cc": 22,
+          "label": "Boost/Cut",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "-3dB"
+            },
+            {
+              "position": 64,
+              "label": "Unity"
+            },
+            {
+              "position": 127,
+              "label": "+3dB"
+            }
+          ],
+          "description": "Volume when reverb engaged"
+        }
+      ]
+    },
+    {
+      "name": "Settings",
+      "compact": true,
+      "collapsed": true,
+      "layout": "default",
+      "controls": [
+        {
+          "type": "slider",
+          "cc": 100,
+          "label": "Expression",
+          "annotations": [
+            {
+              "position": 0,
+              "label": "Heel"
+            },
+            {
+              "position": 127,
+              "label": "Toe"
+            }
+          ]
+        },
+        {
+          "type": "segmented",
+          "cc": 0,
+          "label": "Bank Select",
+          "options": [
+            {
+              "label": "Bank 1",
+              "value": 0
+            },
+            {
+              "label": "Bank 2",
+              "value": 1
+            },
+            {
+              "label": "Bank 3",
+              "value": 2
+            }
+          ]
+        },
+        {
+          "type": "dropdown",
+          "cc": 25,
+          "label": "Clock Division",
+          "options": [
+            {
+              "label": "x1/4",
+              "value": 0
+            },
+            {
+              "label": "x1/3",
+              "value": 1
+            },
+            {
+              "label": "x1/2",
+              "value": 2
+            },
+            {
+              "label": "x1",
+              "value": 3
+            },
+            {
+              "label": "x2",
+              "value": 4
+            },
+            {
+              "label": "x3",
+              "value": 5
+            },
+            {
+              "label": "x4",
+              "value": 6
+            }
+          ]
+        },
+        {
+          "type": "toggle",
+          "cc": 63,
+          "label": "MIDI Clock",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Sync to incoming clock"
+        },
+        {
+          "type": "toggle",
+          "cc": 60,
+          "label": "MIDI Expression",
+          "onLabel": "On",
+          "offLabel": "Off",
+          "description": "Respond to CC#100"
+        },
+        {
+          "type": "momentary",
+          "cc": 93,
+          "label": "Tap Tempo",
+          "value": 127
+        },
+        {
+          "type": "momentary",
+          "cc": 27,
+          "label": "Footswitch A",
+          "value": 127
+        },
+        {
+          "type": "momentary",
+          "cc": 28,
+          "label": "Footswitch B",
+          "value": 127
+        }
+      ]
+    }
+  ]
+}
