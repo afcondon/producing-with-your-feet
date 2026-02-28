@@ -18,12 +18,17 @@ module Data.Loopy
   , volumeCC
   , clearCC
   , speedCC
+  , deselectCC
+  , panCC
+  , overdubCC
+  , phaseLockCC
+  , thresholdCC
   , loopCount
   , paramCC
   , paramLabel
   , loopToEncoder
   , encoderToLoop
-  , recordAndMixConfig
+  , loopConfigBank
   , defaultLoopState
   , defaultClipSettings
   , countInLabel
@@ -49,6 +54,13 @@ data LoopyAction
   | LoopyDivide
   | LoopyPrev
   | LoopyNext
+  | LoopyDeselect
+  | LoopyPlay
+  | LoopyStop
+  | LoopyPlayImmediate
+  | LoopyStopImmediate
+  | LoopyUndo
+  | LoopyRedo
 
 derive instance Eq LoopyAction
 
@@ -113,6 +125,26 @@ clearCC = unsafeCC 22
 speedCC :: CC
 speedCC = unsafeCC 53
 
+-- | Deselect all tracks: CC 29 on channel 16
+deselectCC :: CC
+deselectCC = unsafeCC 29
+
+-- | Pan CC per loop: CC 70-77 on channel 16
+panCC :: LoopIndex -> CC
+panCC (LoopIndex i) = unsafeCC (70 + i)
+
+-- | Overdub feedback (continuous, selected loop): CC 80
+overdubCC :: CC
+overdubCC = unsafeCC 80
+
+-- | Phase lock toggle (selected loop): CC 81
+phaseLockCC :: CC
+phaseLockCC = unsafeCC 81
+
+-- | Threshold toggle (selected loop): CC 82
+thresholdCC :: CC
+thresholdCC = unsafeCC 82
+
 -- | Extract shift definition from a LoopyParam
 paramShift :: LoopyParam -> Maybe ShiftDef
 paramShift = case _ of
@@ -150,15 +182,22 @@ type LoopyTwisterConfig =
 
 actions :: Array LoopyActionDef
 actions =
-  [ { action: LoopyRecord,   cc: unsafeCC 20, label: "Record" }
-  , { action: LoopyPlayStop, cc: unsafeCC 21, label: "Play" }
-  , { action: LoopyClear,    cc: unsafeCC 22, label: "Clear" }
-  , { action: LoopyMute,     cc: unsafeCC 23, label: "Mute" }
-  , { action: LoopySolo,     cc: unsafeCC 24, label: "Solo" }
-  , { action: LoopyMultiply, cc: unsafeCC 25, label: "\x00d72" }
-  , { action: LoopyDivide,   cc: unsafeCC 26, label: "\x00f72" }
-  , { action: LoopyPrev,     cc: unsafeCC 27, label: "\x25c4" }
-  , { action: LoopyNext,     cc: unsafeCC 28, label: "\x25ba" }
+  [ { action: LoopyRecord,        cc: unsafeCC 20, label: "Record" }
+  , { action: LoopyPlayStop,      cc: unsafeCC 21, label: "Play/Stop" }
+  , { action: LoopyClear,         cc: unsafeCC 22, label: "Clear" }
+  , { action: LoopyMute,          cc: unsafeCC 23, label: "Mute" }
+  , { action: LoopySolo,          cc: unsafeCC 24, label: "Solo" }
+  , { action: LoopyMultiply,      cc: unsafeCC 25, label: "\x00d72" }
+  , { action: LoopyDivide,        cc: unsafeCC 26, label: "\x00f72" }
+  , { action: LoopyPrev,          cc: unsafeCC 27, label: "\x25c4" }
+  , { action: LoopyNext,          cc: unsafeCC 28, label: "\x25ba" }
+  , { action: LoopyDeselect,      cc: unsafeCC 29, label: "Desel" }
+  , { action: LoopyUndo,          cc: unsafeCC 57, label: "Undo" }
+  , { action: LoopyRedo,          cc: unsafeCC 58, label: "Redo" }
+  , { action: LoopyPlay,          cc: unsafeCC 59, label: "Play" }
+  , { action: LoopyStop,          cc: unsafeCC 60, label: "Stop" }
+  , { action: LoopyPlayImmediate, cc: unsafeCC 61, label: "Play!" }
+  , { action: LoopyStopImmediate, cc: unsafeCC 62, label: "Stop!" }
   ]
 
 groups :: Array LoopGroup
@@ -169,24 +208,24 @@ groups =
   , { color: { label: "Blue",   color: "#30a0d8", twisterHue: 10 }, loopA: LoopIndex 6, loopB: LoopIndex 7 }
   ]
 
--- | "Record & Mix" — transport actions on row 3, editing tools on row 4
--- Row 3: Record, Play, Mute, Solo (momentary actions on selected loop)
--- Row 4: Speed, Reverse, Fade In, Fade Out (continuous/toggle)
-recordAndMixConfig :: LoopyTwisterConfig
-recordAndMixConfig =
-  { name: "Record & Mix"
+-- | "Loop Config" — per-loop parameters when a loop is selected
+-- Enc 8: Volume (per-loop CC 40+loop), Enc 9: Speed (CC 53)
+-- Enc 10: Overdub (CC 80), Enc 11: Reverse toggle (CC 56)
+-- Enc 12: Fade In + Phase toggle, Enc 13: Fade Out + Threshold toggle
+-- Enc 14: Multiply ×2, Enc 15: Divide ÷2
+loopConfigBank :: LoopyTwisterConfig
+loopConfigBank =
+  { name: "Loop Config"
   , paramHue: 42
   , params:
-      -- Row 3: transport (all momentary — use existing action CCs)
-      [ LoopyParamMomentary  { label: "Rec",   cc: unsafeCC 20, action: LoopyRecord,   shift: Nothing }
-      , LoopyParamMomentary  { label: "Play",  cc: unsafeCC 21, action: LoopyPlayStop, shift: Nothing }
-      , LoopyParamMomentary  { label: "Mute",  cc: unsafeCC 23, action: LoopyMute,     shift: Just { label: "Clear", action: LoopyClear, cc: unsafeCC 22 } }
-      , LoopyParamMomentary  { label: "Solo",  cc: unsafeCC 24, action: LoopySolo,     shift: Nothing }
-      -- Row 4: editing (continuous rotation + toggle press)
-      , LoopyParamContinuous { label: "Speed", cc: unsafeCC 53, shift: Just { label: "\x00d72", action: LoopyMultiply, cc: unsafeCC 25 } }
-      , LoopyParamToggle     { label: "Rvrs",  cc: unsafeCC 56, shift: Just { label: "\x00f72", action: LoopyDivide,   cc: unsafeCC 26 } }
-      , LoopyParamContinuous { label: "FadeI", cc: unsafeCC 54, shift: Just { label: "\x25c4",  action: LoopyPrev,     cc: unsafeCC 27 } }
-      , LoopyParamContinuous { label: "FadeO", cc: unsafeCC 55, shift: Just { label: "\x25ba",  action: LoopyNext,     cc: unsafeCC 28 } }
+      [ LoopyParamContinuous { label: "Vol",  cc: unsafeCC 40, shift: Nothing }
+      , LoopyParamContinuous { label: "Spd",  cc: unsafeCC 53, shift: Nothing }
+      , LoopyParamContinuous { label: "OD",   cc: unsafeCC 80, shift: Nothing }
+      , LoopyParamToggle     { label: "Rvrs", cc: unsafeCC 56, shift: Nothing }
+      , LoopyParamContinuous { label: "FdI",  cc: unsafeCC 54, shift: Just { label: "Phase", action: LoopyRecord, cc: unsafeCC 81 } }
+      , LoopyParamContinuous { label: "FdO",  cc: unsafeCC 55, shift: Just { label: "Thresh", action: LoopyRecord, cc: unsafeCC 82 } }
+      , LoopyParamMomentary  { label: "\x00d72", cc: unsafeCC 25, action: LoopyMultiply, shift: Nothing }
+      , LoopyParamMomentary  { label: "\x00f72", cc: unsafeCC 26, action: LoopyDivide,   shift: Nothing }
       ]
   }
 

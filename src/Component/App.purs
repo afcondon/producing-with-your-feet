@@ -159,7 +159,7 @@ render state = case state.configError of
                   , loopyTwisterActive: state.loopyTwisterActive
                   , selectedLoop: state.loopySelectedLoop
                   , loopStates: state.loopyLoopStates
-                  , heldEncoder: state.loopyHeldEncoder
+                  , heldEncoder: Nothing
                   , clipSettings: state.loopyClipSettings
                   }
                   HandleLoopy
@@ -221,6 +221,13 @@ handleAction = case _ of
             defaultEngine = initEngineFromPedals pedals
             defaultCardOrder = map _.meta.id pedals
         H.modify_ _ { registry = registry, engine = defaultEngine, cardOrder = defaultCardOrder }
+        -- Load controller config (MC6 banks)
+        when (rig.controller /= "") do
+          let controllerUrl = "./" <> "config/" <> rig.controller
+          eController <- H.liftAff $ Decode.loadController controllerUrl
+          case eController of
+            Left err -> liftEffect $ Console.log $ "Controller config: " <> show err
+            Right ctrlConfig -> H.modify_ _ { mc6Banks = ctrlConfig.banks }
         -- Load saved state from localStorage (overrides defaults)
         mEngine <- liftEffect Storage.loadEngineState
         case mEngine of
@@ -435,8 +442,15 @@ handleAction = case _ of
 
   HandleLoopy output -> case output of
     LoopyPanel.LoopSelected idx -> do
-      sendMomentaryLoopy (Loopy.selectCC (Loopy.LoopIndex idx))
-      H.modify_ _ { loopySelectedLoop = idx }
+      st <- H.get
+      if st.loopySelectedLoop == idx
+        then do
+          -- Deselect: send CC 29 instead of re-sending select
+          sendMomentaryLoopy Loopy.deselectCC
+          H.modify_ _ { loopySelectedLoop = -1 }
+        else do
+          sendMomentaryLoopy (Loopy.selectCC (Loopy.LoopIndex idx))
+          H.modify_ _ { loopySelectedLoop = idx }
     LoopyPanel.ActionGridPressed cc -> do
       st <- H.get
       sendMomentaryLoopy cc
@@ -876,28 +890,28 @@ handleLoopyTwisterMsg :: forall o m. MonadAff m => TwisterMsg -> H.HalogenM AppS
 handleLoopyTwisterMsg = case _ of
   EncoderTurn idx val
     | idx < 8 -> do
-        st <- H.get
+        -- Top encoders: rotate = pan for the loop at this position
         let loopIdx = Loopy.encoderToLoop idx
-        case st.loopyHeldEncoder of
-          Just held | held == idx -> do
-            -- Shift+rotate: send Speed instead of Volume
-            sendLoopyCC Loopy.speedCC val
-            sendRingPosition idx val
-            updateLoopState loopIdx (_ { speed = val })
-          _ -> do
-            -- Normal: volume for the loop at this encoder position
-            sendLoopyCC (Loopy.volumeCC (Loopy.LoopIndex loopIdx)) val
-            sendRingPosition idx val
-            updateLoopState loopIdx (_ { volume = val })
+        sendLoopyCC (Loopy.panCC (Loopy.LoopIndex loopIdx)) val
+        sendRingPosition idx val
     | otherwise -> do
-        -- Bottom 2 rows: parameter for selected loop (unchanged)
-        let paramIdx = idx - 8
-            cfg = Loopy.recordAndMixConfig
-        case Array.index cfg.params paramIdx of
-          Just (Loopy.LoopyParamContinuous { cc }) -> do
-            sendLoopyCC cc val
-            sendRingPosition idx val
-          _ -> pure unit
+        -- Bottom encoders: parameter for selected loop
+        st <- H.get
+        when (st.loopySelectedLoop >= 0) do
+          let paramIdx = idx - 8
+              cfg = Loopy.loopConfigBank
+              loopIdx = st.loopySelectedLoop
+          case Array.index cfg.params paramIdx of
+            Just (Loopy.LoopyParamContinuous { cc })
+              -- Enc 8 (paramIdx 0) = Volume: use per-loop CC
+              | paramIdx == 0 -> do
+                  sendLoopyCC (Loopy.volumeCC (Loopy.LoopIndex loopIdx)) val
+                  sendRingPosition idx val
+                  updateLoopState loopIdx (_ { volume = val })
+              | otherwise -> do
+                  sendLoopyCC cc val
+                  sendRingPosition idx val
+            _ -> pure unit
 
   EncoderPress idx
     | idx < 8 -> do
@@ -905,50 +919,40 @@ handleLoopyTwisterMsg = case _ of
         let loopIdx = Loopy.encoderToLoop idx
         if st.loopySelectedLoop == loopIdx
           then do
-            -- Second press on same loop: deselect (no shift mode)
+            -- Second press on same loop: deselect via CC 29
             H.modify_ _ { loopySelectedLoop = -1 }
-            sendMomentaryLoopy (Loopy.selectCC (Loopy.LoopIndex loopIdx))
-          else do
-            -- Select loop + enter shift mode
-            -- Set held state and LEDs BEFORE the momentary send (which has a 50ms delay)
-            H.modify_ _ { loopySelectedLoop = loopIdx, loopyHeldEncoder = Just idx }
-            for_ (Array.range 8 15) \i ->
+            sendMomentaryLoopy Loopy.deselectCC
+            -- Dim bottom encoders
+            for_ (Array.range 8 15) \i -> do
               sendRGBColor i 0
+              sendRingPosition i 0
+          else do
+            -- Select loop
+            H.modify_ _ { loopySelectedLoop = loopIdx }
             sendMomentaryLoopy (Loopy.selectCC (Loopy.LoopIndex loopIdx))
+            -- Light up bottom encoders
+            let cfg = Loopy.loopConfigBank
+            for_ (Array.range 8 15) \i ->
+              sendRGBColor i cfg.paramHue
     | otherwise -> do
-        -- Bottom encoder press: check if shifted
+        -- Bottom encoder press: toggle/momentary params (only when a loop is selected)
         st <- H.get
-        let paramIdx = idx - 8
-            cfg = Loopy.recordAndMixConfig
-        case st.loopyHeldEncoder of
-          Just _ ->
-            -- Shift mode: use shift definition from config
-            case Array.index cfg.params paramIdx >>= Loopy.paramShift of
-              Just shift -> do
-                sendMomentaryLoopy shift.cc
-                trackLoopyAction st.loopySelectedLoop shift.cc
-              Nothing -> pure unit
-          Nothing ->
-            -- Normal mode: toggle/momentary params
-            case Array.index cfg.params paramIdx of
-              Just (Loopy.LoopyParamToggle { cc }) -> do
-                sendMomentaryLoopy cc
-                trackLoopyAction st.loopySelectedLoop cc
-              Just (Loopy.LoopyParamMomentary { cc }) -> do
-                sendMomentaryLoopy cc
-                trackLoopyAction st.loopySelectedLoop cc
-              _ -> pure unit
+        when (st.loopySelectedLoop >= 0) do
+          let paramIdx = idx - 8
+              cfg = Loopy.loopConfigBank
+          case Array.index cfg.params paramIdx of
+            Just (Loopy.LoopyParamToggle { cc }) -> do
+              sendMomentaryLoopy cc
+              trackLoopyAction st.loopySelectedLoop cc
+            Just (Loopy.LoopyParamMomentary { cc }) -> do
+              sendMomentaryLoopy cc
+              trackLoopyAction st.loopySelectedLoop cc
+            -- Phase lock (shift on FadeIn) and Threshold (shift on FadeOut) are press actions
+            Just (Loopy.LoopyParamContinuous { shift: Just shift }) -> do
+              sendMomentaryLoopy shift.cc
+            _ -> pure unit
 
-  EncoderRelease idx
-    | idx < 8 -> do
-        -- Release top encoder: exit shift mode, restore bottom LED colors
-        st <- H.get
-        when (st.loopyHeldEncoder == Just idx) do
-          H.modify_ _ { loopyHeldEncoder = Nothing }
-          let cfg = Loopy.recordAndMixConfig
-          for_ (Array.range 8 15) \i ->
-            sendRGBColor i cfg.paramHue
-    | otherwise -> pure unit
+  EncoderRelease _ -> pure unit
 
   SideButton btn -> handleTwisterSideButton btn
 
@@ -967,8 +971,9 @@ sendLoopyLEDs = do
     sendRGBColor bEnc group.color.twisterHue
     sendRingPosition aEnc 0
     sendRingPosition bEnc 0
-  -- Bottom 8: parameter colors from config
-  let cfg = Loopy.recordAndMixConfig
+  -- Bottom 8: lit when a loop is selected, dark otherwise
+  let cfg = Loopy.loopConfigBank
+      bottomHue = if st.loopySelectedLoop >= 0 then cfg.paramHue else 0
   for_ (Array.range 8 15) \idx -> do
-    sendRGBColor idx cfg.paramHue
+    sendRGBColor idx bottomHue
     sendRingPosition idx 0

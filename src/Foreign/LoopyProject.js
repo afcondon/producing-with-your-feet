@@ -22,15 +22,22 @@ const GROUPS = [
 ];
 
 const ACTIONS = {
-  record:   { cc: 20, identifier: "Track Record/Stop",  subject: "none" },
-  playStop: { cc: 21, identifier: "Track Play/Stop",    subject: "selected" },
-  clear:    { cc: 22, identifier: "Clear Track",         subject: "selected" },
-  mute:     { cc: 23, identifier: "Mute",               subject: "selected" },
-  solo:     { cc: 24, identifier: "Track Solo",          subject: "selected" },
-  multiply: { cc: 25, identifier: "Multiply Track",      subject: "selected" },
-  divide:   { cc: 26, identifier: "Divide Track",        subject: "selected" },
-  prev:     { cc: 27, identifier: "Track Select",        subject: "global" },
-  next:     { cc: 28, identifier: "Track Select",        subject: "global" },
+  record:        { cc: 20, identifier: "Track Record/Stop",  subject: "none" },
+  playStop:      { cc: 21, identifier: "Track Play/Stop",    subject: "selected" },
+  clear:         { cc: 22, identifier: "Clear Track",         subject: "selected" },
+  mute:          { cc: 23, identifier: "Mute",               subject: "selected" },
+  solo:          { cc: 24, identifier: "Track Solo",          subject: "selected" },
+  multiply:      { cc: 25, identifier: "Multiply Track",      subject: "selected" },
+  divide:        { cc: 26, identifier: "Divide Track",        subject: "selected" },
+  prev:          { cc: 27, identifier: "Track Select",        subject: "global" },
+  next:          { cc: 28, identifier: "Track Select",        subject: "global" },
+  deselect:      { cc: 29, identifier: "Track Deselect",      subject: "global" },
+  undo:          { cc: 57, identifier: "Undo",                subject: "global" },
+  redo:          { cc: 58, identifier: "Redo",                subject: "global" },
+  play:          { cc: 59, identifier: "Track Play",           subject: "selected" },
+  stop:          { cc: 60, identifier: "Track Stop",           subject: "selected" },
+  playImmediate: { cc: 61, identifier: "Track Play Immediate", subject: "selected" },
+  stopImmediate: { cc: 62, identifier: "Track Stop Immediate", subject: "selected" },
 };
 
 const SELECT_CC_BASE = 30;
@@ -337,20 +344,30 @@ ${paramsXml}${subjectXml}
     bindings.push(bindingEntry(trigger, "Track Parameter", String(loopyPos), { Parameter: "Volume" }));
   }
 
-  // Parameter CCs for selected loop (from recordAndMixConfig)
-  // Row 3 transport actions reuse CC 20-24 (already bound above)
-  // Row 4 editing parameters: Speed (53), Reverse (56), FadeIn (54), FadeOut (55)
+  // Parameter CCs for selected loop (from loopConfigBank)
+  // Speed (53), Reverse (56), FadeIn (54), FadeOut (55), Overdub (80)
   const PARAM_BINDINGS = [
     { cc: 53, parameter: "Speed",              subject: "selected" },
     { cc: 56, parameter: "Reverse",            subject: "selected" },
     { cc: 54, parameter: "Fade In Duration",   subject: "selected" },
     { cc: 55, parameter: "Fade Out Duration",  subject: "selected" },
+    { cc: 80, parameter: "Overdub Level",      subject: "selected" },
+    { cc: 81, parameter: "Phase Lock",         subject: "selected" },
+    { cc: 82, parameter: "Threshold Recording", subject: "selected" },
   ];
 
   for (const param of PARAM_BINDINGS) {
     const trigger = ccTriggerContinuous(MIDI_CHANNEL, param.cc);
     const subject = param.subject === "selected" ? "Selected Track" : "";
     bindings.push(bindingEntry(trigger, "Track Parameter", subject, { Parameter: param.parameter }));
+  }
+
+  // Pan per loop (CC 70-77) — continuous, bound to specific tracks
+  const PAN_CC_BASE = 70;
+  for (let i = 0; i < allTrackIds.length; i++) {
+    const trigger = ccTriggerContinuous(MIDI_CHANNEL, PAN_CC_BASE + i);
+    const loopyPos = (i % 2) * GROUPS.length + Math.floor(i / 2);
+    bindings.push(bindingEntry(trigger, "Track Parameter", String(loopyPos), { Parameter: "Pan" }));
   }
 
   return bindings;

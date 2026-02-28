@@ -19,6 +19,7 @@ import Config.Registry as CRegistry
 import Config.Types (MidiRouting)
 import Data.Array as Array
 import Data.Loopy as Loopy
+import Data.MC6.Types (MC6NativeBank)
 import Data.Map (Map)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
@@ -72,6 +73,7 @@ type AppState =
   , loopyHeldEncoder :: Maybe Int
   , loopyLoopStates :: Array Loopy.LoopState
   , loopyClipSettings :: Array Loopy.ClipSettings
+  , mc6Banks :: Array MC6NativeBank
   }
 
 defaultPedalState :: PedalDef -> PedalState
@@ -121,10 +123,11 @@ initAppState =
   , boardPresets: []
   , configError: Nothing
   , loopyTwisterActive: false
-  , loopySelectedLoop: 0
+  , loopySelectedLoop: -1
   , loopyHeldEncoder: Nothing
   , loopyLoopStates: Array.replicate 8 Loopy.defaultLoopState
   , loopyClipSettings: Array.replicate 8 Loopy.defaultClipSettings
+  , mc6Banks: []
   }
 
 getValue :: PedalId -> CC -> EngineState -> Maybe MidiValue

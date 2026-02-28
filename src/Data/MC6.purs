@@ -94,6 +94,7 @@ derive instance Eq SwitchAction
 type MC6Switch =
   { label :: String
   , action :: SwitchAction
+  , longPress :: SwitchAction
   }
 
 type MC6Bank =
@@ -107,7 +108,7 @@ type MC6Bank =
   }
 
 emptySwitches :: Array MC6Switch
-emptySwitches = Array.replicate 9 { label: "", action: Unassigned }
+emptySwitches = Array.replicate 9 { label: "", action: Unassigned, longPress: Unassigned }
 
 emptyBank :: MC6Bank
 emptyBank =
@@ -119,3 +120,4 @@ emptyBank =
   , created: ""
   , modified: ""
   }
+

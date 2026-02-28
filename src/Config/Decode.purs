@@ -1,11 +1,13 @@
 module Config.Decode
   ( loadRig
   , loadPedal
+  , loadController
   , LoadError(..)
   ) where
 
 import Prelude
 
+import Config.Decode.Controller (ControllerConfig, decodeController)
 import Config.Decode.Pedal (decodePedal)
 import Config.Decode.Rig (decodeRig)
 import Config.Types (RigConfig)
@@ -84,6 +86,20 @@ tryFetch url = do
   case result of
     Left err -> pure (Left (FetchError url (Aff.message err)))
     Right text -> pure (Right text)
+
+-- | Load and decode a controller JSON config file
+loadController :: String -> Aff (Either LoadError ControllerConfig)
+loadController url = do
+  eText <- tryFetch url
+  case eText of
+    Left err -> pure (Left err)
+    Right text ->
+      case jsonParser text of
+        Left msg -> pure (Left (ParseError $ url <> ": " <> msg))
+        Right json ->
+          case decodeController json of
+            Nothing -> pure (Left (DecodeError $ "Failed to decode " <> url))
+            Just config -> pure (Right config)
 
 -- Re-sequence an array of Eithers
 sequence :: forall e a. Array (Either e a) -> Either e (Array a)

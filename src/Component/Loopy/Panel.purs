@@ -11,7 +11,7 @@ import Component.Loopy.ClipSettings as ClipSettings
 import Data.Array as Array
 import Data.Const (Const)
 import Data.Loopy as Loopy
-import Data.Maybe (Maybe(..), isJust, fromMaybe)
+import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Midi (CC)
 import Effect.Aff.Class (class MonadAff)
 import Engine (MidiConnections)
@@ -89,11 +89,11 @@ render state =
         ]
     , HH.div [ HP.class_ (H.ClassName "loopy-grid") ]
         (map renderGroup Loopy.groups)
-    , HH.div [ HP.class_ (H.ClassName "loopy-actions") ]
+    , HH.div [ HP.class_ (H.ClassName ("loopy-actions" <> if hasSelection then "" else " unselected")) ]
         [ HH.div [ HP.class_ (H.ClassName "loopy-action-row") ]
-            (map (renderParam isShifted) (Array.take 4 cfg.params))
+            (map renderParam (Array.take 4 cfg.params))
         , HH.div [ HP.class_ (H.ClassName "loopy-action-row") ]
-            (map (renderParam isShifted) (Array.drop 4 cfg.params))
+            (map renderParam (Array.drop 4 cfg.params))
         ]
     , HH.slot (Proxy :: _ "clipSettings") unit ClipSettings.component
         { settings: currentClipSettings
@@ -103,18 +103,18 @@ render state =
     ]
   where
   selectedIdx = state.input.selectedLoop
+  hasSelection = selectedIdx >= 0
   currentClipSettings = fromMaybe Loopy.defaultClipSettings
     (Array.index state.input.clipSettings selectedIdx)
   selectedLoopColor = colorForLoop selectedIdx
 
-  isShifted = isJust state.input.heldEncoder
-  isConnected = isJust state.input.connections.loopyOutput
+  isConnected = case state.input.connections.loopyOutput of
+    Just _ -> true
+    Nothing -> false
   titleClass = "loopy-header"
     <> (if isConnected then " connected" else "")
     <> (if state.input.loopyTwisterActive then " twister-active" else "")
-    <> (if isShifted then " shift-active" else "")
   titleText
-    | isShifted = "LoopyPro SHIFT"
     | state.input.loopyTwisterActive = "LoopyPro \x25C9"
     | otherwise = "LoopyPro"
 
@@ -188,28 +188,16 @@ render state =
               else [])
       )
 
-  cfg = Loopy.recordAndMixConfig
+  cfg = Loopy.loopConfigBank
 
-  renderParam shifted param =
+  renderParam param =
     let label = Loopy.paramLabel param
-        mShift = Loopy.paramShift param
         cc = Loopy.paramCC param
-        clickCC = if shifted
-                    then case mShift of
-                      Just s -> s.cc
-                      Nothing -> cc
-                    else cc
-        btnClass = "loopy-action-btn"
-          <> (if shifted && isJust mShift then " shifted" else "")
     in HH.button
-      [ HP.class_ (H.ClassName btnClass)
-      , HE.onClick \_ -> ClickParam clickCC
+      [ HP.class_ (H.ClassName "loopy-action-btn")
+      , HE.onClick \_ -> ClickParam cc
       ]
-      ( [ HH.span [ HP.class_ (H.ClassName "action-primary") ] [ HH.text label ] ]
-        <> case mShift of
-            Just s -> [ HH.span [ HP.class_ (H.ClassName "action-shift") ] [ HH.text s.label ] ]
-            Nothing -> []
-      )
+      [ HH.span [ HP.class_ (H.ClassName "action-primary") ] [ HH.text label ] ]
 
 -- | Look up the color for a loop index from the groups data
 colorForLoop :: Int -> String

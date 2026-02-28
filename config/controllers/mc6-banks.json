@@ -1,0 +1,94 @@
+{
+  "deviceModel": "mc6mk2",
+  "mc6Channel": 1,
+  "banks": [
+    {
+      "name": "LoopyPro",
+      "bankNumber": 10,
+      "clearToggle": false,
+      "presets": [
+        {
+          "shortName": "Rec",
+          "longName": "Record",
+          "messages": [
+            { "type": "cc", "channel": 16, "cc": 20, "value": 127, "action": "press" },
+            { "type": "cc", "channel": 16, "cc": 62, "value": 127, "action": "longPress" }
+          ]
+        },
+        {
+          "shortName": "Play",
+          "longName": "Play",
+          "messages": [
+            { "type": "cc", "channel": 16, "cc": 59, "value": 127, "action": "press" },
+            { "type": "cc", "channel": 16, "cc": 61, "value": 127, "action": "longPress" }
+          ]
+        },
+        {
+          "shortName": "Stop",
+          "longName": "Stop",
+          "messages": [
+            { "type": "cc", "channel": 16, "cc": 60, "value": 127, "action": "press" },
+            { "type": "cc", "channel": 16, "cc": 22, "value": 127, "action": "longPress" }
+          ]
+        },
+        {
+          "shortName": "Mute",
+          "longName": "Mute",
+          "messages": [
+            { "type": "cc", "channel": 16, "cc": 23, "value": 127, "action": "press" }
+          ]
+        },
+        {
+          "shortName": "Solo",
+          "longName": "Solo",
+          "messages": [
+            { "type": "cc", "channel": 16, "cc": 24, "value": 127, "action": "press" }
+          ]
+        },
+        {
+          "shortName": "Undo",
+          "longName": "Undo",
+          "messages": [
+            { "type": "cc", "channel": 16, "cc": 57, "value": 127, "action": "press" },
+            { "type": "cc", "channel": 16, "cc": 58, "value": 127, "action": "longPress" }
+          ]
+        },
+        {
+          "shortName": "Prev",
+          "longName": "Previous Track",
+          "messages": [
+            { "type": "cc", "channel": 16, "cc": 27, "value": 127, "action": "press" }
+          ]
+        },
+        {
+          "shortName": "Next",
+          "longName": "Next Track",
+          "messages": [
+            { "type": "cc", "channel": 16, "cc": 28, "value": 127, "action": "press" }
+          ]
+        },
+        {
+          "shortName": "Scenes",
+          "longName": "Back to Scenes",
+          "messages": [
+            { "type": "bankJump", "bank": 0, "action": "press" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Scenes",
+      "bankNumber": 0,
+      "clearToggle": false,
+      "presets": [
+        {
+          "shortName": "Loopy",
+          "longName": "LoopyPro Bank",
+          "messages": [
+            { "type": "bankJump", "bank": 10, "action": "press" }
+          ]
+        }
+      ]
+    }
+  ]
+}
