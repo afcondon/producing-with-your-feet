@@ -9,6 +9,7 @@ import Component.Header as Header
 import Component.Loopy.Panel as LoopyPanel
 import Data.Loopy as Loopy
 import Data.Array as Array
+import Data.MC6.Types (MC6NativeBank)
 import Data.Foldable (any, for_)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
@@ -163,10 +164,7 @@ render state = case state.configError of
                   , clipSettings: state.loopyClipSettings
                   }
                   HandleLoopy
-              , HH.div [ HP.class_ (H.ClassName "mc6-panel") ]
-                  [ HH.div [ HP.class_ (H.ClassName "mc6-header") ]
-                      [ HH.span [ HP.class_ (H.ClassName "mc6-title") ] [ HH.text "MC6" ] ]
-                  ]
+              , renderMC6Panel state
               ]
           ]
         )
@@ -207,6 +205,47 @@ renderFilesView =
         ]
     ]
 
+-- | MC6 footswitch panel — 3 rows of 3 in hardware layout: D E F / A B C / G H I
+renderMC6Panel :: forall m. MonadAff m => AppState -> H.ComponentHTML Action Slots m
+renderMC6Panel state =
+  HH.div [ HP.class_ (H.ClassName "mc6-panel") ]
+    [ HH.div [ HP.class_ (H.ClassName "mc6-header") ]
+        [ HH.span [ HP.class_ (H.ClassName "mc6-title") ] [ HH.text bankTitle ] ]
+    , HH.div [ HP.class_ (H.ClassName "mc6-switches") ]
+        -- Row 1: D E F (preset indices 3, 4, 5)
+        [ renderSwitchRow "D" 3, renderSwitchRow "E" 4, renderSwitchRow "F" 5
+        -- Row 2: A B C (preset indices 0, 1, 2)
+        , renderSwitchRow "A" 0, renderSwitchRow "B" 1, renderSwitchRow "C" 2
+        -- Row 3: G H I (preset indices 6, 7, 8)
+        , renderSwitchRow "G" 6, renderSwitchRow "H" 7, renderSwitchRow "I" 8
+        ]
+    ]
+  where
+  mBank :: Maybe MC6NativeBank
+  mBank = Array.head state.mc6Banks
+
+  bankTitle = case mBank of
+    Just b -> "MC6 — " <> b.bankName
+    Nothing -> "MC6"
+
+  renderSwitchRow :: String -> Int -> H.ComponentHTML Action Slots m
+  renderSwitchRow letter idx =
+    let label = case mBank of
+          Just b -> case Array.index b.presets idx of
+            Just p | p.shortName /= "" -> p.shortName
+            _ -> letter
+          Nothing -> letter
+        hasAction = case mBank of
+          Just b -> case Array.index b.presets idx of
+            Just p -> p.shortName /= ""
+            Nothing -> false
+          Nothing -> false
+    in HH.div
+      [ HP.class_ (H.ClassName ("mc6-switch" <> if hasAction then "" else " empty")) ]
+      [ HH.span [ HP.class_ (H.ClassName "mc6-switch-letter") ] [ HH.text letter ]
+      , HH.span [ HP.class_ (H.ClassName "mc6-switch-label") ] [ HH.text label ]
+      ]
+
 handleAction :: forall o m. MonadAff m => Action -> H.HalogenM AppState Action Slots o m Unit
 handleAction = case _ of
   Initialize -> do
@@ -226,8 +265,10 @@ handleAction = case _ of
           let controllerUrl = "./" <> "config/" <> rig.controller
           eController <- H.liftAff $ Decode.loadController controllerUrl
           case eController of
-            Left err -> liftEffect $ Console.log $ "Controller config: " <> show err
-            Right ctrlConfig -> H.modify_ _ { mc6Banks = ctrlConfig.banks }
+            Left err -> liftEffect $ Console.log $ "Controller config error: " <> show err
+            Right ctrlConfig -> do
+              liftEffect $ Console.log $ "MC6 banks loaded: " <> show (Array.length ctrlConfig.banks) <> " banks"
+              H.modify_ _ { mc6Banks = ctrlConfig.banks }
         -- Load saved state from localStorage (overrides defaults)
         mEngine <- liftEffect Storage.loadEngineState
         case mEngine of
