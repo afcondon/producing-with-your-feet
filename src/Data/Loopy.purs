@@ -7,6 +7,11 @@ module Data.Loopy
   , LoopState
   , LoopyParam(..)
   , LoopyTwisterConfig
+  , CountInMode(..)
+  , CountOutMode(..)
+  , RecordEndAction(..)
+  , BeatQuantPreset(..)
+  , ClipSettings
   , actions
   , groups
   , selectCC
@@ -20,6 +25,11 @@ module Data.Loopy
   , encoderToLoop
   , recordAndMixConfig
   , defaultLoopState
+  , defaultClipSettings
+  , countInLabel
+  , countOutLabel
+  , recordEndLabel
+  , beatQuantLabel
   , shiftAction
   ) where
 
@@ -174,3 +184,83 @@ recordAndMixConfig =
       , LoopyParamContinuous { label: "FadeO", cc: unsafeCC 55 }
       ]
   }
+
+-- | Clip Settings — recording mode configuration per loop
+
+data CountInMode = CountInNone | CountInMaster | CountInLoop
+
+derive instance Eq CountInMode
+
+data CountOutMode = CountOutNone | CountOutMaster | CountOutLoop
+
+derive instance Eq CountOutMode
+
+data RecordEndAction = EndPlay | EndStop | EndOverdub
+
+derive instance Eq RecordEndAction
+
+data BeatQuantPreset
+  = BeatQuantOff
+  | BeatQuant16Tight | BeatQuant16Med | BeatQuant16Loose
+  | BeatQuant32Tight | BeatQuant32Med | BeatQuant32Loose
+
+derive instance Eq BeatQuantPreset
+
+type ClipSettings =
+  { countIn         :: CountInMode
+  , countOut        :: CountOutMode
+  , autoCountOut    :: Boolean
+  , recordEndAction :: RecordEndAction
+  , overdubFeedback :: Number
+  , beatQuant       :: BeatQuantPreset
+  , phaseLocked     :: Boolean
+  , loop            :: Boolean
+  , threshold       :: Boolean
+  , intro           :: Boolean
+  , tail            :: Boolean
+  , retrospective   :: Boolean
+  }
+
+defaultClipSettings :: ClipSettings
+defaultClipSettings =
+  { countIn: CountInMaster
+  , countOut: CountOutMaster
+  , autoCountOut: true
+  , recordEndAction: EndPlay
+  , overdubFeedback: 1.0
+  , beatQuant: BeatQuantOff
+  , phaseLocked: true
+  , loop: true
+  , threshold: false
+  , intro: false
+  , tail: false
+  , retrospective: false
+  }
+
+countInLabel :: CountInMode -> String
+countInLabel = case _ of
+  CountInNone -> "None"
+  CountInMaster -> "Master"
+  CountInLoop -> "Loop"
+
+countOutLabel :: CountOutMode -> String
+countOutLabel = case _ of
+  CountOutNone -> "None"
+  CountOutMaster -> "Master"
+  CountOutLoop -> "Loop"
+
+recordEndLabel :: RecordEndAction -> String
+recordEndLabel = case _ of
+  EndPlay -> "Play"
+  EndStop -> "Stop"
+  EndOverdub -> "Overdub"
+
+beatQuantLabel :: BeatQuantPreset -> String
+beatQuantLabel = case _ of
+  BeatQuantOff -> "Off"
+  BeatQuant16Tight -> "16th Tight"
+  BeatQuant16Med -> "16th Med"
+  BeatQuant16Loose -> "16th Loose"
+  BeatQuant32Tight -> "32nd Tight"
+  BeatQuant32Med -> "32nd Med"
+  BeatQuant32Loose -> "32nd Loose"

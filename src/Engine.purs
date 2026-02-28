@@ -71,6 +71,7 @@ type AppState =
   , loopySelectedLoop :: Int
   , loopyHeldEncoder :: Maybe Int
   , loopyLoopStates :: Array Loopy.LoopState
+  , loopyClipSettings :: Array Loopy.ClipSettings
   }
 
 defaultPedalState :: PedalDef -> PedalState
@@ -123,6 +124,7 @@ initAppState =
   , loopySelectedLoop: 0
   , loopyHeldEncoder: Nothing
   , loopyLoopStates: Array.replicate 8 Loopy.defaultLoopState
+  , loopyClipSettings: Array.replicate 8 Loopy.defaultClipSettings
   }
 
 getValue :: PedalId -> CC -> EngineState -> Maybe MidiValue

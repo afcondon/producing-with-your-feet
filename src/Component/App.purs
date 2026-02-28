@@ -160,6 +160,7 @@ render state = case state.configError of
                   , selectedLoop: state.loopySelectedLoop
                   , loopStates: state.loopyLoopStates
                   , heldEncoder: state.loopyHeldEncoder
+                  , clipSettings: state.loopyClipSettings
                   }
                   HandleLoopy
               , HH.div [ HP.class_ (H.ClassName "mc6-panel") ]
@@ -444,6 +445,10 @@ handleAction = case _ of
       liftEffect $ Console.log "Generating LoopyPro project..."
       H.liftAff $ LoopyProject.generateAndDownload "Explorer Template"
       liftEffect $ Console.log "LoopyPro project generated."
+    LoopyPanel.ClipSettingChanged loopIdx settings ->
+      H.modify_ \st -> st
+        { loopyClipSettings = fromMaybe st.loopyClipSettings
+            (Array.updateAt loopIdx settings st.loopyClipSettings) }
     LoopyPanel.TwisterModeToggled -> do
       st <- H.get
       let newActive = not st.loopyTwisterActive

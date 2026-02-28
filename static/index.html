@@ -1681,13 +1681,16 @@ body {
   border-radius: 50%;
   background: transparent;
   cursor: pointer;
-  font-size: 14px;
-  font-weight: 700;
   font-family: inherit;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  position: relative;
   transition: background 0.1s, color 0.1s;
+  padding: 4px;
+  gap: 0;
+  overflow: hidden;
 }
 
 .loopy-loop:active {
@@ -1698,10 +1701,41 @@ body {
   box-shadow: 0 0 0 2px var(--bg-section), 0 0 0 4px currentColor;
 }
 
-.loopy-group-label {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
+.loop-letter {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.loop-vol, .loop-spd {
+  font-family: var(--mono);
+  font-size: 8px;
+  line-height: 1.1;
+  opacity: 0.7;
+}
+
+.loop-flags {
+  display: flex;
+  gap: 1px;
+  margin-top: 1px;
+}
+
+.loop-badge {
+  position: absolute;
+  font-size: 7px;
+  font-weight: 700;
+  line-height: 1;
+  opacity: 0.7;
+}
+
+.loop-badge-tl {
+  top: 12%;
+  left: 14%;
+}
+
+.loop-badge-tr {
+  top: 12%;
+  right: 14%;
 }
 
 .loopy-actions {
@@ -1728,38 +1762,20 @@ body {
   border-color: var(--active-bg);
 }
 
-.loopy-generate {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border-light);
-}
-
 .loopy-generate-btn {
-  font-size: 12px !important;
-  color: var(--fg-muted);
+  margin-left: auto;
+  font-size: 10px !important;
+  font-weight: 500 !important;
+  padding: 2px 6px !important;
+  color: var(--fg-light);
+  border-color: var(--border-light);
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .loopy-header.shift-active {
   background: #c0392b;
   color: #fff;
-}
-
-.loopy-info-pair {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1px;
-  margin-top: 2px;
-}
-
-.loopy-info {
-  font-family: var(--mono);
-  font-size: 9px;
-  line-height: 1.2;
-  color: var(--fg-muted);
-  display: flex;
-  align-items: center;
-  gap: 3px;
 }
 
 .loopy-flag {
@@ -1783,6 +1799,117 @@ body {
 .loopy-flag-cleared {
   background: #c0392b;
   color: #fff;
+}
+
+/* --- Clip Settings Panel --- */
+
+.clip-settings {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-light);
+}
+
+.clip-diagram {
+  width: 100%;
+  margin-bottom: 6px;
+}
+
+.clip-diagram svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.clip-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.clip-control-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.clip-control-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.clip-label {
+  font-size: 11px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
+.clip-select {
+  padding: 3px 5px;
+  font-size: 11px;
+  font-family: inherit;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.clip-toggle {
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+
+.clip-toggle.active {
+  background: var(--active-bg);
+  color: var(--active-fg);
+  border-color: var(--active-bg);
+}
+
+.clip-toggle:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.clip-slider-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 140px;
+}
+
+.clip-slider {
+  flex: 1;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--slider-track);
+  border-radius: 2px;
+  outline: none;
+}
+
+.clip-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--slider-thumb);
+  cursor: pointer;
+}
+
+.clip-slider-value {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg-muted);
+  min-width: 32px;
+  text-align: right;
 }
 
 /* --- MC6 Panel --- */
