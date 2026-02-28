@@ -437,10 +437,19 @@ handleAction = case _ of
     LoopyPanel.LoopSelected idx -> do
       sendMomentaryLoopy (Loopy.selectCC (Loopy.LoopIndex idx))
       H.modify_ _ { loopySelectedLoop = idx }
-    LoopyPanel.ActionFired action ->
-      case Array.find (\a -> a.action == action) Loopy.actions of
-        Just def -> sendMomentaryLoopy def.cc
-        Nothing -> pure unit
+    LoopyPanel.ActionGridPressed cc -> do
+      st <- H.get
+      sendMomentaryLoopy cc
+      trackLoopyAction st.loopySelectedLoop cc
+    LoopyPanel.ClearAllLoops -> do
+      liftEffect $ Console.log "Clearing all loops..."
+      for_ (Array.range 0 7) \i -> do
+        sendMomentaryLoopy (Loopy.selectCC (Loopy.LoopIndex i))
+        sendMomentaryLoopy Loopy.clearCC
+        updateLoopState i (_ { cleared = true })
+      -- Re-select the previously selected loop
+      st <- H.get
+      sendMomentaryLoopy (Loopy.selectCC (Loopy.LoopIndex st.loopySelectedLoop))
     LoopyPanel.GenerateProject -> do
       liftEffect $ Console.log "Generating LoopyPro project..."
       H.liftAff $ LoopyProject.generateAndDownload "Explorer Template"
@@ -859,6 +868,7 @@ trackLoopyAction loopIdx cc
   | cc == unsafeCC 23 = updateLoopState loopIdx \ls -> ls { muted = not ls.muted }
   | cc == unsafeCC 24 = updateLoopState loopIdx \ls -> ls { soloed = not ls.soloed }
   | cc == unsafeCC 20 = updateLoopState loopIdx (_ { cleared = false })
+  | cc == unsafeCC 22 = updateLoopState loopIdx (_ { cleared = true })
   | otherwise = pure unit
 
 -- | Handle Twister messages in Loopy mode
@@ -912,12 +922,12 @@ handleLoopyTwisterMsg = case _ of
             cfg = Loopy.recordAndMixConfig
         case st.loopyHeldEncoder of
           Just _ ->
-            -- Shift mode: check for shifted action
-            case Loopy.shiftAction paramIdx of
-              Just Loopy.LoopyClear -> do
-                sendMomentaryLoopy Loopy.clearCC
-                updateLoopState st.loopySelectedLoop (_ { cleared = true })
-              _ -> pure unit
+            -- Shift mode: use shift definition from config
+            case Array.index cfg.params paramIdx >>= Loopy.paramShift of
+              Just shift -> do
+                sendMomentaryLoopy shift.cc
+                trackLoopyAction st.loopySelectedLoop shift.cc
+              Nothing -> pure unit
           Nothing ->
             -- Normal mode: toggle/momentary params
             case Array.index cfg.params paramIdx of

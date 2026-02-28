@@ -30,7 +30,8 @@ module Data.Loopy
   , countOutLabel
   , recordEndLabel
   , beatQuantLabel
-  , shiftAction
+  , ShiftDef
+  , paramShift
   ) where
 
 import Prelude
@@ -70,11 +71,14 @@ type LoopGroup =
   , loopB :: LoopIndex
   }
 
+-- | Shift function available when holding a loop encoder
+type ShiftDef = { label :: String, action :: LoopyAction, cc :: CC }
+
 -- | Parameter type for Twister bottom row (encoders 8-15)
 data LoopyParam
-  = LoopyParamContinuous { label :: String, cc :: CC }
-  | LoopyParamToggle { label :: String, cc :: CC }
-  | LoopyParamMomentary { label :: String, cc :: CC }
+  = LoopyParamContinuous { label :: String, cc :: CC, shift :: Maybe ShiftDef }
+  | LoopyParamToggle { label :: String, cc :: CC, shift :: Maybe ShiftDef }
+  | LoopyParamMomentary { label :: String, cc :: CC, action :: LoopyAction, shift :: Maybe ShiftDef }
 
 loopCount :: Int
 loopCount = 8
@@ -109,11 +113,12 @@ clearCC = unsafeCC 22
 speedCC :: CC
 speedCC = unsafeCC 53
 
--- | In shift mode, map bottom-encoder paramIdx to a shifted action.
--- POC: only paramIdx 2 (the Mute position) maps to LoopyClear.
-shiftAction :: Int -> Maybe LoopyAction
-shiftAction 2 = Just LoopyClear
-shiftAction _ = Nothing
+-- | Extract shift definition from a LoopyParam
+paramShift :: LoopyParam -> Maybe ShiftDef
+paramShift = case _ of
+  LoopyParamContinuous r -> r.shift
+  LoopyParamToggle r -> r.shift
+  LoopyParamMomentary r -> r.shift
 
 selectCC :: LoopIndex -> CC
 selectCC (LoopIndex i) = unsafeCC (30 + i)
@@ -173,15 +178,15 @@ recordAndMixConfig =
   , paramHue: 42
   , params:
       -- Row 3: transport (all momentary — use existing action CCs)
-      [ LoopyParamMomentary  { label: "Rec",   cc: unsafeCC 20 }
-      , LoopyParamMomentary  { label: "Play",  cc: unsafeCC 21 }
-      , LoopyParamMomentary  { label: "Mute",  cc: unsafeCC 23 }
-      , LoopyParamMomentary  { label: "Solo",  cc: unsafeCC 24 }
+      [ LoopyParamMomentary  { label: "Rec",   cc: unsafeCC 20, action: LoopyRecord,   shift: Nothing }
+      , LoopyParamMomentary  { label: "Play",  cc: unsafeCC 21, action: LoopyPlayStop, shift: Nothing }
+      , LoopyParamMomentary  { label: "Mute",  cc: unsafeCC 23, action: LoopyMute,     shift: Just { label: "Clear", action: LoopyClear, cc: unsafeCC 22 } }
+      , LoopyParamMomentary  { label: "Solo",  cc: unsafeCC 24, action: LoopySolo,     shift: Nothing }
       -- Row 4: editing (continuous rotation + toggle press)
-      , LoopyParamContinuous { label: "Speed", cc: unsafeCC 53 }
-      , LoopyParamToggle     { label: "Rvrs",  cc: unsafeCC 56 }
-      , LoopyParamContinuous { label: "FadeI", cc: unsafeCC 54 }
-      , LoopyParamContinuous { label: "FadeO", cc: unsafeCC 55 }
+      , LoopyParamContinuous { label: "Speed", cc: unsafeCC 53, shift: Just { label: "\x00d72", action: LoopyMultiply, cc: unsafeCC 25 } }
+      , LoopyParamToggle     { label: "Rvrs",  cc: unsafeCC 56, shift: Just { label: "\x00f72", action: LoopyDivide,   cc: unsafeCC 26 } }
+      , LoopyParamContinuous { label: "FadeI", cc: unsafeCC 54, shift: Just { label: "\x25c4",  action: LoopyPrev,     cc: unsafeCC 27 } }
+      , LoopyParamContinuous { label: "FadeO", cc: unsafeCC 55, shift: Just { label: "\x25ba",  action: LoopyNext,     cc: unsafeCC 28 } }
       ]
   }
 

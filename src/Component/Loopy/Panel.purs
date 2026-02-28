@@ -12,6 +12,7 @@ import Data.Array as Array
 import Data.Const (Const)
 import Data.Loopy as Loopy
 import Data.Maybe (Maybe(..), isJust, fromMaybe)
+import Data.Midi (CC)
 import Effect.Aff.Class (class MonadAff)
 import Engine (MidiConnections)
 import Halogen as H
@@ -33,9 +34,10 @@ type Input =
 
 data Output
   = LoopSelected Int
-  | ActionFired Loopy.LoopyAction
+  | ActionGridPressed CC
   | TwisterModeToggled
   | GenerateProject
+  | ClearAllLoops
   | ClipSettingChanged Int Loopy.ClipSettings
 
 type ChildSlots =
@@ -49,9 +51,10 @@ type State =
 data Action
   = Receive Input
   | ClickLoop Int
-  | ClickAction Loopy.LoopyAction
+  | ClickParam CC
   | ClickTitle
   | ClickGenerate
+  | ClickClearAll
   | HandleClipSettings ClipSettings.Output
 
 component :: forall q m. MonadAff m => H.Component q Input Output m
@@ -74,7 +77,12 @@ render state =
         ]
         [ HH.span_ [ HH.text titleText ]
         , HH.button
-            [ HP.class_ (H.ClassName "loopy-action-btn loopy-generate-btn")
+            [ HP.class_ (H.ClassName "loopy-header-btn")
+            , HE.onClick \_ -> ClickClearAll
+            ]
+            [ HH.text "Clear All" ]
+        , HH.button
+            [ HP.class_ (H.ClassName "loopy-header-btn")
             , HE.onClick \_ -> ClickGenerate
             ]
             [ HH.text ".lpproj" ]
@@ -82,7 +90,11 @@ render state =
     , HH.div [ HP.class_ (H.ClassName "loopy-grid") ]
         (map renderGroup Loopy.groups)
     , HH.div [ HP.class_ (H.ClassName "loopy-actions") ]
-        (map renderAction Loopy.actions)
+        [ HH.div [ HP.class_ (H.ClassName "loopy-action-row") ]
+            (map (renderParam isShifted) (Array.take 4 cfg.params))
+        , HH.div [ HP.class_ (H.ClassName "loopy-action-row") ]
+            (map (renderParam isShifted) (Array.drop 4 cfg.params))
+        ]
     , HH.slot (Proxy :: _ "clipSettings") unit ClipSettings.component
         { settings: currentClipSettings
         , loopColor: selectedLoopColor
@@ -96,7 +108,9 @@ render state =
   selectedLoopColor = colorForLoop selectedIdx
 
   isShifted = isJust state.input.heldEncoder
+  isConnected = isJust state.input.connections.loopyOutput
   titleClass = "loopy-header"
+    <> (if isConnected then " connected" else "")
     <> (if state.input.loopyTwisterActive then " twister-active" else "")
     <> (if isShifted then " shift-active" else "")
   titleText
@@ -174,12 +188,28 @@ render state =
               else [])
       )
 
-  renderAction def =
-    HH.button
-      [ HP.class_ (H.ClassName "loopy-action-btn")
-      , HE.onClick \_ -> ClickAction def.action
+  cfg = Loopy.recordAndMixConfig
+
+  renderParam shifted param =
+    let label = Loopy.paramLabel param
+        mShift = Loopy.paramShift param
+        cc = Loopy.paramCC param
+        clickCC = if shifted
+                    then case mShift of
+                      Just s -> s.cc
+                      Nothing -> cc
+                    else cc
+        btnClass = "loopy-action-btn"
+          <> (if shifted && isJust mShift then " shifted" else "")
+    in HH.button
+      [ HP.class_ (H.ClassName btnClass)
+      , HE.onClick \_ -> ClickParam clickCC
       ]
-      [ HH.text def.label ]
+      ( [ HH.span [ HP.class_ (H.ClassName "action-primary") ] [ HH.text label ] ]
+        <> case mShift of
+            Just s -> [ HH.span [ HP.class_ (H.ClassName "action-shift") ] [ HH.text s.label ] ]
+            Nothing -> []
+      )
 
 -- | Look up the color for a loop index from the groups data
 colorForLoop :: Int -> String
@@ -193,9 +223,10 @@ handleAction :: forall m. MonadAff m => Action -> H.HalogenM State Action ChildS
 handleAction = case _ of
   Receive input -> H.modify_ _ { input = input }
   ClickLoop idx -> H.raise (LoopSelected idx)
-  ClickAction action -> H.raise (ActionFired action)
+  ClickParam cc -> H.raise (ActionGridPressed cc)
   ClickTitle -> H.raise TwisterModeToggled
   ClickGenerate -> H.raise GenerateProject
+  ClickClearAll -> H.raise ClearAllLoops
   HandleClipSettings (ClipSettings.ClipSettingChanged settings) -> do
     st <- H.get
     H.raise (ClipSettingChanged st.input.selectedLoop settings)

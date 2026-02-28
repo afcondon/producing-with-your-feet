@@ -1625,7 +1625,8 @@ body {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--fg-muted);
+  color: #fff;
+  background: #999;
   cursor: pointer;
   padding: 6px 8px;
   border-radius: var(--radius);
@@ -1633,12 +1634,43 @@ body {
 }
 
 .loopy-header:hover {
-  background: var(--bg-hover, #f0f0f0);
+  background: #888;
+}
+
+.loopy-header.connected {
+  background: var(--active-bg, #333);
+}
+
+.loopy-header.connected:hover {
+  background: var(--active-bg, #333);
 }
 
 .loopy-header.twister-active {
   background: var(--active-bg, #333);
-  color: var(--active-fg, #fff);
+}
+
+.loopy-header-btn {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 6px;
+  color: rgba(255,255,255,0.7);
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.3);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-family: inherit;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.loopy-header-btn:hover {
+  color: #fff;
+  border-color: rgba(255,255,255,0.6);
+}
+
+.loopy-header-btn + .loopy-header-btn {
+  margin-left: 0;
 }
 
 .loopy-midi-config {
@@ -1740,12 +1772,19 @@ body {
 
 .loopy-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.loopy-action-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
 }
 
 .loopy-action-btn {
-  padding: 8px 12px;
+  padding: 6px 4px;
   font-size: 13px;
   font-weight: 500;
   font-family: inherit;
@@ -1754,23 +1793,37 @@ body {
   border-radius: var(--radius);
   cursor: pointer;
   transition: background 0.1s, color 0.1s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+
+.action-primary {
+  line-height: 1.2;
+}
+
+.action-shift {
+  font-size: 9px;
+  color: var(--fg-muted);
+  line-height: 1;
+}
+
+.loopy-action-btn.shifted .action-primary {
+  font-size: 9px;
+  color: var(--fg-muted);
+}
+
+.loopy-action-btn.shifted .action-shift {
+  font-size: 13px;
+  font-weight: 500;
+  color: inherit;
 }
 
 .loopy-action-btn:active {
   background: var(--active-bg);
   color: var(--active-fg);
   border-color: var(--active-bg);
-}
-
-.loopy-generate-btn {
-  margin-left: auto;
-  font-size: 10px !important;
-  font-weight: 500 !important;
-  padding: 2px 6px !important;
-  color: var(--fg-light);
-  border-color: var(--border-light);
-  text-transform: none;
-  letter-spacing: 0;
 }
 
 .loopy-header.shift-active {
