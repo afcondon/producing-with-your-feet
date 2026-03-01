@@ -31,7 +31,6 @@ const ACTIONS = {
   divide:        { cc: 26, identifier: "Divide Track",        subject: "selected" },
   prev:          { cc: 27, identifier: "Track Select",        subject: "global" },
   next:          { cc: 28, identifier: "Track Select",        subject: "global" },
-  deselect:      { cc: 29, identifier: "Track Deselect",      subject: "global" },
   undo:          { cc: 57, identifier: "Undo",                subject: "global" },
   redo:          { cc: 58, identifier: "Redo",                subject: "global" },
   play:          { cc: 59, identifier: "Track Play",           subject: "selected" },

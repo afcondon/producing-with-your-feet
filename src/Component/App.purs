@@ -485,9 +485,9 @@ handleAction = case _ of
     LoopyPanel.LoopSelected idx -> do
       st <- H.get
       if st.loopySelectedLoop == idx
-        then do
-          -- Deselect: send CC 29 instead of re-sending select
-          sendMomentaryLoopy Loopy.deselectCC
+        then
+          -- Local-only deselect: LoopyPro has no deselect action,
+          -- so just hide parameter UI without sending MIDI
           H.modify_ _ { loopySelectedLoop = -1 }
         else do
           sendMomentaryLoopy (Loopy.selectCC (Loopy.LoopIndex idx))
@@ -960,9 +960,8 @@ handleLoopyTwisterMsg = case _ of
         let loopIdx = Loopy.encoderToLoop idx
         if st.loopySelectedLoop == loopIdx
           then do
-            -- Second press on same loop: deselect via CC 29
+            -- Local-only deselect: no MIDI, just hide parameter UI
             H.modify_ _ { loopySelectedLoop = -1 }
-            sendMomentaryLoopy Loopy.deselectCC
             -- Dim bottom encoders
             for_ (Array.range 8 15) \i -> do
               sendRGBColor i 0

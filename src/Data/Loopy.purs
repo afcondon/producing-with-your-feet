@@ -18,7 +18,6 @@ module Data.Loopy
   , volumeCC
   , clearCC
   , speedCC
-  , deselectCC
   , panCC
   , overdubCC
   , phaseLockCC
@@ -54,7 +53,6 @@ data LoopyAction
   | LoopyDivide
   | LoopyPrev
   | LoopyNext
-  | LoopyDeselect
   | LoopyPlay
   | LoopyStop
   | LoopyPlayImmediate
@@ -125,10 +123,6 @@ clearCC = unsafeCC 22
 speedCC :: CC
 speedCC = unsafeCC 53
 
--- | Deselect all tracks: CC 29 on channel 16
-deselectCC :: CC
-deselectCC = unsafeCC 29
-
 -- | Pan CC per loop: CC 70-77 on channel 16
 panCC :: LoopIndex -> CC
 panCC (LoopIndex i) = unsafeCC (70 + i)
@@ -191,7 +185,6 @@ actions =
   , { action: LoopyDivide,        cc: unsafeCC 26, label: "\x00f72" }
   , { action: LoopyPrev,          cc: unsafeCC 27, label: "\x25c4" }
   , { action: LoopyNext,          cc: unsafeCC 28, label: "\x25ba" }
-  , { action: LoopyDeselect,      cc: unsafeCC 29, label: "Desel" }
   , { action: LoopyUndo,          cc: unsafeCC 57, label: "Undo" }
   , { action: LoopyRedo,          cc: unsafeCC 58, label: "Redo" }
   , { action: LoopyPlay,          cc: unsafeCC 59, label: "Play" }
