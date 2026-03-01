@@ -2055,6 +2055,184 @@ body {
   text-align: center;
 }
 
+/* --- Connect View --- */
+
+.connect-view {
+  padding: 24px 32px;
+  max-width: 720px;
+}
+
+.connect-view h2 {
+  font-size: 16px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+  margin: 0 0 24px;
+}
+
+.connect-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.connect-card {
+  padding: 16px;
+  background: var(--bg-section);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.connect-card.connected {
+  border-color: #4a4;
+}
+
+.connect-card.disconnected {
+  border-color: var(--border);
+}
+
+.connect-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.connect-card-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.connect-card.connected .connect-card-status {
+  background: #4a4;
+}
+
+.connect-card-label {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.connect-card-desc {
+  font-size: 12px;
+  color: var(--fg-muted);
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+
+.connect-select {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+}
+
+.connect-flow {
+  padding: 16px;
+  background: var(--bg-section);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.connect-flow h3 {
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+
+.connect-flow p {
+  font-size: 12px;
+  color: var(--fg-muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* --- Docs View --- */
+
+.docs-view {
+  padding: 24px 32px;
+  max-width: 720px;
+}
+
+.docs-view h2 {
+  font-size: 16px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+  margin: 0 0 24px;
+}
+
+.docs-section {
+  margin-bottom: 32px;
+}
+
+.docs-section h3 {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+
+.docs-section h4 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-muted);
+  margin: 16px 0 6px;
+}
+
+.docs-note {
+  font-size: 12px;
+  color: var(--fg-muted);
+  margin: 0 0 12px;
+}
+
+.docs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.docs-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+  padding: 4px 10px;
+  border-bottom: 2px solid var(--border);
+}
+
+.docs-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.docs-table .docs-cc {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.docs-switch-letter {
+  font-weight: 700;
+  width: 28px;
+}
+
+.docs-fs3x td:first-child {
+  border-left: 3px solid var(--border);
+}
+
+.docs-empty td {
+  opacity: 0.3;
+}
+
 /* ============================================
    PureScript-specific layout
    (Detail controls now emit JS-matching markup)

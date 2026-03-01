@@ -67,6 +67,8 @@ data LoopyAction
   | LoopyStopImmediate
   | LoopyUndo
   | LoopyRedo
+  | LoopyTapTempo
+  | LoopyRetroRecord
 
 derive instance Eq LoopyAction
 
@@ -215,6 +217,8 @@ actions =
   , { action: LoopyStop,          cc: unsafeCC 60, label: "Stop" }
   , { action: LoopyPlayImmediate, cc: unsafeCC 61, label: "Play!" }
   , { action: LoopyStopImmediate, cc: unsafeCC 62, label: "Stop!" }
+  , { action: LoopyTapTempo,     cc: unsafeCC 83, label: "Tap" }
+  , { action: LoopyRetroRecord,  cc: unsafeCC 84, label: "Retro" }
   ]
 
 groups :: Array LoopGroup
@@ -394,6 +398,8 @@ transition cs phase action = case phase, action of
   _,               LoopyRedo -> phase
   _,               LoopyPrev -> phase
   _,               LoopyNext -> phase
+  _,               LoopyTapTempo -> phase
+  _,               LoopyRetroRecord -> phase
 
 -- | For auto-transitioning phases, what phase comes next
 expectedResolution :: ClipSettings -> LoopPhase -> Maybe LoopPhase

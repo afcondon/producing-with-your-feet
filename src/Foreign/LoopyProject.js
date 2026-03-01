@@ -37,6 +37,8 @@ const ACTIONS = {
   stop:          { cc: 60, identifier: "Track Stop",           subject: "selected" },
   playImmediate: { cc: 61, identifier: "Track Play Immediate", subject: "selected" },
   stopImmediate: { cc: 62, identifier: "Track Stop Immediate", subject: "selected" },
+  tapTempo:      { cc: 83, identifier: "Tap Tempo",            subject: "none" },
+  retroRecord:   { cc: 84, identifier: "Track Record/Stop",    subject: "selected" },
 };
 
 const SELECT_CC_BASE = 30;
@@ -323,6 +325,9 @@ ${paramsXml}${subjectXml}
     let params = {};
     if (key === "solo") {
       params = { Solo: true, "Record If Empty": false };
+    }
+    if (key === "retroRecord") {
+      params = { Retrospective: true };
     }
 
     bindings.push(bindingEntry(trigger, action.identifier, subject, params));

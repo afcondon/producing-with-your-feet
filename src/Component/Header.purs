@@ -14,7 +14,7 @@ import Data.Maybe (Maybe(..))
 
 import Data.Pedal (PedalId)
 import Effect.Aff.Class (class MonadAff)
-import Engine (MidiConnections, View(..))
+import Engine (View(..))
 import Halogen as H
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
@@ -24,7 +24,6 @@ import Config.Registry as CRegistry
 
 type Input =
   { view :: View
-  , connections :: MidiConnections
   , cardOrder :: Array PedalId
   , hiddenPedals :: Array PedalId
   , boardsActivePedal :: Maybe PedalId
@@ -34,10 +33,6 @@ type Input =
 data Output
   = ViewChanged View
   | PedalPillClicked PedalId
-  | PedalOutputChanged String
-  | TwisterInputChanged String
-  | LoopyOutputChanged String
-  | MC6InputChanged String
 
 type State = Input
 
@@ -45,10 +40,6 @@ data Action
   = Receive Input
   | ClickView View
   | ClickPedal PedalId
-  | ChangePedalOutput String
-  | ChangeTwisterInput String
-  | ChangeLoopyOutput String
-  | ChangeMC6Input String
 
 type Slot = H.Slot (Const Void) Output
 
@@ -70,16 +61,12 @@ render state =
     [ HH.div [ HP.class_ (H.ClassName "view-toggle") ]
         [ viewButton "Grid" GridView
         , viewButton "Boards" BoardsView
+        , viewButton "Docs" DocsView
+        , viewButton "MIDI" ConnectView
         , viewButton "\x21C5" FilesView
         ]
     , HH.div [ HP.class_ (H.ClassName "pedal-pills") ]
         (Array.mapMaybe renderPill state.cardOrder)
-    , HH.div [ HP.class_ (H.ClassName "midi-pickers") ]
-        [ midiPicker "Pedal MIDI" state.connections.pedalOutputId state.connections.availableOutputs ChangePedalOutput
-        , midiPicker "Twister" state.connections.twisterInputId state.connections.availableInputs ChangeTwisterInput
-        , midiPicker "LoopyPro" state.connections.loopyOutputId state.connections.availableOutputs ChangeLoopyOutput
-        , midiPicker "MC6" state.connections.mc6InputId state.connections.availableInputs ChangeMC6Input
-        ]
     ]
   where
   viewButton label view =
@@ -93,6 +80,8 @@ render state =
     GridView, GridView -> true
     BoardsView, BoardsView -> true
     FilesView, FilesView -> true
+    DocsView, DocsView -> true
+    ConnectView, ConnectView -> true
     DetailView _, DetailView _ -> true
     _, _ -> false
 
@@ -117,31 +106,8 @@ render state =
       ]
       [ HH.text def.meta.shortName ]
 
-  midiPicker label selectedId ports onChange =
-    let disconnected = selectedId == Nothing
-        cls = "midi-picker" <> if disconnected then " disconnected" else ""
-    in HH.div [ HP.class_ (H.ClassName cls) ]
-      [ HH.label_ [ HH.text label ]
-      , HH.select
-          [ HE.onValueChange onChange ]
-          ( [ HH.option [ HP.value "" ] [ HH.text "—" ] ]
-            <> map portOption ports
-          )
-      ]
-    where
-    portOption port =
-      HH.option
-        [ HP.value port.id
-        , HP.selected (selectedId == Just port.id)
-        ]
-        [ HH.text port.name ]
-
 handleAction :: forall m. MonadAff m => Action -> H.HalogenM State Action () Output m Unit
 handleAction = case _ of
   Receive input -> H.put input
   ClickView view -> H.raise (ViewChanged view)
   ClickPedal pid -> H.raise (PedalPillClicked pid)
-  ChangePedalOutput portId -> H.raise (PedalOutputChanged portId)
-  ChangeTwisterInput portId -> H.raise (TwisterInputChanged portId)
-  ChangeLoopyOutput portId -> H.raise (LoopyOutputChanged portId)
-  ChangeMC6Input portId -> H.raise (MC6InputChanged portId)

@@ -12,7 +12,7 @@ import Data.Array as Array
 import Data.Argonaut.Core (stringify)
 import Data.Argonaut.Parser (jsonParser)
 import Data.MC6.Backup as Backup
-import Data.MC6.Types (MC6NativeBank)
+import Data.MC6.Types (MC6NativeBank, MC6MsgType(..), MC6Action(..))
 import Data.Foldable (any, for_)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
@@ -107,7 +107,6 @@ render state = case state.configError of
     [ HP.class_ (H.ClassName "app") ]
     [ HH.slot (Proxy :: _ "header") unit Header.component
         { view: state.view
-        , connections: state.connections
         , cardOrder: state.cardOrder
         , hiddenPedals: state.hiddenPedals
         , boardsActivePedal: state.boardsActivePedal
@@ -134,6 +133,8 @@ render state = case state.configError of
             }
             HandleDetail
         FilesView -> renderFilesView
+        DocsView -> renderDocsView state
+        ConnectView -> renderConnectView state
         BoardsView -> HH.text ""
     -- Boards always rendered for state persistence
     , HH.div
@@ -210,6 +211,261 @@ renderFilesView =
             ]
         ]
     ]
+
+-- | MIDI connections view — port selection and signal flow
+renderConnectView :: forall m. MonadAff m => AppState -> H.ComponentHTML Action Slots m
+renderConnectView state =
+  HH.div [ HP.class_ (H.ClassName "connect-view") ]
+    [ HH.h2_ [ HH.text "MIDI Connections" ]
+    , HH.div [ HP.class_ (H.ClassName "connect-grid") ]
+        [ connectCard
+            { label: "Pedal MIDI"
+            , description: "Output to pedals via MC6 MIDI Thru. Sends CC changes when you adjust controls in the Grid or Detail views."
+            , selectedId: state.connections.pedalOutputId
+            , ports: state.connections.availableOutputs
+            , onChange: SelectPedalOutput
+            }
+        , connectCard
+            { label: "Twister"
+            , description: "Input from Midifighter Twister. Receives encoder turns and button presses for loop selection and parameter control."
+            , selectedId: state.connections.twisterInputId
+            , ports: state.connections.availableInputs
+            , onChange: SelectTwisterInput
+            }
+        , connectCard
+            { label: "LoopyPro"
+            , description: "Output to LoopyPro on iPad. Sends transport, loop actions, and parameter CCs on channel 16 via AUDIO4c."
+            , selectedId: state.connections.loopyOutputId
+            , ports: state.connections.availableOutputs
+            , onChange: SelectLoopyOutput
+            }
+        , connectCard
+            { label: "MC6"
+            , description: "Input from Morningstar MC6 footswitch. Relays footswitch presses to LoopyPro and updates the phase display."
+            , selectedId: state.connections.mc6InputId
+            , ports: state.connections.availableInputs
+            , onChange: SelectMC6Input
+            }
+        ]
+    , HH.div [ HP.class_ (H.ClassName "connect-flow") ]
+        [ HH.h3_ [ HH.text "Signal Flow" ]
+        , HH.p_
+            [ HH.text "Twister/MC6 \x2192 this app \x2192 LoopyPro (via AUDIO4c). "
+            , HH.text "Pedal CCs go out a separate MIDI output to the pedalboard via MC6 MIDI Thru."
+            ]
+        ]
+    ]
+  where
+  connectCard { label, description, selectedId, ports, onChange } =
+    let connected = selectedId /= Nothing
+        cls = "connect-card" <> if connected then " connected" else " disconnected"
+    in HH.div [ HP.class_ (H.ClassName cls) ]
+      [ HH.div [ HP.class_ (H.ClassName "connect-card-header") ]
+          [ HH.span [ HP.class_ (H.ClassName "connect-card-status") ] []
+          , HH.span [ HP.class_ (H.ClassName "connect-card-label") ] [ HH.text label ]
+          ]
+      , HH.p [ HP.class_ (H.ClassName "connect-card-desc") ] [ HH.text description ]
+      , HH.select
+          [ HP.class_ (H.ClassName "connect-select")
+          , HE.onValueChange onChange
+          ]
+          ( [ HH.option [ HP.value "" ] [ HH.text "\x2014 not connected \x2014" ] ]
+            <> map (\port ->
+                HH.option
+                  [ HP.value port.id
+                  , HP.selected (selectedId == Just port.id)
+                  ]
+                  [ HH.text port.name ]
+              ) ports
+          )
+      ]
+
+-- | Documentation view — MIDI reference derived from config data
+renderDocsView :: forall m. MonadAff m => AppState -> H.ComponentHTML Action Slots m
+renderDocsView state =
+  HH.div [ HP.class_ (H.ClassName "docs-view") ]
+    [ HH.h2_ [ HH.text "MIDI Reference" ]
+    , renderMC6Section
+    , renderTwisterSection
+    , renderCCSection
+    ]
+  where
+  -- Helper: CC number → Loopy action label
+  ccLabel :: Int -> String
+  ccLabel cc = case Array.find (\a -> unCC a.cc == cc) Loopy.actions of
+    Just a -> a.label
+    Nothing -> "CC " <> show cc
+
+  -- Extract press action from MC6 preset messages
+  pressAction p =
+    case Array.find (\m -> m.action == ActionPress && m.msgType == MsgCC) p.messages of
+      Just m -> { label: ccLabel m.data1, cc: show m.data1 }
+      Nothing -> case Array.find (\m -> m.action == ActionPress && m.msgType == MsgBankJump) p.messages of
+        Just _ -> { label: "Boards", cc: "" }
+        Nothing -> { label: "", cc: "" }
+
+  -- Extract long press action from MC6 preset messages
+  longPressAction p =
+    case Array.find (\m -> m.action == ActionLongPress && m.msgType == MsgCC) p.messages of
+      Just m -> { label: ccLabel m.data1, cc: show m.data1 }
+      Nothing -> case Array.find (\m -> m.action == ActionLongPress && m.msgType == MsgBankJump) p.messages of
+        Just _ -> { label: "Boards", cc: "" }
+        Nothing -> { label: "", cc: "" }
+
+  -- Find the LoopyPro bank
+  loopyBank = Array.find (\b -> b.bankName == "LoopyPro") state.mc6Banks
+
+  preset idx = loopyBank >>= \b -> Array.index b.presets idx
+
+  -- MC6 Footswitch section
+  renderMC6Section =
+    HH.div [ HP.class_ (H.ClassName "docs-section") ]
+      [ HH.h3_ [ HH.text "MC6 Footswitches — LoopyPro" ]
+      , HH.p [ HP.class_ (H.ClassName "docs-note") ]
+          [ HH.text "Channel 16, momentary (127 on press, 0 on release)." ]
+      , HH.table [ HP.class_ (H.ClassName "docs-table") ]
+          [ HH.thead_
+              [ HH.tr_
+                  [ HH.th_ [ HH.text "" ]
+                  , HH.th_ [ HH.text "Press" ]
+                  , HH.th_ [ HH.text "CC" ]
+                  , HH.th_ [ HH.text "Long Press" ]
+                  , HH.th_ [ HH.text "CC" ]
+                  ]
+              ]
+          , HH.tbody_
+              [ switchRow "A" 0, switchRow "B" 1, switchRow "C" 2
+              , switchRow "D" 3, switchRow "E" 4, switchRow "F" 5
+              , switchRow "G" 6, switchRow "H" 7, switchRow "I" 8
+              ]
+          ]
+      ]
+
+  switchRow letter idx =
+    case preset idx of
+      Just p | p.shortName /= "" ->
+        let press = pressAction p
+            lp = longPressAction p
+            zone = if idx >= 6 then " docs-fs3x" else ""
+        in HH.tr [ HP.class_ (H.ClassName ("docs-switch" <> zone)) ]
+          [ HH.td [ HP.class_ (H.ClassName "docs-switch-letter") ] [ HH.text letter ]
+          , HH.td_ [ HH.text press.label ]
+          , HH.td [ HP.class_ (H.ClassName "docs-cc") ] [ HH.text press.cc ]
+          , HH.td_ [ HH.text lp.label ]
+          , HH.td [ HP.class_ (H.ClassName "docs-cc") ] [ HH.text lp.cc ]
+          ]
+      _ ->
+        HH.tr [ HP.class_ (H.ClassName "docs-switch docs-empty") ]
+          [ HH.td_ [ HH.text letter ]
+          , HH.td_ [], HH.td_ [], HH.td_ [], HH.td_ []
+          ]
+
+  -- Twister section
+  renderTwisterSection =
+    HH.div [ HP.class_ (H.ClassName "docs-section") ]
+      [ HH.h3_ [ HH.text "Midifighter Twister" ]
+      , HH.h4_ [ HH.text "Top Row - Loop Selection (enc 0-7)" ]
+      , HH.table [ HP.class_ (H.ClassName "docs-table") ]
+          [ HH.thead_
+              [ HH.tr_
+                  [ HH.th_ [ HH.text "Enc" ]
+                  , HH.th_ [ HH.text "Group" ]
+                  , HH.th_ [ HH.text "Select" ]
+                  , HH.th_ [ HH.text "Volume" ]
+                  ]
+              ]
+          , HH.tbody_ (map renderLoopEnc (Array.range 0 7))
+          ]
+      , HH.h4_ [ HH.text "Bottom Row - Loop Config (enc 8-15)" ]
+      , HH.table [ HP.class_ (H.ClassName "docs-table") ]
+          [ HH.thead_
+              [ HH.tr_
+                  [ HH.th_ [ HH.text "Enc" ]
+                  , HH.th_ [ HH.text "Rotation" ]
+                  , HH.th_ [ HH.text "CC" ]
+                  , HH.th_ [ HH.text "Shift" ]
+                  , HH.th_ [ HH.text "CC" ]
+                  ]
+              ]
+          , HH.tbody_ (Array.mapWithIndex renderParamEnc Loopy.loopConfigBank.params)
+          ]
+      ]
+
+  renderLoopEnc enc =
+    let loopIdx = Loopy.encoderToLoop enc
+        groupIdx = loopIdx / 2
+        isB = loopIdx `mod` 2 == 1
+        mGroup = Array.index Loopy.groups groupIdx
+        label = case mGroup of
+          Just g -> g.color.label <> (if isB then " B" else " A")
+          Nothing -> ""
+        hex = case mGroup of
+          Just g -> g.color.color
+          Nothing -> ""
+    in HH.tr_
+      [ HH.td_ [ HH.text (show enc) ]
+      , HH.td [ HP.attr (HH.AttrName "style") ("color: " <> hex) ] [ HH.text label ]
+      , HH.td [ HP.class_ (H.ClassName "docs-cc") ] [ HH.text ("CC " <> show (30 + loopIdx)) ]
+      , HH.td [ HP.class_ (H.ClassName "docs-cc") ] [ HH.text ("CC " <> show (40 + loopIdx)) ]
+      ]
+
+  renderParamEnc idx param =
+    let shiftLabel = case Loopy.paramShift param of
+          Just s -> s.label
+          Nothing -> ""
+        shiftCC = case Loopy.paramShift param of
+          Just s -> "CC " <> show (unCC s.cc)
+          Nothing -> ""
+    in HH.tr_
+      [ HH.td_ [ HH.text (show (8 + idx)) ]
+      , HH.td_ [ HH.text (Loopy.paramLabel param) ]
+      , HH.td [ HP.class_ (H.ClassName "docs-cc") ] [ HH.text ("CC " <> show (unCC (Loopy.paramCC param))) ]
+      , HH.td_ [ HH.text shiftLabel ]
+      , HH.td [ HP.class_ (H.ClassName "docs-cc") ] [ HH.text shiftCC ]
+      ]
+
+  -- CC reference table
+  renderCCSection =
+    HH.div [ HP.class_ (H.ClassName "docs-section") ]
+      [ HH.h3_ [ HH.text "LoopyPro CC Map" ]
+      , HH.p [ HP.class_ (H.ClassName "docs-note") ]
+          [ HH.text "All on channel 16 via AUDIO4c." ]
+      , HH.table [ HP.class_ (H.ClassName "docs-table") ]
+          [ HH.thead_
+              [ HH.tr_
+                  [ HH.th_ [ HH.text "CC" ]
+                  , HH.th_ [ HH.text "Action" ]
+                  , HH.th_ [ HH.text "Type" ]
+                  ]
+              ]
+          , HH.tbody_
+              ( map (\a -> HH.tr_
+                  [ HH.td [ HP.class_ (H.ClassName "docs-cc") ] [ HH.text (show (unCC a.cc)) ]
+                  , HH.td_ [ HH.text a.label ]
+                  , HH.td_ [ HH.text "Momentary" ]
+                  ]) Loopy.actions
+              <> map (\r -> HH.tr_
+                  [ HH.td [ HP.class_ (H.ClassName "docs-cc") ] [ HH.text (show r.cc) ]
+                  , HH.td_ [ HH.text r.label ]
+                  , HH.td_ [ HH.text r.typ ]
+                  ])
+                  [ { cc: 30, label: "Select Loop 0", typ: "Momentary" }
+                  , { cc: 37, label: "Select Loop 7", typ: "Momentary" }
+                  , { cc: 40, label: "Volume Loop 0", typ: "Continuous" }
+                  , { cc: 47, label: "Volume Loop 7", typ: "Continuous" }
+                  , { cc: 53, label: "Speed", typ: "Continuous" }
+                  , { cc: 54, label: "Fade In", typ: "Continuous" }
+                  , { cc: 55, label: "Fade Out", typ: "Continuous" }
+                  , { cc: 56, label: "Reverse", typ: "Toggle" }
+                  , { cc: 70, label: "Pan Loop 0", typ: "Continuous" }
+                  , { cc: 77, label: "Pan Loop 7", typ: "Continuous" }
+                  , { cc: 80, label: "Overdub Feedback", typ: "Continuous" }
+                  , { cc: 81, label: "Phase Lock", typ: "Toggle" }
+                  , { cc: 82, label: "Threshold Recording", typ: "Toggle" }
+                  ]
+              )
+          ]
+      ]
 
 -- | MC6 footswitch panel — 3 rows of 3 in hardware layout: D E F / A B C / G H I
 renderMC6Panel :: forall m. MonadAff m => AppState -> H.ComponentHTML Action Slots m
@@ -445,10 +701,6 @@ handleAction = case _ of
               else Just pid
           }
         _ -> pure unit
-    Header.PedalOutputChanged portId -> handleAction (SelectPedalOutput portId)
-    Header.TwisterInputChanged portId -> handleAction (SelectTwisterInput portId)
-    Header.LoopyOutputChanged portId -> handleAction (SelectLoopyOutput portId)
-    Header.MC6InputChanged portId -> handleAction (SelectMC6Input portId)
 
   HandleDetail output -> case output of
     DetailView.ValueChanged pid ccNum val -> handleAction (SetValue pid ccNum val)
