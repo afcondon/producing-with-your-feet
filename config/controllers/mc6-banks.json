@@ -3,92 +3,6 @@
   "mc6Channel": 1,
   "banks": [
     {
-      "name": "LoopyPro",
-      "bankNumber": 0,
-      "clearToggle": false,
-      "presets": [
-        {
-          "shortName": "Rec",
-          "longName": "Record",
-          "messages": [
-            { "type": "cc", "channel": 16, "cc": 20, "value": 127, "action": "press" },
-            { "type": "cc", "channel": 16, "cc": 20, "value": 0, "action": "release" },
-            { "type": "cc", "channel": 16, "cc": 62, "value": 127, "action": "longPress" },
-            { "type": "cc", "channel": 16, "cc": 62, "value": 0, "action": "longPressRelease" }
-          ]
-        },
-        {
-          "shortName": "Play",
-          "longName": "Play",
-          "messages": [
-            { "type": "cc", "channel": 16, "cc": 59, "value": 127, "action": "press" },
-            { "type": "cc", "channel": 16, "cc": 59, "value": 0, "action": "release" },
-            { "type": "cc", "channel": 16, "cc": 61, "value": 127, "action": "longPress" },
-            { "type": "cc", "channel": 16, "cc": 61, "value": 0, "action": "longPressRelease" }
-          ]
-        },
-        {
-          "shortName": "Stop",
-          "longName": "Stop",
-          "messages": [
-            { "type": "cc", "channel": 16, "cc": 60, "value": 127, "action": "press" },
-            { "type": "cc", "channel": 16, "cc": 60, "value": 0, "action": "release" },
-            { "type": "cc", "channel": 16, "cc": 22, "value": 127, "action": "longPress" },
-            { "type": "cc", "channel": 16, "cc": 22, "value": 0, "action": "longPressRelease" }
-          ]
-        },
-        {
-          "shortName": "Mute",
-          "longName": "Mute",
-          "messages": [
-            { "type": "cc", "channel": 16, "cc": 23, "value": 127, "action": "press" },
-            { "type": "cc", "channel": 16, "cc": 23, "value": 0, "action": "release" }
-          ]
-        },
-        {
-          "shortName": "Solo",
-          "longName": "Solo",
-          "messages": [
-            { "type": "cc", "channel": 16, "cc": 24, "value": 127, "action": "press" },
-            { "type": "cc", "channel": 16, "cc": 24, "value": 0, "action": "release" }
-          ]
-        },
-        {
-          "shortName": "Undo",
-          "longName": "Undo",
-          "messages": [
-            { "type": "cc", "channel": 16, "cc": 57, "value": 127, "action": "press" },
-            { "type": "cc", "channel": 16, "cc": 57, "value": 0, "action": "release" },
-            { "type": "cc", "channel": 16, "cc": 58, "value": 127, "action": "longPress" },
-            { "type": "cc", "channel": 16, "cc": 58, "value": 0, "action": "longPressRelease" }
-          ]
-        },
-        {
-          "shortName": "Boards",
-          "longName": "Board Presets",
-          "messages": [
-            { "type": "bankJump", "bank": 1, "action": "press" }
-          ]
-        },
-        {
-          "shortName": "Prev",
-          "longName": "Previous Track",
-          "messages": [
-            { "type": "cc", "channel": 16, "cc": 27, "value": 127, "action": "press" },
-            { "type": "cc", "channel": 16, "cc": 27, "value": 0, "action": "release" }
-          ]
-        },
-        {
-          "shortName": "Next",
-          "longName": "Next Track",
-          "messages": [
-            { "type": "cc", "channel": 16, "cc": 28, "value": 127, "action": "press" },
-            { "type": "cc", "channel": 16, "cc": 28, "value": 0, "action": "release" }
-          ]
-        }
-      ]
-    },
-    {
       "name": "Boards",
       "bankNumber": 1,
       "clearToggle": false,
@@ -127,7 +41,7 @@
           "shortName": "Loopy",
           "longName": "LoopyPro",
           "messages": [
-            { "type": "bankJump", "bank": 0, "action": "press" }
+            { "type": "bankJump", "bank": 11, "action": "press" }
           ]
         },
         {
