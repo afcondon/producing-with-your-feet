@@ -9,6 +9,9 @@ import Component.Header as Header
 import Component.Loopy.Panel as LoopyPanel
 import Data.Loopy as Loopy
 import Data.Array as Array
+import Data.Argonaut.Core (stringify)
+import Data.Argonaut.Parser (jsonParser)
+import Data.MC6.Backup as Backup
 import Data.MC6.Types (MC6NativeBank)
 import Data.Foldable (any, for_)
 import Data.Map as Map
@@ -67,6 +70,7 @@ data Action
   | ExportAllBoardsAction
   | ImportPresetsFromFileAction
   | ImportBoardsFromFileAction
+  | ExportMC6BackupAction
 
 type Slots =
   ( header :: Header.Slot Unit
@@ -210,7 +214,13 @@ renderMC6Panel :: forall m. MonadAff m => AppState -> H.ComponentHTML Action Slo
 renderMC6Panel state =
   HH.div [ HP.class_ (H.ClassName "mc6-panel") ]
     [ HH.div [ HP.class_ (H.ClassName "mc6-header") ]
-        [ HH.span [ HP.class_ (H.ClassName "mc6-title") ] [ HH.text bankTitle ] ]
+        [ HH.span [ HP.class_ (H.ClassName "mc6-title") ] [ HH.text bankTitle ]
+        , HH.button
+            [ HP.class_ (H.ClassName "mc6-export-btn")
+            , HE.onClick \_ -> ExportMC6BackupAction
+            ]
+            [ HH.text "Export" ]
+        ]
     , HH.div [ HP.class_ (H.ClassName "mc6-switches") ]
         -- Row 1: D E F (preset indices 3, 4, 5)
         [ renderSwitchRow "D" 3, renderSwitchRow "E" 4, renderSwitchRow "F" 5
@@ -528,6 +538,7 @@ handleAction = case _ of
   ExportAllBoardsAction -> handleExportAllBoards
   ImportPresetsFromFileAction -> handleImportPresetsFromFile
   ImportBoardsFromFileAction -> handleImportBoardsFromFile
+  ExportMC6BackupAction -> handleExportMC6Backup
 
   SelectLoopyOutput portId -> do
     st <- H.get
@@ -699,6 +710,17 @@ handleExportAllBoards = do
   st <- H.get
   let json = CPreset.boardPresetsToReadableJsonString st.presets st.boardPresets
   liftEffect $ FileIO.downloadJson "boards-export.json" json
+
+handleExportMC6Backup :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
+handleExportMC6Backup = do
+  text <- H.liftAff $ FileIO.readFileAsText ".json"
+  case jsonParser text >>= Backup.decodeBackup of
+    Left err -> liftEffect $ Console.log $ "Backup parse error: " <> err
+    Right backup -> do
+      st <- H.get
+      let merged = Backup.mergeBanks st.mc6Banks backup
+          json = stringify (Backup.encodeBackup merged)
+      liftEffect $ FileIO.downloadJson "mc6-backup.json" json
 
 handleImportPresetsFromFile :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
 handleImportPresetsFromFile = do
