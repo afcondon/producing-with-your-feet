@@ -4,6 +4,7 @@ module Engine
   , MidiConnections
   , View(..)
   , AppState
+  , MC6Assignment
   , initEngineFromPedals
   , initAppState
   , getValue
@@ -25,7 +26,7 @@ import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Midi (CC, MidiValue)
 import Data.Pedal (PedalDef, PedalId)
-import Data.Preset (BoardPreset, PedalPreset)
+import Data.Preset (BoardPreset, PedalPreset, PresetId)
 import Data.Tuple (Tuple(..))
 import Foreign.WebMIDI (MIDIAccess, MIDIInput, MIDIOutput, MidiPort)
 
@@ -57,6 +58,12 @@ type MidiConnections =
   , availableInputs :: Array MidiPort
   }
 
+type MC6Assignment =
+  { bankNumber :: Int
+  , switchIndex :: Int
+  , boardPresetId :: PresetId
+  }
+
 type AppState =
   { view :: View
   , engine :: EngineState
@@ -76,6 +83,8 @@ type AppState =
   , loopyLoopStates :: Array Loopy.LoopState
   , loopyClipSettings :: Array Loopy.ClipSettings
   , mc6Banks :: Array MC6NativeBank
+  , mc6ActiveBankIdx :: Int
+  , mc6Assignments :: Array MC6Assignment
   }
 
 defaultPedalState :: PedalDef -> PedalState
@@ -133,6 +142,8 @@ initAppState =
   , loopyLoopStates: Array.replicate 8 Loopy.defaultLoopState
   , loopyClipSettings: Array.replicate 8 Loopy.defaultClipSettings
   , mc6Banks: []
+  , mc6ActiveBankIdx: 0
+  , mc6Assignments: []
   }
 
 getValue :: PedalId -> CC -> EngineState -> Maybe MidiValue

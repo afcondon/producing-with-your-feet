@@ -11,12 +11,12 @@
   "engage": {
     "type": "dual",
     "a": {
-      "cc": 102,
-      "label": "ML"
-    },
-    "b": {
       "cc": 103,
       "label": "Wet"
+    },
+    "b": {
+      "cc": 102,
+      "label": "ML"
     }
   },
   "baseline": {

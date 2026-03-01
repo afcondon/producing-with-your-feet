@@ -11,6 +11,8 @@ module Engine.Storage
   , saveCardOrder
   , loadCardOrder
   , loadCardOrderParsed
+  , saveMC6Assignments
+  , loadMC6AssignmentsParsed
   , parseEngine
   , parseCardOrder
   , parsePresets
@@ -43,7 +45,7 @@ import Data.Preset (BoardPreset, BoardPresetEntry, PedalPreset)
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
 import Effect (Effect)
-import Engine (EngineState, PedalState)
+import Engine (EngineState, MC6Assignment, PedalState)
 import Foreign.Object as FO
 import Web.HTML (window)
 import Web.HTML.Window (localStorage)
@@ -56,6 +58,7 @@ data StorageKey
   | BoardPresetsKey
   | CardOrderKey
   | LoopyChannelKey
+  | MC6AssignmentsKey
 
 keyString :: StorageKey -> String
 keyString = case _ of
@@ -65,6 +68,7 @@ keyString = case _ of
   BoardPresetsKey -> "pedal-explorer-board-presets"
   CardOrderKey -> "pedal-explorer-card-order"
   LoopyChannelKey -> "pedal-explorer-loopy-channel"
+  MC6AssignmentsKey -> "pedal-explorer-mc6-assignments"
 
 getStorage :: Effect Storage.Storage
 getStorage = window >>= localStorage
@@ -137,6 +141,11 @@ saveCardOrder order = do
 
 loadCardOrder :: Effect (Maybe String)
 loadCardOrder = getItem CardOrderKey
+
+saveMC6Assignments :: Array MC6Assignment -> Effect Unit
+saveMC6Assignments assignments = do
+  let json = Json.fromArray $ map mc6AssignmentToJson assignments
+  setItem MC6AssignmentsKey (stringify json)
 
 -- Decoders
 
@@ -331,6 +340,11 @@ loadBoardPresetsParsed = do
   mStr <- getItem BoardPresetsKey
   pure $ fromMaybe [] (mStr >>= parseBoardPresets)
 
+loadMC6AssignmentsParsed :: Effect (Array MC6Assignment)
+loadMC6AssignmentsParsed = do
+  mStr <- getItem MC6AssignmentsKey
+  pure $ fromMaybe [] (mStr >>= parseMC6Assignments)
+
 -- Serializers
 
 nowISO :: Effect String
@@ -393,3 +407,30 @@ presetsToJsonString = stringify <<< Json.fromArray <<< map presetToJson
 
 boardPresetsToJsonString :: Array BoardPreset -> String
 boardPresetsToJsonString = stringify <<< Json.fromArray <<< map boardPresetToJson
+
+-- MC6 Assignment serialization
+
+mc6AssignmentToJson :: MC6Assignment -> Json
+mc6AssignmentToJson a =
+  Json.fromObject $ FO.fromFoldable
+    [ Tuple "bankNumber" (Json.fromNumber (Int.toNumber a.bankNumber))
+    , Tuple "switchIndex" (Json.fromNumber (Int.toNumber a.switchIndex))
+    , Tuple "boardPresetId" (Json.fromString a.boardPresetId)
+    ]
+
+parseMC6Assignments :: String -> Maybe (Array MC6Assignment)
+parseMC6Assignments str = do
+  json <- hush (jsonParser str)
+  arr <- Json.toArray json
+  traverse parseMC6Assignment arr
+
+parseMC6Assignment :: Json -> Maybe MC6Assignment
+parseMC6Assignment json = do
+  obj <- Json.toObject json
+  bnJson <- FO.lookup "bankNumber" obj
+  bankNumber <- Json.toNumber bnJson >>= Int.fromNumber
+  siJson <- FO.lookup "switchIndex" obj
+  switchIndex <- Json.toNumber siJson >>= Int.fromNumber
+  bpJson <- FO.lookup "boardPresetId" obj
+  boardPresetId <- Json.toString bpJson
+  pure { bankNumber, switchIndex, boardPresetId }

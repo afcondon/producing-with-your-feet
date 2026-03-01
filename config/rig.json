@@ -62,7 +62,7 @@
       "match": "Midi Fighter Twister"
     },
     "loopyOutput": {
-      "match": "AUDIO4c"
+      "match": "AUDIO4c USB2"
     },
     "loopyChannel": 16,
     "mc6Input": {
