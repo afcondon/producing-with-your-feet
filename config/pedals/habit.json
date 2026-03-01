@@ -4,7 +4,7 @@
     "name": "Habit",
     "shortName": "Ht",
     "brand": "Chase Bliss",
-    "defaultChannel": 16,
+    "defaultChannel": 15,
     "color": "#d4a017",
     "saveInstructions": "Hold both footswitches until LEDs blink, then release."
   },

@@ -28,7 +28,7 @@ pedal =
       , shortName: "Ht"
       , brand: "Chase Bliss"
       , color: fromHexString "#d4a017"
-      , defaultChannel: 16
+      , defaultChannel: 15
       , saveInstructions: Just "Hold both footswitches until LEDs blink, then release."
       }
   , engage: SingleEngage (cc 102)

@@ -12,7 +12,9 @@
           "longName": "Record",
           "messages": [
             { "type": "cc", "channel": 16, "cc": 20, "value": 127, "action": "press" },
-            { "type": "cc", "channel": 16, "cc": 62, "value": 127, "action": "longPress" }
+            { "type": "cc", "channel": 16, "cc": 20, "value": 0, "action": "release" },
+            { "type": "cc", "channel": 16, "cc": 62, "value": 127, "action": "longPress" },
+            { "type": "cc", "channel": 16, "cc": 62, "value": 0, "action": "longPressRelease" }
           ]
         },
         {
@@ -20,7 +22,9 @@
           "longName": "Play",
           "messages": [
             { "type": "cc", "channel": 16, "cc": 59, "value": 127, "action": "press" },
-            { "type": "cc", "channel": 16, "cc": 61, "value": 127, "action": "longPress" }
+            { "type": "cc", "channel": 16, "cc": 59, "value": 0, "action": "release" },
+            { "type": "cc", "channel": 16, "cc": 61, "value": 127, "action": "longPress" },
+            { "type": "cc", "channel": 16, "cc": 61, "value": 0, "action": "longPressRelease" }
           ]
         },
         {
@@ -28,21 +32,25 @@
           "longName": "Stop",
           "messages": [
             { "type": "cc", "channel": 16, "cc": 60, "value": 127, "action": "press" },
-            { "type": "cc", "channel": 16, "cc": 22, "value": 127, "action": "longPress" }
+            { "type": "cc", "channel": 16, "cc": 60, "value": 0, "action": "release" },
+            { "type": "cc", "channel": 16, "cc": 22, "value": 127, "action": "longPress" },
+            { "type": "cc", "channel": 16, "cc": 22, "value": 0, "action": "longPressRelease" }
           ]
         },
         {
           "shortName": "Mute",
           "longName": "Mute",
           "messages": [
-            { "type": "cc", "channel": 16, "cc": 23, "value": 127, "action": "press" }
+            { "type": "cc", "channel": 16, "cc": 23, "value": 127, "action": "press" },
+            { "type": "cc", "channel": 16, "cc": 23, "value": 0, "action": "release" }
           ]
         },
         {
           "shortName": "Solo",
           "longName": "Solo",
           "messages": [
-            { "type": "cc", "channel": 16, "cc": 24, "value": 127, "action": "press" }
+            { "type": "cc", "channel": 16, "cc": 24, "value": 127, "action": "press" },
+            { "type": "cc", "channel": 16, "cc": 24, "value": 0, "action": "release" }
           ]
         },
         {
@@ -50,7 +58,9 @@
           "longName": "Undo",
           "messages": [
             { "type": "cc", "channel": 16, "cc": 57, "value": 127, "action": "press" },
-            { "type": "cc", "channel": 16, "cc": 58, "value": 127, "action": "longPress" }
+            { "type": "cc", "channel": 16, "cc": 57, "value": 0, "action": "release" },
+            { "type": "cc", "channel": 16, "cc": 58, "value": 127, "action": "longPress" },
+            { "type": "cc", "channel": 16, "cc": 58, "value": 0, "action": "longPressRelease" }
           ]
         },
         {
@@ -64,14 +74,16 @@
           "shortName": "Prev",
           "longName": "Previous Track",
           "messages": [
-            { "type": "cc", "channel": 16, "cc": 27, "value": 127, "action": "press" }
+            { "type": "cc", "channel": 16, "cc": 27, "value": 127, "action": "press" },
+            { "type": "cc", "channel": 16, "cc": 27, "value": 0, "action": "release" }
           ]
         },
         {
           "shortName": "Next",
           "longName": "Next Track",
           "messages": [
-            { "type": "cc", "channel": 16, "cc": 28, "value": 127, "action": "press" }
+            { "type": "cc", "channel": 16, "cc": 28, "value": 127, "action": "press" },
+            { "type": "cc", "channel": 16, "cc": 28, "value": 0, "action": "release" }
           ]
         }
       ]

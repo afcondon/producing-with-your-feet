@@ -49,7 +49,7 @@ main = do
   assert "All pedals have sections" allHaveSections
 
   -- findPedal works (via registry)
-  let reg = CRegistry.mkRegistry Registry.pedals [] { pedalOutput: { match: "" }, twisterInput: { match: "" }, twisterOutput: { match: "" }, loopyOutput: { match: "" }, loopyChannel: 1 }
+  let reg = CRegistry.mkRegistry Registry.pedals [] { pedalOutput: { match: "" }, twisterInput: { match: "" }, twisterOutput: { match: "" }, loopyOutput: { match: "" }, loopyChannel: 1, mc6Input: { match: "" } }
   assert "findPedal MOOD" (isJust (CRegistry.findPedal reg (PedalId "mood")))
   assert "findPedal nonexistent returns Nothing" (isNothing (CRegistry.findPedal reg (PedalId "nonexistent")))
 

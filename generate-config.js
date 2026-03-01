@@ -43,7 +43,8 @@ const rigConfig = {
     twisterInput: { match: "Midi Fighter Twister" },
     twisterOutput: { match: "Midi Fighter Twister" },
     loopyOutput: { match: "AUDIO4c" },
-    loopyChannel: 16
+    loopyChannel: 16,
+    mc6Input: { match: "Morningstar" }
   },
   slotRanges: [
     { brand: "Meris", range: { start: 0, count: 16 } },

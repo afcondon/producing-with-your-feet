@@ -66,6 +66,8 @@ data Action
   | HandleSideGrid GridView.Output
   | HandleLoopy LoopyPanel.Output
   | SelectLoopyOutput String
+  | SelectMC6Input String
+  | MC6MidiReceived (Array Int)
   | ExportAllPresetsAction
   | ExportAllBoardsAction
   | ImportPresetsFromFileAction
@@ -323,6 +325,10 @@ handleAction = case _ of
         let mLoopyOut = Array.find (\p -> contains (Pattern routing.loopyOutput.match) p.name) outputs
         for_ mLoopyOut \port ->
           handleAction (SelectLoopyOutput port.id)
+        -- Auto-select MC6 input (relay to LoopyPro)
+        let mMC6In = Array.find (\p -> contains (Pattern routing.mc6Input.match) p.name) inputs
+        for_ mMC6In \port ->
+          handleAction (SelectMC6Input port.id)
 
   SetView view -> do
     H.modify_ _ { view = view }
@@ -442,6 +448,7 @@ handleAction = case _ of
     Header.PedalOutputChanged portId -> handleAction (SelectPedalOutput portId)
     Header.TwisterInputChanged portId -> handleAction (SelectTwisterInput portId)
     Header.LoopyOutputChanged portId -> handleAction (SelectLoopyOutput portId)
+    Header.MC6InputChanged portId -> handleAction (SelectMC6Input portId)
 
   HandleDetail output -> case output of
     DetailView.ValueChanged pid ccNum val -> handleAction (SetValue pid ccNum val)
@@ -511,7 +518,7 @@ handleAction = case _ of
       for_ (Array.range 0 7) \i -> do
         sendMomentaryLoopy (Loopy.selectCC (Loopy.LoopIndex i))
         sendMomentaryLoopy Loopy.clearCC
-        updateLoopState i (_ { cleared = true })
+        updateLoopState i (_ { phase = Loopy.PhaseEmpty })
       -- Re-select the previously selected loop
       st <- H.get
       sendMomentaryLoopy (Loopy.selectCC (Loopy.LoopIndex st.loopySelectedLoop))
@@ -547,6 +554,33 @@ handleAction = case _ of
       Just access -> do
         mOut <- liftEffect $ MIDI.openOutput access portId
         H.modify_ _ { connections { loopyOutput = mOut, loopyOutputId = Just portId } }
+
+  SelectMC6Input portId -> do
+    st <- H.get
+    case st.connections.access of
+      Nothing -> pure unit
+      Just access -> do
+        mInput <- liftEffect $ MIDI.openInput access portId
+        case mInput of
+          Nothing -> pure unit
+          Just input -> do
+            H.modify_ _ { connections { mc6Input = Just input, mc6InputId = Just portId } }
+            void $ H.subscribe $ HS.makeEmitter \emit ->
+              MIDI.onMessage input \bytes ->
+                emit (MC6MidiReceived bytes)
+
+  MC6MidiReceived bytes -> do
+    liftEffect $ Console.log $ "MC6 relay: " <> show bytes
+    st <- H.get
+    for_ st.connections.loopyOutput \output ->
+      liftEffect $ MIDI.send output bytes
+    -- Track phase from relay'd CC events (only CC value 127 = press)
+    case bytes of
+      [status, ccNum, 127] | status == 0xBF ->  -- ch16 CC
+        case Loopy.ccToAction (unsafeCC ccNum) of
+          Just action -> trackLoopyAction' st.loopySelectedLoop action
+          Nothing -> pure unit
+      _ -> pure unit
 
 -- Grid output handler (shared by HandleGrid)
 handleGridOutput :: forall o m. MonadAff m => GridView.Output -> H.HalogenM AppState Action Slots o m Unit
@@ -939,14 +973,23 @@ updateLoopState loopIdx f =
   H.modify_ \st -> st
     { loopyLoopStates = fromMaybe st.loopyLoopStates (Array.modifyAt loopIdx f st.loopyLoopStates) }
 
--- | Track mute/solo/record state changes from normal-mode CC sends
+-- | Track phase transitions from a LoopyAction on the selected loop
+trackLoopyAction' :: forall o m. MonadAff m => Int -> Loopy.LoopyAction -> H.HalogenM AppState Action Slots o m Unit
+trackLoopyAction' loopIdx action = do
+  st <- H.get
+  let clipSettings = fromMaybe Loopy.defaultClipSettings
+        (Array.index st.loopyClipSettings loopIdx)
+  case action of
+    Loopy.LoopySolo -> updateLoopState loopIdx \ls -> ls { soloed = not ls.soloed }
+    _ -> updateLoopState loopIdx \ls ->
+      ls { phase = Loopy.transition clipSettings ls.phase action }
+
+-- | Track phase transitions from a CC send on the selected loop
 trackLoopyAction :: forall o m. MonadAff m => Int -> CC -> H.HalogenM AppState Action Slots o m Unit
-trackLoopyAction loopIdx cc
-  | cc == unsafeCC 23 = updateLoopState loopIdx \ls -> ls { muted = not ls.muted }
-  | cc == unsafeCC 24 = updateLoopState loopIdx \ls -> ls { soloed = not ls.soloed }
-  | cc == unsafeCC 20 = updateLoopState loopIdx (_ { cleared = false })
-  | cc == unsafeCC 22 = updateLoopState loopIdx (_ { cleared = true })
-  | otherwise = pure unit
+trackLoopyAction loopIdx cc =
+  case Loopy.ccToAction cc of
+    Just action -> trackLoopyAction' loopIdx action
+    Nothing -> pure unit
 
 -- | Handle Twister messages in Loopy mode
 handleLoopyTwisterMsg :: forall o m. MonadAff m => TwisterMsg -> H.HalogenM AppState Action Slots o m Unit

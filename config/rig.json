@@ -16,7 +16,7 @@
     },
     {
       "file": "pedals/habit.json",
-      "channel": 16
+      "channel": 15
     },
     {
       "file": "pedals/hedra.json",
@@ -64,7 +64,10 @@
     "loopyOutput": {
       "match": "AUDIO4c"
     },
-    "loopyChannel": 16
+    "loopyChannel": 16,
+    "mc6Input": {
+      "match": "Morningstar"
+    }
   },
   "slotRanges": [
     {

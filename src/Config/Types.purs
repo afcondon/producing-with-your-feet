@@ -16,6 +16,7 @@ type MidiRouting =
   , twisterOutput :: MidiMatch
   , loopyOutput :: MidiMatch
   , loopyChannel :: Int
+  , mc6Input :: MidiMatch
   }
 
 type SlotRange = { start :: Int, count :: Int }

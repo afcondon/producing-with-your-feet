@@ -337,6 +337,7 @@ rigConfigToJson rig = obj
       , "twisterOutput" /\ obj [ "match" /\ str "Midi Fighter Twister" ]
       , "loopyOutput" /\ obj [ "match" /\ str "AUDIO4c" ]
       , "loopyChannel" /\ num 16
+      , "mc6Input" /\ obj [ "match" /\ str "Morningstar" ]
       ]
   , "slotRanges" /\ arr
       [ obj [ "brand" /\ str "Meris", "range" /\ obj [ "start" /\ num 0, "count" /\ num 16 ] ]

@@ -144,23 +144,30 @@ render state =
           Just cs -> cs.retrospective
           Nothing -> false
         -- Loop state details
+        phase = case mLoopState of
+          Just ls -> ls.phase
+          Nothing -> Loopy.PhaseEmpty
         vol = case mLoopState of
           Just ls | ls.volume /= 100 -> Just (show ls.volume)
           _ -> Nothing
         spd = case mLoopState of
           Just ls | ls.speed /= 64 -> Just ("s" <> show ls.speed)
           _ -> Nothing
-        isMuted = case mLoopState of
-          Just ls -> ls.muted
-          Nothing -> false
         isSoloed = case mLoopState of
           Just ls -> ls.soloed
           Nothing -> false
-        isCleared = case mLoopState of
-          Just ls -> ls.cleared
-          Nothing -> false
+        phaseText = Loopy.phaseLabel phase
+        phaseClass = case phase of
+          Loopy.PhaseEmpty -> ""
+          Loopy.PhaseArmed -> " loop-phase-armed"
+          Loopy.PhaseRecording -> " loop-phase-recording"
+          Loopy.PhasePlaying -> " loop-phase-playing"
+          Loopy.PhaseStopped -> " loop-phase-stopped"
+          Loopy.PhaseOverdubbing -> " loop-phase-overdubbing"
+          Loopy.PhaseMuted -> " loop-phase-muted"
+        hasFlags = phaseText /= "" || isSoloed
     in HH.button
-      [ HP.class_ (H.ClassName (if isSelected then "loopy-loop selected" else "loopy-loop"))
+      [ HP.class_ (H.ClassName ("loopy-loop" <> (if isSelected then " selected" else "") <> phaseClass))
       , HP.attr (HH.AttrName "style") style
       , HE.onClick \_ -> ClickLoop idx
       ]
@@ -178,12 +185,11 @@ render state =
         <> (case spd of
               Just s -> [ HH.span [ HP.class_ (H.ClassName "loop-spd") ] [ HH.text s ] ]
               Nothing -> [])
-        -- Flags row
-        <> (if isMuted || isSoloed || isCleared
+        -- Flags row: phase indicator + solo
+        <> (if hasFlags
               then [ HH.span [ HP.class_ (H.ClassName "loop-flags") ]
-                ( (if isMuted then [ HH.span [ HP.class_ (H.ClassName "loopy-flag loopy-flag-muted") ] [ HH.text "M" ] ] else [])
+                ( (if phaseText /= "" then [ HH.span [ HP.class_ (H.ClassName "loopy-flag loopy-flag-phase") ] [ HH.text phaseText ] ] else [])
                   <> (if isSoloed then [ HH.span [ HP.class_ (H.ClassName "loopy-flag loopy-flag-soloed") ] [ HH.text "S" ] ] else [])
-                  <> (if isCleared then [ HH.span [ HP.class_ (H.ClassName "loopy-flag loopy-flag-cleared") ] [ HH.text "C" ] ] else [])
                 ) ]
               else [])
       )

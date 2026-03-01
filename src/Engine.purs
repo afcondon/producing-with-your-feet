@@ -51,6 +51,8 @@ type MidiConnections =
   , twisterOutputId :: Maybe String
   , loopyOutput :: Maybe MIDIOutput
   , loopyOutputId :: Maybe String
+  , mc6Input :: Maybe MIDIInput
+  , mc6InputId :: Maybe String
   , availableOutputs :: Array MidiPort
   , availableInputs :: Array MidiPort
   }
@@ -94,6 +96,7 @@ emptyRouting =
   , twisterOutput: { match: "" }
   , loopyOutput: { match: "" }
   , loopyChannel: 1
+  , mc6Input: { match: "" }
   }
 
 initAppState :: AppState
@@ -111,6 +114,8 @@ initAppState =
       , twisterOutputId: Nothing
       , loopyOutput: Nothing
       , loopyOutputId: Nothing
+      , mc6Input: Nothing
+      , mc6InputId: Nothing
       , availableOutputs: []
       , availableInputs: []
       }

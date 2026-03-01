@@ -37,6 +37,7 @@ data Output
   | PedalOutputChanged String
   | TwisterInputChanged String
   | LoopyOutputChanged String
+  | MC6InputChanged String
 
 type State = Input
 
@@ -47,6 +48,7 @@ data Action
   | ChangePedalOutput String
   | ChangeTwisterInput String
   | ChangeLoopyOutput String
+  | ChangeMC6Input String
 
 type Slot = H.Slot (Const Void) Output
 
@@ -76,6 +78,7 @@ render state =
         [ midiPicker "Pedal MIDI" state.connections.pedalOutputId state.connections.availableOutputs ChangePedalOutput
         , midiPicker "Twister" state.connections.twisterInputId state.connections.availableInputs ChangeTwisterInput
         , midiPicker "LoopyPro" state.connections.loopyOutputId state.connections.availableOutputs ChangeLoopyOutput
+        , midiPicker "MC6" state.connections.mc6InputId state.connections.availableInputs ChangeMC6Input
         ]
     ]
   where
@@ -141,3 +144,4 @@ handleAction = case _ of
   ChangePedalOutput portId -> H.raise (PedalOutputChanged portId)
   ChangeTwisterInput portId -> H.raise (TwisterInputChanged portId)
   ChangeLoopyOutput portId -> H.raise (LoopyOutputChanged portId)
+  ChangeMC6Input portId -> H.raise (MC6InputChanged portId)

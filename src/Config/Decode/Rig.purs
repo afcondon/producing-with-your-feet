@@ -57,7 +57,10 @@ decodeMidiRouting json = do
   let loopyChannel = case lookupNum "loopyChannel" obj of
         Just ch -> ch
         Nothing -> 16
-  Just { pedalOutput, twisterInput, twisterOutput, loopyOutput, loopyChannel }
+      mc6Input = case FO.lookup "mc6Input" obj >>= decodeMidiMatch of
+        Just m -> m
+        Nothing -> { match: "Morningstar" }
+  Just { pedalOutput, twisterInput, twisterOutput, loopyOutput, loopyChannel, mc6Input }
 
 decodeMidiMatch :: Json -> Maybe MidiMatch
 decodeMidiMatch json = do

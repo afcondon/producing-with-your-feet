@@ -1822,8 +1822,8 @@ body {
   line-height: 1.4;
 }
 
-.loopy-flag-muted {
-  background: #f39c12;
+.loopy-flag-phase {
+  background: var(--fg-muted);
   color: #fff;
 }
 
@@ -1832,9 +1832,42 @@ body {
   color: #fff;
 }
 
-.loopy-flag-cleared {
+/* Phase-specific loop button styles */
+.loop-phase-armed {
+  animation: phase-pulse 1s ease-in-out infinite;
+}
+
+.loop-phase-recording {
+  box-shadow: 0 0 0 2px var(--bg-section), 0 0 8px 2px #c0392b;
+}
+
+.loop-phase-recording .loopy-flag-phase {
   background: #c0392b;
-  color: #fff;
+}
+
+.loop-phase-overdubbing {
+  box-shadow: 0 0 0 2px var(--bg-section), 0 0 8px 2px #e67e22;
+}
+
+.loop-phase-overdubbing .loopy-flag-phase {
+  background: #e67e22;
+}
+
+.loop-phase-muted .loopy-flag-phase {
+  background: #f39c12;
+}
+
+.loop-phase-stopped .loopy-flag-phase {
+  background: #7f8c8d;
+}
+
+.loop-phase-playing {
+  border-style: solid;
+}
+
+@keyframes phase-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 /* --- Clip Settings Panel --- */

@@ -4,6 +4,7 @@ module Data.Loopy
   , LoopIndex(..)
   , LoopColor
   , LoopGroup
+  , LoopPhase(..)
   , LoopState
   , LoopyParam(..)
   , LoopyTwisterConfig
@@ -36,12 +37,19 @@ module Data.Loopy
   , beatQuantLabel
   , ShiftDef
   , paramShift
+  , transition
+  , expectedResolution
+  , ccToAction
+  , phaseLabel
+  , hasContent
+  , isRecording
   ) where
 
 import Prelude
 
+import Data.Array as Array
 import Data.Maybe (Maybe(..))
-import Data.Midi (CC, unsafeCC)
+import Data.Midi (CC, unCC, unsafeCC)
 
 data LoopyAction
   = LoopyRecord
@@ -61,6 +69,18 @@ data LoopyAction
   | LoopyRedo
 
 derive instance Eq LoopyAction
+
+-- | Phase model for LoopyPro loop state
+data LoopPhase
+  = PhaseEmpty        -- No audio content
+  | PhaseArmed        -- Waiting to record (count-in or threshold pending)
+  | PhaseRecording    -- Actively recording initial content
+  | PhasePlaying      -- Has content, producing audio
+  | PhaseStopped      -- Has content, not playing
+  | PhaseOverdubbing  -- Recording over existing content
+  | PhaseMuted        -- Has content, output silenced (phase-locked: playhead advancing)
+
+derive instance Eq LoopPhase
 
 type LoopyActionDef = { action :: LoopyAction, cc :: CC, label :: String }
 
@@ -112,10 +132,14 @@ encoderToLoop encIdx =
   in group * 2 + row
 
 type LoopState =
-  { volume :: Int, speed :: Int, muted :: Boolean, soloed :: Boolean, cleared :: Boolean }
+  { phase :: LoopPhase
+  , volume :: Int
+  , speed :: Int
+  , soloed :: Boolean
+  }
 
 defaultLoopState :: LoopState
-defaultLoopState = { volume: 100, speed: 64, muted: false, soloed: false, cleared: false }
+defaultLoopState = { phase: PhaseEmpty, volume: 100, speed: 64, soloed: false }
 
 clearCC :: CC
 clearCC = unsafeCC 22
@@ -301,3 +325,108 @@ beatQuantLabel = case _ of
   BeatQuant32Tight -> "32nd Tight"
   BeatQuant32Med -> "32nd Med"
   BeatQuant32Loose -> "32nd Loose"
+
+-- | Determine the result phase when recording ends, based on clip settings
+recordEndPhase :: ClipSettings -> LoopPhase
+recordEndPhase cs = case cs.recordEndAction of
+  EndPlay -> PhasePlaying
+  EndStop -> PhaseStopped
+  EndOverdub -> PhaseOverdubbing
+
+-- | Whether a count-in is configured (armed before recording)
+hasCountIn :: ClipSettings -> Boolean
+hasCountIn cs = cs.countIn /= CountInNone || cs.threshold
+
+-- | Pure phase transition function
+transition :: ClipSettings -> LoopPhase -> LoopyAction -> LoopPhase
+transition cs phase action = case phase, action of
+  -- Record action
+  PhaseEmpty,      LoopyRecord -> if hasCountIn cs then PhaseArmed else PhaseRecording
+  PhaseArmed,      LoopyRecord -> PhaseEmpty  -- cancel
+  PhaseRecording,  LoopyRecord -> if cs.autoCountOut then PhaseRecording else recordEndPhase cs
+  PhasePlaying,    LoopyRecord -> PhaseOverdubbing
+  PhaseStopped,    LoopyRecord -> PhaseOverdubbing
+  PhaseOverdubbing,LoopyRecord -> PhasePlaying  -- end overdub
+  PhaseMuted,      LoopyRecord -> PhaseOverdubbing  -- unmute + overdub
+
+  -- PlayStop action
+  PhaseEmpty,      LoopyPlayStop -> PhaseEmpty  -- no-op
+  PhaseArmed,      LoopyPlayStop -> PhaseArmed  -- no-op
+  PhaseRecording,  LoopyPlayStop -> recordEndPhase cs
+  PhasePlaying,    LoopyPlayStop -> if cs.phaseLocked then PhaseMuted else PhaseStopped
+  PhaseStopped,    LoopyPlayStop -> PhasePlaying
+  PhaseOverdubbing,LoopyPlayStop -> PhasePlaying  -- end overdub + keep playing
+  PhaseMuted,      LoopyPlayStop -> PhasePlaying  -- unmute
+
+  -- Clear always -> Empty
+  _,               LoopyClear -> PhaseEmpty
+
+  -- Mute toggle
+  PhasePlaying,    LoopyMute -> PhaseMuted
+  PhaseMuted,      LoopyMute -> PhasePlaying
+  _,               LoopyMute -> phase  -- no-op for other phases
+
+  -- Stop
+  PhasePlaying,    LoopyStop -> if cs.phaseLocked then PhaseMuted else PhaseStopped
+  PhaseOverdubbing,LoopyStop -> if cs.phaseLocked then PhaseMuted else PhaseStopped
+  _,               LoopyStop -> phase
+
+  -- StopImmediate (same logic, no count-out)
+  PhasePlaying,    LoopyStopImmediate -> if cs.phaseLocked then PhaseMuted else PhaseStopped
+  PhaseOverdubbing,LoopyStopImmediate -> if cs.phaseLocked then PhaseMuted else PhaseStopped
+  _,               LoopyStopImmediate -> phase
+
+  -- Play
+  PhaseStopped,    LoopyPlay -> PhasePlaying
+  PhaseMuted,      LoopyPlay -> PhasePlaying
+  _,               LoopyPlay -> phase
+
+  -- PlayImmediate (same logic, no count-in)
+  PhaseStopped,    LoopyPlayImmediate -> PhasePlaying
+  PhaseMuted,      LoopyPlayImmediate -> PhasePlaying
+  _,               LoopyPlayImmediate -> phase
+
+  -- Phase-neutral actions
+  _,               LoopySolo -> phase
+  _,               LoopyMultiply -> phase
+  _,               LoopyDivide -> phase
+  _,               LoopyUndo -> phase
+  _,               LoopyRedo -> phase
+  _,               LoopyPrev -> phase
+  _,               LoopyNext -> phase
+
+-- | For auto-transitioning phases, what phase comes next
+expectedResolution :: ClipSettings -> LoopPhase -> Maybe LoopPhase
+expectedResolution cs = case _ of
+  PhaseArmed -> Just PhaseRecording
+  PhaseRecording | cs.autoCountOut -> Just (recordEndPhase cs)
+  _ -> Nothing
+
+-- | Inverse lookup: CC number to LoopyAction
+ccToAction :: CC -> Maybe LoopyAction
+ccToAction cc = map _.action $ Array.find (\a -> unCC a.cc == unCC cc) actions
+
+-- | Display label for a phase
+phaseLabel :: LoopPhase -> String
+phaseLabel = case _ of
+  PhaseEmpty -> ""
+  PhaseArmed -> "Arm"
+  PhaseRecording -> "Rec"
+  PhasePlaying -> ""
+  PhaseStopped -> "Stop"
+  PhaseOverdubbing -> "OD"
+  PhaseMuted -> "M"
+
+-- | Whether a phase has recorded content
+hasContent :: LoopPhase -> Boolean
+hasContent = case _ of
+  PhaseEmpty -> false
+  PhaseArmed -> false
+  _ -> true
+
+-- | Whether a phase involves recording
+isRecording :: LoopPhase -> Boolean
+isRecording = case _ of
+  PhaseRecording -> true
+  PhaseOverdubbing -> true
+  _ -> false
