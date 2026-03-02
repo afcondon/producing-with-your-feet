@@ -61,6 +61,7 @@ render state =
     [ HH.div [ HP.class_ (H.ClassName "view-toggle") ]
         [ viewButton "Grid" GridView
         , viewButton "Boards" BoardsView
+        , viewButton "Controls" ControlsView
         , viewButton "Docs" DocsView
         , viewButton "MIDI" ConnectView
         , viewButton "\x21C5" FilesView
@@ -79,6 +80,7 @@ render state =
   isActive = case _, state.view of
     GridView, GridView -> true
     BoardsView, BoardsView -> true
+    ControlsView, ControlsView -> true
     FilesView, FilesView -> true
     DocsView, DocsView -> true
     ConnectView, ConnectView -> true

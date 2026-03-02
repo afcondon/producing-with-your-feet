@@ -20,6 +20,7 @@ import Config.Registry as CRegistry
 import Config.Types (MidiRouting)
 import Data.Array as Array
 import Data.Loopy as Loopy
+import Data.MC6.ControlBank (ControlBank, exampleControlBank)
 import Data.MC6.Types (MC6NativeBank)
 import Data.Map (Map)
 import Data.Map as Map
@@ -38,7 +39,7 @@ type PedalState =
 
 type EngineState = Map PedalId PedalState
 
-data View = GridView | DetailView PedalId | BoardsView | FilesView | DocsView | ConnectView
+data View = GridView | DetailView PedalId | BoardsView | ControlsView | FilesView | DocsView | ConnectView
 
 derive instance Eq View
 
@@ -87,6 +88,8 @@ type AppState =
   , mc6Banks :: Array MC6NativeBank
   , mc6BoardBankNum :: Int
   , mc6Assignments :: Array MC6Assignment
+  , controlBanks :: Array ControlBank
+  , activeControlBankIdx :: Maybe Int
   }
 
 defaultPedalState :: PedalDef -> PedalState
@@ -148,6 +151,8 @@ initAppState =
   , mc6Banks: []
   , mc6BoardBankNum: 1
   , mc6Assignments: []
+  , controlBanks: [exampleControlBank]
+  , activeControlBankIdx: Just 0
   }
 
 getValue :: PedalId -> CC -> EngineState -> Maybe MidiValue

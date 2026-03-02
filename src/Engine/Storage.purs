@@ -13,6 +13,8 @@ module Engine.Storage
   , loadCardOrderParsed
   , saveMC6Assignments
   , loadMC6AssignmentsParsed
+  , saveControlBanks
+  , loadControlBanksParsed
   , parseEngine
   , parseCardOrder
   , parsePresets
@@ -38,6 +40,8 @@ import Data.Int as Int
 import Data.JSDate as JSDate
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
+import Data.MC6.ControlBank (ControlBank, ControlBankSwitch)
+import Data.MC6.Types (MC6Message, MC6TogglePosition(..), mc6MsgTypeToInt, intToMC6MsgType, mc6ActionToInt, intToMC6Action, mc6ToggleToInt)
 import Data.Midi (CC, MidiValue, makeCC, makeMidiValue, makeProgramNumber, unCC, unMidiValue, unProgramNumber)
 import Data.Pedal (PedalId(..))
 import Data.Pedal.Engage (EngageState(..))
@@ -59,6 +63,7 @@ data StorageKey
   | CardOrderKey
   | LoopyChannelKey
   | MC6AssignmentsKey
+  | ControlBanksKey
 
 keyString :: StorageKey -> String
 keyString = case _ of
@@ -69,6 +74,7 @@ keyString = case _ of
   CardOrderKey -> "pedal-explorer-card-order"
   LoopyChannelKey -> "pedal-explorer-loopy-channel"
   MC6AssignmentsKey -> "pedal-explorer-mc6-assignments"
+  ControlBanksKey -> "pedal-explorer-control-banks"
 
 getStorage :: Effect Storage.Storage
 getStorage = window >>= localStorage
@@ -434,3 +440,97 @@ parseMC6Assignment json = do
   bpJson <- FO.lookup "boardPresetId" obj
   boardPresetId <- Json.toString bpJson
   pure { bankNumber, switchIndex, boardPresetId }
+
+-- Control Bank serialization
+
+saveControlBanks :: Array ControlBank -> Effect Unit
+saveControlBanks banks = do
+  let json = Json.fromArray (map controlBankToJson banks)
+  setItem ControlBanksKey (stringify json)
+
+loadControlBanksParsed :: Array ControlBank -> Effect (Array ControlBank)
+loadControlBanksParsed defaults = do
+  mStr <- getItem ControlBanksKey
+  pure $ fromMaybe defaults (mStr >>= parseControlBanks)
+
+parseControlBanks :: String -> Maybe (Array ControlBank)
+parseControlBanks str = do
+  json <- hush (jsonParser str)
+  arr <- Json.toArray json
+  traverse parseControlBank arr
+
+controlBankToJson :: ControlBank -> Json
+controlBankToJson cb =
+  Json.fromObject $ FO.fromFoldable
+    [ Tuple "id" (Json.fromString cb.id)
+    , Tuple "name" (Json.fromString cb.name)
+    , Tuple "description" (Json.fromString cb.description)
+    , Tuple "mc6BankNumber" (Json.fromNumber (Int.toNumber cb.mc6BankNumber))
+    , Tuple "returnSwitchIndex" (Json.fromNumber (Int.toNumber cb.returnSwitchIndex))
+    , Tuple "switches" (Json.fromArray (map controlBankSwitchToJson cb.switches))
+    ]
+
+controlBankSwitchToJson :: ControlBankSwitch -> Json
+controlBankSwitchToJson sw =
+  Json.fromObject $ FO.fromFoldable
+    [ Tuple "label" (Json.fromString sw.label)
+    , Tuple "longName" (Json.fromString sw.longName)
+    , Tuple "toToggle" (Json.fromBoolean sw.toToggle)
+    , Tuple "messages" (Json.fromArray (map mc6MessageToJson sw.messages))
+    ]
+
+mc6MessageToJson :: MC6Message -> Json
+mc6MessageToJson msg =
+  Json.fromObject $ FO.fromFoldable
+    [ Tuple "t" (Json.fromNumber (Int.toNumber (mc6MsgTypeToInt msg.msgType)))
+    , Tuple "c" (Json.fromNumber (Int.toNumber msg.channel))
+    , Tuple "d1" (Json.fromNumber (Int.toNumber msg.data1))
+    , Tuple "d2" (Json.fromNumber (Int.toNumber msg.data2))
+    , Tuple "d3" (Json.fromNumber (Int.toNumber msg.data3))
+    , Tuple "d4" (Json.fromNumber (Int.toNumber msg.data4))
+    , Tuple "a" (Json.fromNumber (Int.toNumber (mc6ActionToInt msg.action)))
+    , Tuple "tg" (Json.fromNumber (Int.toNumber (mc6ToggleToInt msg.togglePosition)))
+    , Tuple "m" (Json.fromNumber (Int.toNumber msg.msgIndex))
+    ]
+
+parseControlBank :: Json -> Maybe ControlBank
+parseControlBank json = do
+  obj <- Json.toObject json
+  id <- FO.lookup "id" obj >>= Json.toString
+  name <- FO.lookup "name" obj >>= Json.toString
+  description <- pure $ fromMaybe "" (FO.lookup "description" obj >>= Json.toString)
+  mc6BankNumber <- FO.lookup "mc6BankNumber" obj >>= Json.toNumber >>= Int.fromNumber
+  returnSwitchIndex <- FO.lookup "returnSwitchIndex" obj >>= Json.toNumber >>= Int.fromNumber
+  switchesJson <- FO.lookup "switches" obj >>= Json.toArray
+  switches <- traverse parseControlBankSwitch switchesJson
+  pure { id, name, description, mc6BankNumber, returnSwitchIndex, switches }
+
+parseControlBankSwitch :: Json -> Maybe ControlBankSwitch
+parseControlBankSwitch json = do
+  obj <- Json.toObject json
+  label <- FO.lookup "label" obj >>= Json.toString
+  longName <- pure $ fromMaybe "" (FO.lookup "longName" obj >>= Json.toString)
+  toToggle <- pure $ fromMaybe false (FO.lookup "toToggle" obj >>= Json.toBoolean)
+  messagesJson <- FO.lookup "messages" obj >>= Json.toArray
+  messages <- traverse parseMC6Message messagesJson
+  pure { label, longName, toToggle, messages }
+
+parseMC6Message :: Json -> Maybe MC6Message
+parseMC6Message json = do
+  obj <- Json.toObject json
+  t <- FO.lookup "t" obj >>= Json.toNumber >>= Int.fromNumber
+  c <- FO.lookup "c" obj >>= Json.toNumber >>= Int.fromNumber
+  d1 <- FO.lookup "d1" obj >>= Json.toNumber >>= Int.fromNumber
+  d2 <- FO.lookup "d2" obj >>= Json.toNumber >>= Int.fromNumber
+  d3 <- pure $ fromMaybe 0 (FO.lookup "d3" obj >>= Json.toNumber >>= Int.fromNumber)
+  d4 <- pure $ fromMaybe 0 (FO.lookup "d4" obj >>= Json.toNumber >>= Int.fromNumber)
+  a <- FO.lookup "a" obj >>= Json.toNumber >>= Int.fromNumber
+  tg <- pure $ fromMaybe 2 (FO.lookup "tg" obj >>= Json.toNumber >>= Int.fromNumber)
+  m <- pure $ fromMaybe 0 (FO.lookup "m" obj >>= Json.toNumber >>= Int.fromNumber)
+  pure { msgType: intToMC6MsgType t, channel: c, data1: d1, data2: d2, data3: d3, data4: d4
+       , action: intToMC6Action a, togglePosition: intToToggle tg, msgIndex: m }
+  where
+  intToToggle = case _ of
+    0 -> ToggleOff
+    1 -> ToggleOn
+    _ -> ToggleBoth

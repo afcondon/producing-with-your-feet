@@ -73,24 +73,24 @@ sysexCompleteUpload = sysexFrame mc6mk2DeviceId [0x07, 0x00, 0x31, 0x00] []
 
 -- | Send full preset data via SysEx (F1=7, F2=17).
 -- | Must be sent within an upload session (after sysexStartUpload).
--- | bankNum -> presetNum -> shortName -> longName -> messages -> SysEx bytes
+-- | bankNum -> presetNum -> shortName -> longName -> toToggle -> messages -> SysEx bytes
 -- |
 -- | TLV types: 00=header, 01=message (9 bytes x16), 02=short name (8),
 -- |   03=toggle name (8), 04=long name (24), 05=config (4)
-sysexPresetData :: Int -> Int -> String -> String -> Array MC6Message -> Array Int
-sysexPresetData bankNum presetNum shortName longName messages =
+sysexPresetData :: Int -> Int -> String -> String -> Boolean -> Array MC6Message -> Array Int
+sysexPresetData bankNum presetNum shortName longName toToggle messages =
   let funcIds = [0x07, 0x11, presetNum, 0x00, 0x00, 0x00]
       hdr = headerTLV bankNum presetNum
       msgTlvs = Array.concatMap messageTLV (padMessages messages)
       nameTlvs = shortNameTLV shortName <> toggleNameTLV shortName <> longNameTLV longName
-      cfg = configTLV
+      cfg = configTLV toToggle
       payload = hdr <> msgTlvs <> nameTlvs <> cfg
   in sysexFrame mc6mk2DeviceId funcIds payload
 
 -- | Send an empty preset to clear a switch
 sysexClearPreset :: Int -> Int -> Array Int
 sysexClearPreset bankNum presetNum =
-  sysexPresetData bankNum presetNum "" "" []
+  sysexPresetData bankNum presetNum "" "" false []
 
 -- TLV encoders — type numbers match MC6 read format
 
@@ -134,9 +134,9 @@ longNameTLV name =
       padded = Array.take 24 (chars <> Array.replicate 24 0x20)
   in [0x7F, 0x04, 0x18] <> padded
 
--- | Tag 7F, Type 05: Preset config (defaults to all zeros)
-configTLV :: Array Int
-configTLV = [0x7F, 0x05, 0x04, 0x00, 0x00, 0x00, 0x00]
+-- | Tag 7F, Type 05: Preset config — byte 0 is toToggle flag
+configTLV :: Boolean -> Array Int
+configTLV toToggle = [0x7F, 0x05, 0x04, if toToggle then 0x01 else 0x00, 0x00, 0x00, 0x00]
 
 -- | Pad messages array to exactly 16 slots (MC6 expects all 16)
 padMessages :: Array MC6Message -> Array MC6Message
