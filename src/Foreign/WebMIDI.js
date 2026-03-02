@@ -7,7 +7,7 @@ export const requestMIDIAccessImpl = function (onSuccess) {
         onError(new Error("WebMIDI not supported in this browser"))();
         return;
       }
-      navigator.requestMIDIAccess({ sysex: false }).then(
+      navigator.requestMIDIAccess({ sysex: true }).then(
         function (access) { onSuccess(access)(); },
         function (err) { onError(err)(); }
       );

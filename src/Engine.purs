@@ -54,6 +54,8 @@ type MidiConnections =
   , loopyOutputId :: Maybe String
   , mc6Input :: Maybe MIDIInput
   , mc6InputId :: Maybe String
+  , mc6Output :: Maybe MIDIOutput
+  , mc6OutputId :: Maybe String
   , availableOutputs :: Array MidiPort
   , availableInputs :: Array MidiPort
   }
@@ -83,7 +85,7 @@ type AppState =
   , loopyLoopStates :: Array Loopy.LoopState
   , loopyClipSettings :: Array Loopy.ClipSettings
   , mc6Banks :: Array MC6NativeBank
-  , mc6ActiveBankIdx :: Int
+  , mc6BoardBankNum :: Int
   , mc6Assignments :: Array MC6Assignment
   }
 
@@ -125,6 +127,8 @@ initAppState =
       , loopyOutputId: Nothing
       , mc6Input: Nothing
       , mc6InputId: Nothing
+      , mc6Output: Nothing
+      , mc6OutputId: Nothing
       , availableOutputs: []
       , availableInputs: []
       }
@@ -142,7 +146,7 @@ initAppState =
   , loopyLoopStates: Array.replicate 8 Loopy.defaultLoopState
   , loopyClipSettings: Array.replicate 8 Loopy.defaultClipSettings
   , mc6Banks: []
-  , mc6ActiveBankIdx: 0
+  , mc6BoardBankNum: 1
   , mc6Assignments: []
   }
 

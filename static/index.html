@@ -2006,7 +2006,22 @@ body {
   flex: 1;
 }
 
-.mc6-export-btn {
+.mc6-export-btn,
+.mc6-program-btn {
+  font-size: 11px;
+  padding: 3px 10px;
+  background: var(--bg-main);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.mc6-program-btn {
+  border-color: var(--accent, #4a7ccc);
+  color: var(--accent, #4a7ccc);
+}
+.mc6-clear-btn {
   font-size: 11px;
   padding: 3px 10px;
   background: var(--bg-main);
@@ -2087,11 +2102,34 @@ body {
   background: var(--accent-bg, #e8f0fe);
   border-color: var(--accent, #4a7ccc);
   cursor: pointer;
+  position: relative;
 }
 
 .mc6-switch.board-assigned .mc6-switch-label {
   color: var(--accent, #4a7ccc);
   font-weight: 600;
+}
+
+.mc6-switch-clear {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg-light);
+  font-size: 13px;
+  line-height: 16px;
+  text-align: center;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.mc6-switch-clear:hover {
+  background: rgba(0,0,0,0.08);
+  color: var(--fg);
 }
 
 .boards-item-assign {

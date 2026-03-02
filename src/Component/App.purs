@@ -13,7 +13,8 @@ import Data.Argonaut.Core (stringify)
 import Data.Argonaut.Parser (jsonParser)
 import Data.MC6.Backup as Backup
 import Data.MC6.Message as MC6Msg
-import Data.MC6.Types (MC6NativeBank, MC6Preset, MC6MsgType(..), MC6Action(..))
+import Data.MC6.SysEx as SysEx
+import Data.MC6.Types (MC6Message, MC6NativeBank, MC6Preset, MC6MsgType(..), MC6Action(..))
 import Data.Foldable (any, for_)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
@@ -75,8 +76,10 @@ data Action
   | ImportPresetsFromFileAction
   | ImportBoardsFromFileAction
   | ExportMC6BackupAction
-  | SelectMC6Bank Int
+  | SelectBoardBank Int
   | ClickMC6Switch Int
+  | UnassignMC6Switch Int
+  | ClearMC6Bank
 
 type Slots =
   ( header :: Header.Slot Unit
@@ -163,7 +166,7 @@ render state = case state.configError of
               , presets: state.presets
               , boardPresets: state.boardPresets
               , registry: state.registry
-              , mc6ActiveBank: Array.index state.mc6Banks state.mc6ActiveBankIdx
+              , mc6ActiveBank: Array.find (\b -> b.bankNumber == state.mc6BoardBankNum) state.mc6Banks
               , mc6Assignments: state.mc6Assignments
               }
               HandleBoards
@@ -478,23 +481,26 @@ renderMC6Panel :: forall m. MonadAff m => AppState -> H.ComponentHTML Action Slo
 renderMC6Panel state =
   HH.div [ HP.class_ (H.ClassName "mc6-panel") ]
     [ HH.div [ HP.class_ (H.ClassName "mc6-header") ]
-        [ HH.span [ HP.class_ (H.ClassName "mc6-title") ] [ HH.text bankTitle ]
+        [ HH.span [ HP.class_ (H.ClassName "mc6-title") ] [ HH.text "MC6" ]
+        , HH.button
+            [ HP.class_ (H.ClassName "mc6-clear-btn")
+            , HE.onClick \_ -> ClearMC6Bank
+            ]
+            [ HH.text "Clear" ]
         , HH.button
             [ HP.class_ (H.ClassName "mc6-export-btn")
             , HE.onClick \_ -> ExportMC6BackupAction
             ]
             [ HH.text "Export" ]
         ]
-    , if Array.length state.mc6Banks > 1
-        then HH.div [ HP.class_ (H.ClassName "mc6-bank-tabs") ]
-          (Array.mapWithIndex (\idx bank ->
-            HH.button
-              [ HP.class_ (H.ClassName ("mc6-bank-tab" <> if idx == state.mc6ActiveBankIdx then " active" else ""))
-              , HE.onClick \_ -> SelectMC6Bank idx
-              ]
-              [ HH.text bank.bankName ]
-          ) state.mc6Banks)
-        else HH.text ""
+    , HH.div [ HP.class_ (H.ClassName "mc6-bank-tabs") ]
+        (map (\n ->
+          HH.button
+            [ HP.class_ (H.ClassName ("mc6-bank-tab" <> if n == state.mc6BoardBankNum then " active" else ""))
+            , HE.onClick \_ -> SelectBoardBank n
+            ]
+            [ HH.text (show n) ]
+        ) [1, 2, 3, 4, 5])
     , HH.div [ HP.class_ (H.ClassName "mc6-switches") ]
         -- Row 1: D E F (preset indices 3, 4, 5)
         [ renderSwitchRow "D" 3, renderSwitchRow "E" 4, renderSwitchRow "F" 5
@@ -505,22 +511,10 @@ renderMC6Panel state =
         ]
     ]
   where
-  mBank :: Maybe MC6NativeBank
-  mBank = Array.index state.mc6Banks state.mc6ActiveBankIdx
-
-  activeBankNumber :: Int
-  activeBankNumber = case mBank of
-    Just b -> b.bankNumber
-    Nothing -> 0
-
-  bankTitle = case mBank of
-    Just b -> "MC6 \x2014 " <> b.bankName
-    Nothing -> "MC6"
-
-  -- Look up board assignment for a switch in the active bank
+  -- Look up board assignment for a switch in the active board bank
   boardForSwitch :: Int -> Maybe { boardPresetId :: String, boardName :: String }
   boardForSwitch idx =
-    case Array.find (\a -> a.bankNumber == activeBankNumber && a.switchIndex == idx) state.mc6Assignments of
+    case Array.find (\a -> a.bankNumber == state.mc6BoardBankNum && a.switchIndex == idx) state.mc6Assignments of
       Just a -> case Array.find (\bp -> bp.id == a.boardPresetId) state.boardPresets of
         Just bp -> Just { boardPresetId: a.boardPresetId, boardName: bp.name }
         Nothing -> Nothing
@@ -536,22 +530,17 @@ renderMC6Panel state =
           ]
           [ HH.span [ HP.class_ (H.ClassName "mc6-switch-letter") ] [ HH.text letter ]
           , HH.span [ HP.class_ (H.ClassName "mc6-switch-label") ] [ HH.text (SCU.take 8 board.boardName) ]
+          , HH.button
+              [ HP.class_ (H.ClassName "mc6-switch-clear")
+              , HE.onClick \_ -> UnassignMC6Switch idx
+              ]
+              [ HH.text "\x00d7" ]
           ]
       Nothing ->
-        let label = case mBank of
-              Just b -> case Array.index b.presets idx of
-                Just p | p.shortName /= "" -> p.shortName
-                _ -> letter
-              Nothing -> letter
-            hasAction = case mBank of
-              Just b -> case Array.index b.presets idx of
-                Just p -> p.shortName /= ""
-                Nothing -> false
-              Nothing -> false
-        in HH.div
-          [ HP.class_ (H.ClassName ("mc6-switch" <> if hasAction then "" else " empty")) ]
+        HH.div
+          [ HP.class_ (H.ClassName "mc6-switch empty") ]
           [ HH.span [ HP.class_ (H.ClassName "mc6-switch-letter") ] [ HH.text letter ]
-          , HH.span [ HP.class_ (H.ClassName "mc6-switch-label") ] [ HH.text label ]
+          , HH.span [ HP.class_ (H.ClassName "mc6-switch-label") ] [ HH.text letter ]
           ]
 
 handleAction :: forall o m. MonadAff m => Action -> H.HalogenM AppState Action Slots o m Unit
@@ -626,6 +615,12 @@ handleAction = case _ of
         let mMC6In = Array.find (\p -> contains (Pattern routing.mc6Input.match) p.name) inputs
         for_ mMC6In \port ->
           handleAction (SelectMC6Input port.id)
+        -- Auto-select MC6 output (SysEx programming) — same device name as input
+        when (routing.mc6Input.match /= "") do
+          let mMC6Out = Array.find (\p -> contains (Pattern routing.mc6Input.match) p.name) outputs
+          for_ mMC6Out \port -> do
+            mOut <- liftEffect $ MIDI.openOutput mAccess port.id
+            H.modify_ _ { connections { mc6Output = mOut, mc6OutputId = Just port.id } }
 
   SetView view -> do
     H.modify_ _ { view = view }
@@ -842,19 +837,25 @@ handleAction = case _ of
   ImportBoardsFromFileAction -> handleImportBoardsFromFile
   ExportMC6BackupAction -> handleExportMC6Backup
 
-  SelectMC6Bank idx ->
-    H.modify_ _ { mc6ActiveBankIdx = idx }
+  SelectBoardBank n ->
+    H.modify_ _ { mc6BoardBankNum = n }
 
   ClickMC6Switch idx -> do
     st <- H.get
-    let bankNum = case Array.index st.mc6Banks st.mc6ActiveBankIdx of
-          Just b -> b.bankNumber
-          Nothing -> 0
-    case Array.find (\a -> a.bankNumber == bankNum && a.switchIndex == idx) st.mc6Assignments of
+    case Array.find (\a -> a.bankNumber == st.mc6BoardBankNum && a.switchIndex == idx) st.mc6Assignments of
       Just a -> case Array.find (\bp -> bp.id == a.boardPresetId) st.boardPresets of
         Just bp -> recallBoard bp
         Nothing -> pure unit
       Nothing -> pure unit
+
+  UnassignMC6Switch switchIdx -> do
+    st <- H.get
+    let updated = Array.filter (\a -> not (a.bankNumber == st.mc6BoardBankNum && a.switchIndex == switchIdx)) st.mc6Assignments
+    H.modify_ _ { mc6Assignments = updated }
+    liftEffect $ Storage.saveMC6Assignments updated
+    syncSwitchToMC6 st.mc6BoardBankNum switchIdx Nothing
+
+  ClearMC6Bank -> handleClearMC6Bank
 
   SelectLoopyOutput portId -> do
     st <- H.get
@@ -1048,9 +1049,7 @@ handleImportBoards imported = do
 handleAssignBoardToSwitch :: forall o m. MonadAff m => PresetId -> Int -> H.HalogenM AppState Action Slots o m Unit
 handleAssignBoardToSwitch boardId switchIdx = do
   st <- H.get
-  let bankNum = case Array.index st.mc6Banks st.mc6ActiveBankIdx of
-        Just b -> b.bankNumber
-        Nothing -> 0
+  let bankNum = st.mc6BoardBankNum
       newAssignment :: MC6Assignment
       newAssignment = { bankNumber: bankNum, switchIndex: switchIdx, boardPresetId: boardId }
       -- Remove any existing assignment for this switch AND any existing assignment for this board in this bank
@@ -1060,13 +1059,21 @@ handleAssignBoardToSwitch boardId switchIdx = do
       updated = Array.snoc filtered newAssignment
   H.modify_ _ { mc6Assignments = updated }
   liftEffect $ Storage.saveMC6Assignments updated
+  -- Auto-sync: program this switch to MC6
+  let mBoard = Array.find (\bp -> bp.id == boardId) st.boardPresets
+  syncSwitchToMC6 bankNum switchIdx mBoard
 
 handleUnassignBoard :: forall o m. MonadAff m => PresetId -> H.HalogenM AppState Action Slots o m Unit
 handleUnassignBoard boardId = do
   st <- H.get
-  let updated = Array.filter (\a -> a.boardPresetId /= boardId) st.mc6Assignments
+  -- Find which switch(es) this board was assigned to, for SysEx clearing
+  let boardAssignments = Array.filter (\a -> a.boardPresetId == boardId) st.mc6Assignments
+      updated = Array.filter (\a -> a.boardPresetId /= boardId) st.mc6Assignments
   H.modify_ _ { mc6Assignments = updated }
   liftEffect $ Storage.saveMC6Assignments updated
+  -- Auto-sync: clear each affected switch on MC6
+  for_ boardAssignments \a ->
+    syncSwitchToMC6 a.bankNumber a.switchIndex Nothing
 
 handleBoardRecallFromMC6 :: forall o m. MonadAff m => Int -> H.HalogenM AppState Action Slots o m Unit
 handleBoardRecallFromMC6 ccNum = do
@@ -1079,6 +1086,109 @@ handleBoardRecallFromMC6 ccNum = do
         recallBoard bp
       Nothing -> pure unit
     Nothing -> pure unit
+
+-- | Send SysEx with hex logging
+sendSysExLogged :: forall o m. MonadAff m => String -> MIDI.MIDIOutput -> Array Int -> H.HalogenM AppState Action Slots o m Unit
+sendSysExLogged label output bytes = do
+  liftEffect $ Console.log $ "MC6 SysEx SEND [" <> label <> "]: " <> SysEx.toHexString bytes
+  liftEffect $ MIDI.send output bytes
+
+-- | SysEx upload session: connect → start upload → action → complete → disconnect
+-- | The MC6 requires the F1=7 upload handshake to accept preset data.
+-- | Ideally we'd wait for the MC6's "ready" response; for now we use fixed delays.
+withEditorSession :: forall o m. MonadAff m => MIDI.MIDIOutput -> H.HalogenM AppState Action Slots o m Unit -> H.HalogenM AppState Action Slots o m Unit
+withEditorSession output action = do
+  sendSysExLogged "connect" output SysEx.sysexConnect
+  H.liftAff (delay (Milliseconds 500.0))
+  sendSysExLogged "start-upload" output SysEx.sysexStartUpload
+  -- MC6 responds with "ready for next" (F1=7,F2=0,F3=33); wait for it
+  H.liftAff (delay (Milliseconds 500.0))
+  action
+  H.liftAff (delay (Milliseconds 300.0))
+  sendSysExLogged "complete-upload" output SysEx.sysexCompleteUpload
+  H.liftAff (delay (Milliseconds 500.0))
+  sendSysExLogged "disconnect" output SysEx.sysexDisconnect
+  liftEffect $ Console.log "MC6 SysEx: session complete"
+
+-- | Clear all MC6 switches (A-I) in the active board bank:
+-- | remove webapp assignments, then send SysEx clears to hardware
+handleClearMC6Bank :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
+handleClearMC6Bank = do
+  st <- H.get
+  let bankNum = st.mc6BoardBankNum
+      updated = Array.filter (\a -> a.bankNumber /= bankNum) st.mc6Assignments
+  H.modify_ _ { mc6Assignments = updated }
+  liftEffect $ Storage.saveMC6Assignments updated
+  -- SysEx: clear all 9 switches on MC6 hardware
+  case st.connections.mc6Output of
+    Nothing -> liftEffect $ Console.log "MC6 SysEx: no MC6 output connected (assignments cleared locally)"
+    Just output -> do
+      liftEffect $ Console.log $ "MC6 SysEx CLEAR: bank " <> show bankNum <> " switches A-I"
+      withEditorSession output do
+        for_ (Array.range 0 8) \presetNum -> do
+          let sysexBytes = SysEx.sysexClearPreset bankNum presetNum
+          sendSysExLogged ("clear-" <> show presetNum) output sysexBytes
+          H.liftAff (delay (Milliseconds 100.0))
+
+-- | Sync a single switch to MC6 hardware via SysEx.
+-- | If Just board: programs the switch with board messages.
+-- | If Nothing: clears the switch.
+-- | Silently skips if MC6 output not connected.
+syncSwitchToMC6 :: forall o m. MonadAff m => Int -> Int -> Maybe BoardPreset -> H.HalogenM AppState Action Slots o m Unit
+syncSwitchToMC6 bankNum switchIdx mBoard = do
+  st <- H.get
+  case st.connections.mc6Output of
+    Nothing -> liftEffect $ Console.log "MC6 SysEx: no MC6 output (skipping sync)"
+    Just output -> case mBoard of
+      Nothing -> do
+        liftEffect $ Console.log $ "MC6 SysEx: clearing switch " <> show switchIdx <> " in bank " <> show bankNum
+        withEditorSession output do
+          let sysexBytes = SysEx.sysexClearPreset bankNum switchIdx
+          sendSysExLogged ("clear-" <> show switchIdx) output sysexBytes
+          H.liftAff (delay (Milliseconds 100.0))
+      Just bp -> do
+        let messages = boardToMC6Messages st bp
+            sysexBytes = SysEx.sysexPresetData bankNum switchIdx (SCU.take 8 bp.name) bp.name messages
+        liftEffect $ Console.log $ "MC6 SysEx: " <> bp.name <> " → switch " <> show switchIdx <> " (" <> show (Array.length messages) <> " messages)"
+        withEditorSession output do
+          sendSysExLogged ("preset-" <> show switchIdx) output sysexBytes
+          H.liftAff (delay (Milliseconds 200.0))
+
+-- | Convert a board preset to MC6 messages: PC per pedal + bypass CCs.
+-- | Walks the board's pedal entries, resolves PC numbers from saved slots,
+-- | and adds engage CCs for bypassed pedals.
+boardToMC6Messages :: AppState -> BoardPreset -> Array MC6Message
+boardToMC6Messages st bp =
+  let entries = Map.toUnfoldable bp.pedals :: Array (Tuple PedalId { presetId :: Maybe PresetId, engage :: EngageState })
+      indexed = Array.mapWithIndex Tuple (Array.concatMap (entryToMessages st) entries)
+  in map (\(Tuple idx msg) -> msg { msgIndex = idx }) indexed
+  where
+  entryToMessages :: AppState -> Tuple PedalId { presetId :: Maybe PresetId, engage :: EngageState } -> Array MC6Message
+  entryToMessages state (Tuple pid entry) =
+    case entry.engage of
+      EngageNoChange -> [] -- untouched pedal, skip
+      _ ->
+        let ch = fromMaybe 1 (map _.meta.defaultChannel (CRegistry.findPedal state.registry pid))
+            pcMsg = case entry.presetId of
+              Nothing -> []
+              Just presetId ->
+                case Array.find (\p -> p.id == presetId) state.presets of
+                  Nothing -> []
+                  Just preset -> case preset.savedSlot of
+                    Nothing -> []
+                    Just slot -> [MC6Msg.pcMessage ch (unProgramNumber slot) ActionPress]
+            bypassMsg = case entry.engage of
+              EngageOff ->
+                case CRegistry.findPedal state.registry pid of
+                  Nothing -> []
+                  Just def -> case def.engage of
+                    SingleEngage cc -> [MC6Msg.ccMessage ch (unCC cc) 0 ActionPress]
+                    DualEngage { a, b } ->
+                      [ MC6Msg.ccMessage ch (unCC a.cc) 0 ActionPress
+                      , MC6Msg.ccMessage ch (unCC b.cc) 0 ActionPress
+                      ]
+              _ -> []
+        in pcMsg <> bypassMsg
 
 -- | Inject board-recall trigger messages into mc6Banks for export
 injectBoardTriggers :: Array MC6Assignment -> Array BoardPreset -> Array MC6NativeBank -> Array MC6NativeBank
