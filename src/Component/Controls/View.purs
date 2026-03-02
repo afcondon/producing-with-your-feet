@@ -14,7 +14,10 @@ import Data.Maybe (Maybe(..), fromMaybe)
 import Data.MC6.ControlBank (ControlBank, ControlBankSwitch, ccToggleMessages, ccMomentaryMessages)
 import Data.MC6.Types (MC6Action(..), MC6Message, MC6MsgType(..), MC6TogglePosition(..), intToMC6Action, intToMC6MsgType, mc6ActionToInt, mc6ToggleToInt)
 import Data.Midi (unCC)
-import Data.Pedal (PedalDef, PedalId(..), Control(..), LabelSource(..), Section)
+import Data.Pedal (PedalDef, PedalId, Control(..), LabelSource(..), Section)
+import Data.String.CodeUnits (contains)
+import Data.String.Common (toLower)
+import Data.String.Pattern (Pattern(..))
 import Effect.Aff.Class (class MonadAff)
 import Config.Registry (PedalRegistry)
 import Config.Registry as CRegistry
@@ -34,6 +37,20 @@ data Output
   = SaveControlBanks (Array ControlBank) (Maybe Int)
   | SyncControlBankToMC6
 
+-- | Flat searchable entry for one CC control from the pedal registry
+type CCEntry =
+  { pedalId :: PedalId
+  , pedalName :: String
+  , pedalShort :: String
+  , brand :: String
+  , channel :: Int
+  , sectionName :: String
+  , cc :: Int
+  , label :: String
+  , controlKind :: String
+  , isToggle :: Boolean
+  }
+
 type State =
   { input :: Input
   , selectedBankIdx :: Int
@@ -43,8 +60,11 @@ type State =
   , editReturnSwitch :: Int
   , showNewBankForm :: Boolean
   , newBankName :: String
-  , browserPedalId :: Maybe PedalId
+  , ccIndex :: Array CCEntry
+  , searchQuery :: String
+  , expandedPedals :: Array PedalId
   , browserTargetSwitch :: Int
+  , showDictionary :: Boolean
   }
 
 data Action
@@ -66,6 +86,7 @@ data Action
   | UpdateLabel Int String
   | UpdateLongName Int String
   | UpdateToggle Int Boolean
+  | UpdateLooper Int Boolean
   -- Message CRUD (switchIdx, ...)
   | AddMessage Int MC6MsgType
   | AddCCToggle Int
@@ -79,8 +100,10 @@ data Action
   | UpdateMsgAction Int Int String
   | UpdateMsgToggle Int Int String
   | UpdateMsgType Int Int String
-  -- CC Browser
-  | SelectBrowserPedal String
+  -- CC Search + Dictionary
+  | UpdateSearch String
+  | ToggleDictionary
+  | ToggleDictPedal PedalId
   | SelectBrowserTarget String
   | AddFromBrowser Int Int Boolean  -- channel, cc, isToggle
   -- Sync
@@ -110,9 +133,50 @@ initialState i =
      , editReturnSwitch: fromMaybe 6 (bank <#> _.returnSwitchIndex)
      , showNewBankForm: false
      , newBankName: ""
-     , browserPedalId: Nothing
+     , ccIndex: buildCCIndex i.registry
+     , searchQuery: ""
+     , expandedPedals: []
      , browserTargetSwitch: 0
+     , showDictionary: false
      }
+
+-- | Flatten the entire pedal registry into a searchable array of CC entries
+buildCCIndex :: PedalRegistry -> Array CCEntry
+buildCCIndex reg = Array.concatMap flattenPedal (CRegistry.registryPedals reg)
+  where
+  flattenPedal :: PedalDef -> Array CCEntry
+  flattenPedal def = Array.concatMap (flattenSection def) def.sections
+
+  flattenSection :: PedalDef -> Section -> Array CCEntry
+  flattenSection def section = Array.mapMaybe (toEntry def section) section.controls
+
+  toEntry :: PedalDef -> Section -> Control -> Maybe CCEntry
+  toEntry def section ctrl = case ctrl of
+    Slider r -> Just (mk (resolveLabel r.label) (unCC r.cc) "slider" false)
+    Toggle r -> Just (mk r.label (unCC r.cc) "toggle" true)
+    Momentary r -> Just (mk r.label (unCC r.cc) "momentary" false)
+    Segmented r -> Just (mk r.label (unCC r.cc) "segmented" false)
+    Dropdown r -> Just (mk r.label (unCC r.cc) "dropdown" false)
+    _ -> Nothing
+    where
+    mk lbl ccNum kind isTgl =
+      { pedalId: def.meta.id
+      , pedalName: def.meta.name
+      , pedalShort: def.meta.shortName
+      , brand: def.meta.brand
+      , channel: def.meta.defaultChannel
+      , sectionName: section.name
+      , cc: ccNum
+      , label: lbl
+      , controlKind: kind
+      , isToggle: isTgl
+      }
+
+  resolveLabel :: LabelSource -> String
+  resolveLabel = case _ of
+    Static s -> s
+    ModeMap r -> "CC " <> show (unCC r.cc)
+    ChannelMode _ -> "CC (mode)"
 
 selectedBank :: State -> Maybe ControlBank
 selectedBank st = Array.index st.input.controlBanks st.selectedBankIdx
@@ -182,23 +246,23 @@ mc6MsgTypeLabel = case _ of
 render :: forall m. State -> H.ComponentHTML Action () m
 render state =
   HH.div [ HP.class_ (H.ClassName "controls-view") ]
-    [ HH.div [ HP.class_ (H.ClassName "controls-left-panel") ]
-        [ renderBankList state ]
-    , renderAllSwitches state
+    [ HH.div [ HP.class_ (H.ClassName "controls-top-row") ]
+        [ HH.div [ HP.class_ (H.ClassName "controls-bank-col") ]
+            [ renderBankList state
+            , renderSwitchGrid state
+            ]
+        , renderBankPropsCol state
+        , renderSearchPanel state
+        ]
+    , HH.div [ HP.class_ (H.ClassName "controls-bottom-row") ]
+        [ renderAllSwitches state ]
+    , if state.showDictionary then renderDictionaryOverlay state else HH.text ""
     ]
 
 renderBankList :: forall m. State -> H.ComponentHTML Action () m
 renderBankList state =
   HH.div [ HP.class_ (H.ClassName "controls-bank-list") ]
-    [ HH.div [ HP.class_ (H.ClassName "controls-bank-list-header") ]
-        [ HH.span [ HP.class_ (H.ClassName "controls-heading") ] [ HH.text "Banks" ]
-        , HH.button
-            [ HP.class_ (H.ClassName "controls-btn-small")
-            , HE.onClick \_ -> NewBank
-            ]
-            [ HH.text "+ New" ]
-        ]
-    , if state.showNewBankForm
+    [ if state.showNewBankForm
         then renderNewBankForm state
         else HH.text ""
     , HH.div [ HP.class_ (H.ClassName "controls-bank-items") ]
@@ -239,28 +303,63 @@ renderBankItem state idx bank =
         , HP.attr (HH.AttrName "style") headerStyle
         , HE.onClick \_ -> SelectBank idx
         ]
-        [ HH.div [ HP.class_ (H.ClassName "controls-bank-item-name") ] [ HH.text bank.name ]
-        , HH.div [ HP.class_ (H.ClassName "controls-bank-item-num") ] [ HH.text ("Bank " <> show bank.mc6BankNumber) ]
-        ]
-    , if isSelected
-        then HH.div [ HP.class_ (H.ClassName "controls-bank-expanded") ]
-          [ renderSwitchGrid state
-          , renderBankProperties state
-          , HH.div [ HP.class_ (H.ClassName "controls-bank-actions") ]
-              [ HH.button
-                  [ HP.class_ (H.ClassName "controls-btn-small")
-                  , HE.onClick \_ -> DuplicateBank
+        ( if isSelected
+            then
+              [ HH.input
+                  [ HP.type_ HP.InputText
+                  , HP.class_ (H.ClassName "controls-bank-name-input")
+                  , HP.value state.editBankName
+                  , HE.onValueInput UpdateBankName
                   ]
-                  [ HH.text "Dup" ]
-              , HH.button
-                  [ HP.class_ (H.ClassName "controls-btn-small controls-btn-danger")
-                  , HE.onClick \_ -> DeleteBank
+              , HH.div [ HP.class_ (H.ClassName "controls-bank-item-num") ]
+                  [ HH.text "Bank "
+                  , HH.input
+                      [ HP.type_ HP.InputNumber
+                      , HP.class_ (H.ClassName "controls-bank-num-input")
+                      , HP.value state.editBankNumber
+                      , HE.onValueInput UpdateBankNumber
+                      , HP.attr (HH.AttrName "min") "0"
+                      , HP.attr (HH.AttrName "max") "29"
+                      ]
                   ]
-                  [ HH.text "Del" ]
               ]
-          ]
-        else HH.text ""
+            else
+              [ HH.div [ HP.class_ (H.ClassName "controls-bank-item-name") ] [ HH.text bank.name ]
+              , HH.div [ HP.class_ (H.ClassName "controls-bank-item-num") ] [ HH.text ("Bank " <> show bank.mc6BankNumber) ]
+              ]
+        )
     ]
+
+renderBankPropsCol :: forall m. State -> H.ComponentHTML Action () m
+renderBankPropsCol state = case selectedBank state of
+  Nothing -> HH.text ""
+  Just _ ->
+    HH.div [ HP.class_ (H.ClassName "controls-props-col") ]
+      [ renderBankProperties state
+      , HH.div [ HP.class_ (H.ClassName "controls-bank-actions") ]
+          [ HH.button
+              [ HP.class_ (H.ClassName "controls-btn-small")
+              , HE.onClick \_ -> NewBank
+              ]
+              [ HH.text "+ New" ]
+          , HH.button
+              [ HP.class_ (H.ClassName "controls-btn controls-btn-accent")
+              , HP.attr (HH.AttrName "style") ("background: " <> bankColor state.selectedBankIdx <> "; border-color: " <> bankColor state.selectedBankIdx)
+              , HE.onClick \_ -> SyncToMC6
+              ]
+              [ HH.text "Sync" ]
+          , HH.button
+              [ HP.class_ (H.ClassName "controls-btn-small")
+              , HE.onClick \_ -> DuplicateBank
+              ]
+              [ HH.text "Dup" ]
+          , HH.button
+              [ HP.class_ (H.ClassName "controls-btn-small controls-btn-danger")
+              , HE.onClick \_ -> DeleteBank
+              ]
+              [ HH.text "Del" ]
+          ]
+      ]
 
 renderSwitchGrid :: forall m. State -> H.ComponentHTML Action () m
 renderSwitchGrid state =
@@ -289,25 +388,6 @@ renderBankProperties :: forall m. State -> H.ComponentHTML Action () m
 renderBankProperties state =
   HH.div [ HP.class_ (H.ClassName "controls-bank-props") ]
     [ HH.div [ HP.class_ (H.ClassName "controls-field-row") ]
-        [ HH.label_ [ HH.text "Name" ]
-        , HH.input
-            [ HP.type_ HP.InputText
-            , HP.value state.editBankName
-            , HE.onValueInput UpdateBankName
-            ]
-        ]
-    , HH.div [ HP.class_ (H.ClassName "controls-field-row") ]
-        [ HH.label_ [ HH.text "MC6 Bank" ]
-        , HH.input
-            [ HP.type_ HP.InputNumber
-            , HP.value state.editBankNumber
-            , HE.onValueInput UpdateBankNumber
-            , HP.attr (HH.AttrName "min") "0"
-            , HP.attr (HH.AttrName "max") "29"
-            , HP.attr (HH.AttrName "style") "width: 60px"
-            ]
-        ]
-    , HH.div [ HP.class_ (H.ClassName "controls-field-row") ]
         [ HH.label_ [ HH.text "Return Sw" ]
         , HH.select
             [ HP.value (show state.editReturnSwitch)
@@ -326,14 +406,6 @@ renderBankProperties state =
             , HE.onValueInput UpdateBankDescription
             ]
         ]
-    , HH.div [ HP.class_ (H.ClassName "controls-field-row") ]
-        [ HH.button
-            [ HP.class_ (H.ClassName "controls-btn controls-btn-accent")
-            , HP.attr (HH.AttrName "style") ("background: " <> bankColor state.selectedBankIdx <> "; border-color: " <> bankColor state.selectedBankIdx)
-            , HE.onClick \_ -> SyncToMC6
-            ]
-            [ HH.text "Sync to MC6" ]
-        ]
     ]
 
 -- ──── All Switches Panel (right column) ────
@@ -351,7 +423,6 @@ renderAllSwitches state = case selectedBank state of
     in HH.div [ HP.class_ (H.ClassName "controls-message-editor") ]
       [ HH.div [ HP.class_ (H.ClassName "controls-sw-grid") ]
           (map renderIdx switchGridOrder)
-      , renderCCBrowser state
       ]
 
 renderSwitchSection :: forall m. String -> Int -> Int -> ControlBankSwitch -> H.ComponentHTML Action () m
@@ -388,14 +459,24 @@ renderSwitchSection bankCol returnIdx swIdx sw =
                 ]
             , HH.text " Tgl"
             ]
+        , HH.label [ HP.class_ (H.ClassName "controls-sw-toggle-label") ]
+            [ HH.input
+                [ HP.type_ HP.InputCheckbox
+                , HP.checked (hasLooperMode sw)
+                , HE.onChecked (UpdateLooper swIdx)
+                ]
+            , HH.text " Loop"
+            ]
         , if isReturn
             then HH.span [ HP.class_ (H.ClassName "controls-sw-return-badge") ] [ HH.text "RTN" ]
             else HH.text ""
         ]
-    , if Array.null sw.messages
+    , let indexed = Array.mapWithIndex (\i msg -> { idx: i, msg }) sw.messages
+          visible = Array.filter (\r -> r.msg.msgType /= MsgLooperMode) indexed
+      in if Array.null visible
         then HH.text ""
         else HH.div [ HP.class_ (H.ClassName "controls-messages") ]
-          (Array.mapWithIndex (\i msg -> renderMessageRow bankCol swIdx i msg) sw.messages)
+          (map (\r -> renderMessageRow bankCol swIdx r.idx r.msg) visible)
     , renderAddButtons swIdx
     ]
 
@@ -514,65 +595,151 @@ renderAddButtons swIdx =
     , HH.button [ HP.class_ (H.ClassName "controls-btn-tiny"), HE.onClick \_ -> AddMessage swIdx MsgDelay ] [ HH.text "+Delay" ]
     ]
 
--- ──── CC Browser ────
+-- ──── Search Panel (right side of top row) ────
 
-renderCCBrowser :: forall m. State -> H.ComponentHTML Action () m
-renderCCBrowser state =
-  HH.div [ HP.class_ (H.ClassName "controls-cc-browser") ]
-    [ HH.div [ HP.class_ (H.ClassName "controls-cc-browser-header") ] [ HH.text "Pedal CC Browser" ]
-    , HH.div [ HP.class_ (H.ClassName "controls-field-row") ]
-        [ HH.label_ [ HH.text "Pedal" ]
-        , HH.select
-            [ HP.value (fromMaybe "" (state.browserPedalId <#> show))
-            , HE.onValueChange SelectBrowserPedal
+renderSearchPanel :: forall m. State -> H.ComponentHTML Action () m
+renderSearchPanel state =
+  HH.div [ HP.class_ (H.ClassName "controls-search-panel") ]
+    [ HH.div [ HP.class_ (H.ClassName "controls-search-input-row") ]
+        [ HH.span [ HP.class_ (H.ClassName "controls-search-icon") ] [ HH.text "\x1F50D" ]
+        , HH.input
+            [ HP.type_ HP.InputText
+            , HP.class_ (H.ClassName "controls-search-input")
+            , HP.placeholder "Search CCs across all pedals..."
+            , HP.value state.searchQuery
+            , HE.onValueInput UpdateSearch
             ]
-            ( [ HH.option [ HP.value "" ] [ HH.text "-- Select --" ] ]
-              <> map pedalOption (CRegistry.registryPedals state.input.registry)
-            )
-        , HH.label_ [ HH.text "Add to" ]
-        , HH.select
-            [ HP.value (show state.browserTargetSwitch)
-            , HE.onValueChange SelectBrowserTarget
+        , HH.span [ HP.class_ (H.ClassName "controls-search-target") ]
+            [ HH.text "Add to:"
+            , HH.select
+                [ HP.value (show state.browserTargetSwitch)
+                , HE.onValueChange SelectBrowserTarget
+                ]
+                (Array.range 0 8 <#> \i ->
+                  HH.option [ HP.value (show i) ] [ HH.text (switchLetter i) ]
+                )
             ]
-            (Array.range 0 8 <#> \i ->
-              HH.option [ HP.value (show i) ] [ HH.text (switchLetter i) ]
-            )
+        , HH.button
+            [ HP.class_ (H.ClassName "controls-btn-small")
+            , HE.onClick \_ -> ToggleDictionary
+            ]
+            [ HH.text "Browse All" ]
         ]
-    , case state.browserPedalId of
-        Nothing -> HH.text ""
-        Just pid -> case CRegistry.findPedal state.input.registry pid of
-          Nothing -> HH.text ""
-          Just def -> renderPedalSections state def
+    , renderSearchResults state
     ]
 
-pedalOption :: forall m. PedalDef -> H.ComponentHTML Action () m
-pedalOption def =
-  HH.option [ HP.value (show def.meta.id) ] [ HH.text (def.meta.name <> " (ch " <> show def.meta.defaultChannel <> ")") ]
-
-renderPedalSections :: forall m. State -> PedalDef -> H.ComponentHTML Action () m
-renderPedalSections state def =
-  HH.div [ HP.class_ (H.ClassName "controls-cc-sections") ]
-    (map (renderSection state def.meta.defaultChannel) def.sections)
-
-renderSection :: forall m. State -> Int -> Section -> H.ComponentHTML Action () m
-renderSection state ch section =
-  let ccRows = Array.mapMaybe (controlToCC ch) section.controls
-  in if Array.null ccRows
+renderSearchResults :: forall m. State -> H.ComponentHTML Action () m
+renderSearchResults state =
+  let q = toLower state.searchQuery
+  in if q == ""
     then HH.text ""
-    else HH.div [ HP.class_ (H.ClassName "controls-cc-section") ]
-      [ HH.div [ HP.class_ (H.ClassName "controls-cc-section-name") ] [ HH.text section.name ]
-      , HH.div_ (map (renderCCRow state) ccRows)
-      ]
+    else
+      let matches = Array.filter (matchEntry q) state.ccIndex
+      in if Array.null matches
+        then HH.div [ HP.class_ (H.ClassName "controls-search-empty") ] [ HH.text "No matches" ]
+        else HH.div [ HP.class_ (H.ClassName "controls-search-results") ]
+          (map (renderSearchRow state) matches)
 
-type CCRow = { ch :: Int, cc :: Int, label :: String, isToggle :: Boolean }
+matchEntry :: String -> CCEntry -> Boolean
+matchEntry q entry =
+  contains (Pattern q) (toLower entry.label)
+  || contains (Pattern q) (toLower (show entry.cc))
+  || contains (Pattern q) (toLower entry.pedalName)
+  || contains (Pattern q) (toLower entry.pedalShort)
+  || contains (Pattern q) (toLower entry.sectionName)
+  || contains (Pattern q) (toLower entry.controlKind)
 
-controlToCC :: Int -> Control -> Maybe CCRow
-controlToCC ch = case _ of
-  Slider r -> Just { ch, cc: unCC r.cc, label: resolveLabel r.label, isToggle: false }
-  Toggle r -> Just { ch, cc: unCC r.cc, label: r.label, isToggle: true }
-  Momentary r -> Just { ch, cc: unCC r.cc, label: r.label, isToggle: false }
-  Segmented r -> Just { ch, cc: unCC r.cc, label: r.label, isToggle: false }
-  Dropdown r -> Just { ch, cc: unCC r.cc, label: r.label, isToggle: false }
+renderSearchRow :: forall m. State -> CCEntry -> H.ComponentHTML Action () m
+renderSearchRow state entry =
+  HH.div [ HP.class_ (H.ClassName "controls-search-row") ]
+    [ HH.span [ HP.class_ (H.ClassName "controls-search-pedal") ] [ HH.text entry.pedalShort ]
+    , HH.span [ HP.class_ (H.ClassName "controls-cc-num") ] [ HH.text ("CC" <> show entry.cc) ]
+    , HH.span [ HP.class_ (H.ClassName "controls-search-ch") ] [ HH.text ("ch" <> show entry.channel) ]
+    , HH.span [ HP.class_ (H.ClassName "controls-cc-label") ] [ HH.text entry.label ]
+    , HH.span [ HP.class_ (H.ClassName "controls-search-kind") ] [ HH.text entry.controlKind ]
+    , HH.button
+        [ HP.class_ (H.ClassName "controls-btn-tiny")
+        , HE.onClick \_ -> AddFromBrowser entry.channel entry.cc true
+        ]
+        [ HH.text ("+" <> switchLetter state.browserTargetSwitch <> " Tgl") ]
+    , HH.button
+        [ HP.class_ (H.ClassName "controls-btn-tiny")
+        , HE.onClick \_ -> AddFromBrowser entry.channel entry.cc false
+        ]
+        [ HH.text ("+" <> switchLetter state.browserTargetSwitch <> " Mom") ]
+    ]
+
+-- ──── CC Dictionary (modal overlay) ────
+
+renderDictionaryOverlay :: forall m. State -> H.ComponentHTML Action () m
+renderDictionaryOverlay state =
+  HH.div [ HP.class_ (H.ClassName "controls-dict-overlay") ]
+    [ HH.div
+        [ HP.class_ (H.ClassName "controls-dict-backdrop")
+        , HE.onClick \_ -> ToggleDictionary
+        ]
+        []
+    , HH.div [ HP.class_ (H.ClassName "controls-dict-modal") ]
+        [ HH.div [ HP.class_ (H.ClassName "controls-dict-modal-header") ]
+            [ HH.span [ HP.class_ (H.ClassName "controls-dict-header") ] [ HH.text "CC Dictionary" ]
+            , HH.button
+                [ HP.class_ (H.ClassName "controls-dict-close")
+                , HE.onClick \_ -> ToggleDictionary
+                ]
+                [ HH.text "\x00D7" ]
+            ]
+        , renderDictionary state
+        ]
+    ]
+
+renderDictionary :: forall m. State -> H.ComponentHTML Action () m
+renderDictionary state =
+  let pedals = CRegistry.registryPedals state.input.registry
+  in HH.div [ HP.class_ (H.ClassName "controls-dict-list") ]
+    (map (renderDictPedal state) pedals)
+
+renderDictPedal :: forall m. State -> PedalDef -> H.ComponentHTML Action () m
+renderDictPedal state def =
+  let pid = def.meta.id
+      isExpanded = Array.elem pid state.expandedPedals
+      arrow = if isExpanded then "\x25BE " else "\x25B8 "
+  in HH.div [ HP.class_ (H.ClassName ("controls-dict-pedal" <> if isExpanded then " expanded" else "")) ]
+    [ HH.div
+        [ HP.class_ (H.ClassName "controls-dict-pedal-header")
+        , HE.onClick \_ -> ToggleDictPedal pid
+        ]
+        [ HH.span [ HP.class_ (H.ClassName "controls-dict-arrow") ] [ HH.text arrow ]
+        , HH.span [ HP.class_ (H.ClassName "controls-dict-pedal-name") ] [ HH.text def.meta.name ]
+        , HH.span [ HP.class_ (H.ClassName "controls-dict-pedal-meta") ]
+            [ HH.text (def.meta.brand <> ", ch " <> show def.meta.defaultChannel) ]
+        ]
+    , if isExpanded
+        then HH.div [ HP.class_ (H.ClassName "controls-dict-sections") ]
+          (Array.mapMaybe (renderDictSection state def.meta.defaultChannel) def.sections)
+        else HH.text ""
+    ]
+
+renderDictSection :: forall m. State -> Int -> Section -> Maybe (H.ComponentHTML Action () m)
+renderDictSection state ch section =
+  let entries = Array.mapMaybe (controlToCCEntry ch) section.controls
+  in if Array.null entries
+    then Nothing
+    else Just $
+      HH.div [ HP.class_ (H.ClassName "controls-dict-section") ]
+        [ HH.span [ HP.class_ (H.ClassName "controls-dict-section-name") ] [ HH.text (section.name <> ":") ]
+        , HH.span [ HP.class_ (H.ClassName "controls-dict-controls") ]
+            (Array.concatMap (\e -> [ renderDictControl state e ]) entries)
+        ]
+
+type DictEntry = { ch :: Int, cc :: Int, label :: String, kind :: String, isToggle :: Boolean }
+
+controlToCCEntry :: Int -> Control -> Maybe DictEntry
+controlToCCEntry ch = case _ of
+  Slider r -> Just { ch, cc: unCC r.cc, label: resolveLabel r.label, kind: "slider", isToggle: false }
+  Toggle r -> Just { ch, cc: unCC r.cc, label: r.label, kind: "toggle", isToggle: true }
+  Momentary r -> Just { ch, cc: unCC r.cc, label: r.label, kind: "momentary", isToggle: false }
+  Segmented r -> Just { ch, cc: unCC r.cc, label: r.label, kind: "segmented", isToggle: false }
+  Dropdown r -> Just { ch, cc: unCC r.cc, label: r.label, kind: "dropdown", isToggle: false }
   _ -> Nothing
   where
   resolveLabel = case _ of
@@ -580,21 +747,21 @@ controlToCC ch = case _ of
     ModeMap r -> "CC " <> show (unCC r.cc)
     ChannelMode _ -> "CC (mode)"
 
-renderCCRow :: forall m. State -> CCRow -> H.ComponentHTML Action () m
-renderCCRow state row =
-  HH.div [ HP.class_ (H.ClassName "controls-cc-row") ]
-    [ HH.span [ HP.class_ (H.ClassName "controls-cc-num") ] [ HH.text ("CC" <> show row.cc) ]
-    , HH.span [ HP.class_ (H.ClassName "controls-cc-label") ] [ HH.text row.label ]
+renderDictControl :: forall m. State -> DictEntry -> H.ComponentHTML Action () m
+renderDictControl _state entry =
+  HH.span [ HP.class_ (H.ClassName "controls-dict-control") ]
+    [ HH.span [ HP.class_ (H.ClassName "controls-dict-control-label") ]
+        [ HH.text (entry.label <> " CC" <> show entry.cc) ]
     , HH.button
         [ HP.class_ (H.ClassName "controls-btn-tiny")
-        , HE.onClick \_ -> AddFromBrowser row.ch row.cc true
+        , HE.onClick \_ -> AddFromBrowser entry.ch entry.cc true
         ]
-        [ HH.text ("+" <> switchLetter state.browserTargetSwitch <> " Tgl") ]
+        [ HH.text "+Tgl" ]
     , HH.button
         [ HP.class_ (H.ClassName "controls-btn-tiny")
-        , HE.onClick \_ -> AddFromBrowser row.ch row.cc false
+        , HE.onClick \_ -> AddFromBrowser entry.ch entry.cc false
         ]
-        [ HH.text ("+" <> switchLetter state.browserTargetSwitch <> " Mom") ]
+        [ HH.text "+Mom" ]
     ]
 
 -- ──── Action Handlers ────
@@ -685,6 +852,11 @@ handleAction = case _ of
   UpdateToggle swIdx b -> do
     modifySwitch swIdx \sw -> sw { toToggle = b }
     save
+  UpdateLooper swIdx b -> do
+    modifySwitch swIdx \sw ->
+      let without = Array.filter (\m -> m.msgType /= MsgLooperMode) sw.messages
+      in sw { messages = if b then without <> [looperModeMessage] else without }
+    save
 
   -- Message CRUD
   AddMessage swIdx msgType -> do
@@ -726,11 +898,13 @@ handleAction = case _ of
     Just v -> msg { msgType = intToMC6MsgType v }
     Nothing -> msg
 
-  -- CC Browser
-  SelectBrowserPedal s ->
-    if s == ""
-      then H.modify_ _ { browserPedalId = Nothing }
-      else H.modify_ _ { browserPedalId = Just (PedalId s) }
+  -- CC Search + Dictionary
+  UpdateSearch s -> H.modify_ _ { searchQuery = s }
+  ToggleDictionary -> H.modify_ \st -> st { showDictionary = not st.showDictionary }
+  ToggleDictPedal pid -> H.modify_ \st ->
+    if Array.elem pid st.expandedPedals
+      then st { expandedPedals = Array.filter (_ /= pid) st.expandedPedals }
+      else st { expandedPedals = st.expandedPedals <> [pid] }
   SelectBrowserTarget s -> case Int.fromString s of
     Just i -> H.modify_ _ { browserTargetSwitch = i }
     Nothing -> pure unit
@@ -751,6 +925,22 @@ intToToggle = case _ of
   0 -> ToggleOff
   1 -> ToggleOn
   _ -> ToggleBoth
+
+hasLooperMode :: ControlBankSwitch -> Boolean
+hasLooperMode sw = Array.any (\m -> m.msgType == MsgLooperMode) sw.messages
+
+looperModeMessage :: MC6Message
+looperModeMessage =
+  { msgType: MsgLooperMode
+  , channel: 0
+  , data1: 0
+  , data2: 0
+  , data3: 0
+  , data4: 0
+  , action: ActionPress
+  , togglePosition: ToggleBoth
+  , msgIndex: 0
+  }
 
 newMessage :: MC6MsgType -> MC6Message
 newMessage msgType =
