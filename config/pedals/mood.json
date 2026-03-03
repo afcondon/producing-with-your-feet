@@ -154,15 +154,15 @@
       "controls": [
         {
           "type": "toggle",
-          "cc": 102,
-          "label": "Micro-Looper",
+          "cc": 103,
+          "label": "Wet Channel",
           "onLabel": "On",
           "offLabel": "Off"
         },
         {
           "type": "toggle",
-          "cc": 106,
-          "label": "ML Overdub",
+          "cc": 105,
+          "label": "Wet Freeze",
           "onLabel": "On",
           "offLabel": "Off"
         },
@@ -174,15 +174,15 @@
         },
         {
           "type": "toggle",
-          "cc": 103,
-          "label": "Wet Channel",
+          "cc": 102,
+          "label": "Micro-Looper",
           "onLabel": "On",
           "offLabel": "Off"
         },
         {
           "type": "toggle",
-          "cc": 105,
-          "label": "Wet Freeze",
+          "cc": 106,
+          "label": "ML Overdub",
           "onLabel": "On",
           "offLabel": "Off"
         }

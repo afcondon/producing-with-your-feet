@@ -89,13 +89,13 @@ pedal =
   , sections:
       [ { name: "Channels", compact: true, collapsed: false, layout: DualColumn, description: Nothing
         , controls:
-            -- Left footswitch (Micro-Looper)
-            [ Toggle { cc: cc 102, label: "Micro-Looper", onLabel: "On", offLabel: "Off", description: Nothing, labelSource: Nothing }
-            , Toggle { cc: cc 106, label: "ML Overdub", onLabel: "On", offLabel: "Off", description: Nothing, labelSource: Nothing }
-            , Momentary { cc: cc 107, label: "Tap Tempo", value: mv 127, description: Nothing }
-            -- Right footswitch (Wet Channel)
-            , Toggle { cc: cc 103, label: "Wet Channel", onLabel: "On", offLabel: "Off", description: Nothing, labelSource: Nothing }
+            -- Left footswitch (Wet Channel)
+            [ Toggle { cc: cc 103, label: "Wet Channel", onLabel: "On", offLabel: "Off", description: Nothing, labelSource: Nothing }
             , Toggle { cc: cc 105, label: "Wet Freeze", onLabel: "On", offLabel: "Off", description: Nothing, labelSource: Nothing }
+            , Momentary { cc: cc 107, label: "Tap Tempo", value: mv 127, description: Nothing }
+            -- Right footswitch (Micro-Looper)
+            , Toggle { cc: cc 102, label: "Micro-Looper", onLabel: "On", offLabel: "Off", description: Nothing, labelSource: Nothing }
+            , Toggle { cc: cc 106, label: "ML Overdub", onLabel: "On", offLabel: "Off", description: Nothing, labelSource: Nothing }
             ]
         }
       , { name: "Mix & Routing", compact: true, collapsed: false, layout: DefaultLayout, description: Nothing
