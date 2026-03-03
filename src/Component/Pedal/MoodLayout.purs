@@ -1,8 +1,14 @@
 module Component.Pedal.MoodLayout
   ( moodKnobs
   , moodFootswitches
+  , moodDips
+  , moodConfig
   , KnobPair
   , Footswitch
+  , DIPBank(..)
+  , DIPSwitch
+  , ConfigType(..)
+  , ConfigControl
   , Channel(..)
   , KnobType(..)
   ) where
@@ -42,6 +48,9 @@ type Footswitch =
   , cc :: CC
   , label :: String
   , channel :: Channel
+  , ledCC :: Maybe CC
+  , engagedColor :: String
+  , ledColor :: String
   }
 
 cc :: Int -> CC
@@ -109,8 +118,55 @@ moodKnobs =
   ]
 
 -- | Row D: footswitches
+-- Wet: off=gray, engaged=red, freeze(cc105)=green
+-- ML:  off=gray, playback=green, overdub(cc106)=red
 moodFootswitches :: Array Footswitch
 moodFootswitches =
-  [ { col: 0, cc: cc 103, label: "Wet", channel: Wet }
-  , { col: 2, cc: cc 102, label: "ML", channel: ML }
+  [ { col: 0, cc: cc 103, label: "Wet", channel: Wet
+    , ledCC: Just (cc 105), engagedColor: "#c75050", ledColor: "#50a060" }
+  , { col: 2, cc: cc 102, label: "ML", channel: ML
+    , ledCC: Just (cc 106), engagedColor: "#50a060", ledColor: "#c75050" }
+  ]
+
+-- | DIP switches (two banks of 8)
+data DIPBank = Ramping | Customize
+
+derive instance Eq DIPBank
+
+type DIPSwitch = { cc :: CC, label :: String, bank :: DIPBank, index :: Int }
+
+moodDips :: Array DIPSwitch
+moodDips =
+  [ { cc: cc 61, label: "Time",     bank: Ramping,   index: 0 }
+  , { cc: cc 62, label: "Modify L", bank: Ramping,   index: 1 }
+  , { cc: cc 63, label: "Clock",    bank: Ramping,   index: 2 }
+  , { cc: cc 64, label: "Modify R", bank: Ramping,   index: 3 }
+  , { cc: cc 65, label: "Length",   bank: Ramping,   index: 4 }
+  , { cc: cc 66, label: "Bounce",   bank: Ramping,   index: 5 }
+  , { cc: cc 67, label: "Sweep",    bank: Ramping,   index: 6 }
+  , { cc: cc 68, label: "Polarity", bank: Ramping,   index: 7 }
+  , { cc: cc 71, label: "Classic",  bank: Customize, index: 0 }
+  , { cc: cc 72, label: "Miso",     bank: Customize, index: 1 }
+  , { cc: cc 73, label: "Spread",   bank: Customize, index: 2 }
+  , { cc: cc 74, label: "Dry Kill", bank: Customize, index: 3 }
+  , { cc: cc 75, label: "Trails",   bank: Customize, index: 4 }
+  , { cc: cc 76, label: "Latch",    bank: Customize, index: 5 }
+  , { cc: cc 77, label: "No Dub",   bank: Customize, index: 6 }
+  , { cc: cc 78, label: "Smooth",   bank: Customize, index: 7 }
+  ]
+
+-- | Config controls (toggles + one slider)
+data ConfigType = ConfigToggle | ConfigSlider
+
+derive instance Eq ConfigType
+
+type ConfigControl = { cc :: CC, label :: String, controlType :: ConfigType }
+
+moodConfig :: Array ConfigControl
+moodConfig =
+  [ { cc: cc 107, label: "Tap",       controlType: ConfigToggle }
+  , { cc: cc 52,  label: "Ramp",      controlType: ConfigToggle }
+  , { cc: cc 20,  label: "Speed",     controlType: ConfigSlider }
+  , { cc: cc 51,  label: "Clk Fol",   controlType: ConfigToggle }
+  , { cc: cc 55,  label: "Bypass",    controlType: ConfigToggle }
   ]

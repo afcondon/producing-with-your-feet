@@ -770,6 +770,7 @@ handleAction = case _ of
 
   HandlePedal output -> case output of
     PedalView.BackToGrid -> handleAction (SetView GridView)
+    PedalView.ValueChanged pid cc val -> handleAction (SetValue pid cc val)
 
   HandleGrid output -> handleGridOutput output
 

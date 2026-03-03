@@ -28,8 +28,10 @@
             "strings",
             "transformers",
             "tuples",
+            "web-events",
             "web-html",
-            "web-storage"
+            "web-storage",
+            "web-uievents"
           ]
         },
         "test": {

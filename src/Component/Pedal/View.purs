@@ -14,7 +14,7 @@ import Config.Registry as CRegistry
 import Data.Const (Const)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
-import Data.Midi (CC, unMidiValue)
+import Data.Midi (CC, MidiValue, unMidiValue, unsafeMidiValue)
 import Data.Pedal (PedalId)
 import Effect.Aff.Class (class MonadAff)
 import Engine (EngineState, PedalState)
@@ -22,6 +22,12 @@ import Halogen as H
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
+import Halogen.Subscription as HS
+import Web.Event.Event (EventType(..))
+import Web.Event.EventTarget (addEventListener, eventListener, removeEventListener)
+import Web.HTML (window)
+import Web.HTML.Window as Window
+import Web.UIEvent.MouseEvent as ME
 
 type Input =
   { engine :: EngineState
@@ -31,19 +37,29 @@ type Input =
 
 data Output
   = BackToGrid
+  | ValueChanged PedalId CC MidiValue
 
-type State = { input :: Input }
+type DragContext = { cc :: CC, startY :: Int, startVal :: Int }
+
+type State =
+  { input :: Input
+  , dragging :: Maybe DragContext
+  , dragSub :: Maybe H.SubscriptionId
+  }
 
 data Action
   = Receive Input
   | ClickBack
+  | HandleDonut Donut.DonutEvent
+  | DragMove Int       -- current clientY
+  | DragEnd
 
 type Slot = H.Slot (Const Void) Output
 
 component :: forall q m. MonadAff m => H.Component q Input Output m
 component =
   H.mkComponent
-    { initialState: \i -> { input: i }
+    { initialState: \i -> { input: i, dragging: Nothing, dragSub: Nothing }
     , render
     , eval: H.mkEval H.defaultEval
         { handleAction = handleAction
@@ -95,15 +111,19 @@ svgElement name = HH.elementNS (HH.Namespace "http://www.w3.org/2000/svg") (HH.E
 svgAttr :: forall r i. String -> String -> HH.IProp r i
 svgAttr name val = HP.attr (HH.AttrName name) val
 
-renderSvg :: forall w i. PedalState -> HH.HTML w i
+renderSvg :: forall m. PedalState -> H.ComponentHTML Action () m
 renderSvg ps =
   svgElement "svg"
-    [ svgAttr "viewBox" "0 0 320 370"
+    [ svgAttr "viewBox" "0 0 320 470"
     , svgAttr "class" "pedal-svg"
     ]
     (  [ renderColumnHeaders ]
     <> map (renderKnobDonut ps) Layout.moodKnobs
     <> map (renderFsDonut ps) Layout.moodFootswitches
+    <> [ Donut.renderSectionLine 356.0 ]
+    <> [ Donut.renderConfigRow Layout.moodConfig (\cfg -> lookupCC cfg.cc ps) HandleDonut ]
+    <> [ Donut.renderSectionLine 396.0 ]
+    <> [ Donut.renderDipGrid Layout.moodDips (\dip -> lookupCC dip.cc ps) HandleDonut ]
     )
 
 renderColumnHeaders :: forall w i. HH.HTML w i
@@ -124,17 +144,22 @@ renderColumnHeaders =
       , svgAttr "letter-spacing" "0.05em"
       ] [ HH.text label ]
 
-renderKnobDonut :: forall w i. PedalState -> Layout.KnobPair -> HH.HTML w i
+renderKnobDonut :: forall m. PedalState -> Layout.KnobPair -> H.ComponentHTML Action () m
 renderKnobDonut ps knob =
   let
     primaryVal = lookupCC knob.primaryCC ps
     hiddenVal = lookupCC knob.hiddenCC ps
   in
-    Donut.renderDonut knob ps { primaryVal, hiddenVal }
+    Donut.renderDonut knob ps { primaryVal, hiddenVal } HandleDonut
 
-renderFsDonut :: forall w i. PedalState -> Layout.Footswitch -> HH.HTML w i
+renderFsDonut :: forall m. PedalState -> Layout.Footswitch -> H.ComponentHTML Action () m
 renderFsDonut ps fs =
-  Donut.renderFootswitch fs (lookupCC fs.cc ps)
+  let
+    ledVal = case fs.ledCC of
+      Just lcc -> lookupCC lcc ps
+      Nothing -> 0
+  in
+    Donut.renderFootswitch fs (lookupCC fs.cc ps) ledVal HandleDonut
 
 lookupCC :: CC -> PedalState -> Int
 lookupCC ccNum ps = fromMaybe 0 (map unMidiValue (Map.lookup ccNum ps.values))
@@ -143,3 +168,48 @@ handleAction :: forall m. MonadAff m => Action -> H.HalogenM State Action () Out
 handleAction = case _ of
   Receive input -> H.modify_ _ { input = input }
   ClickBack -> H.raise BackToGrid
+
+  HandleDonut evt -> do
+    st <- H.get
+    let pid = st.input.pedalId
+    case evt of
+      Donut.KnobDragStart cc val me -> do
+        -- Set up document-level drag tracking
+        sid <- H.subscribe $ HS.makeEmitter \emit -> do
+          moveFn <- eventListener \e ->
+            case ME.fromEvent e of
+              Just mouseEvt -> emit (DragMove (ME.clientY mouseEvt))
+              Nothing -> pure unit
+          upFn <- eventListener \_ -> emit DragEnd
+          target <- Window.toEventTarget <$> window
+          addEventListener (EventType "mousemove") moveFn false target
+          addEventListener (EventType "mouseup") upFn false target
+          pure do
+            removeEventListener (EventType "mousemove") moveFn false target
+            removeEventListener (EventType "mouseup") upFn false target
+        H.modify_ _ { dragging = Just { cc, startY: ME.clientY me, startVal: val }, dragSub = Just sid }
+
+      Donut.SegmentClick cc val ->
+        H.raise (ValueChanged pid cc (unsafeMidiValue val))
+
+      Donut.ToggleClick cc val ->
+        H.raise (ValueChanged pid cc (unsafeMidiValue (if val > 63 then 0 else 127)))
+
+  DragMove clientY -> do
+    st <- H.get
+    case st.dragging of
+      Just drag -> do
+        let
+          delta = drag.startY - clientY
+          newVal = clamp 0 127 (drag.startVal + delta)
+        H.raise (ValueChanged st.input.pedalId drag.cc (unsafeMidiValue newVal))
+      Nothing -> pure unit
+
+  DragEnd -> do
+    st <- H.get
+    case st.dragSub of
+      Just sid -> do
+        H.unsubscribe sid
+        H.modify_ _ { dragging = Nothing, dragSub = Nothing }
+      Nothing ->
+        H.modify_ _ { dragging = Nothing }

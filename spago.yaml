@@ -26,6 +26,8 @@ package:
     - halogen-subscriptions
     - js-date
     - numbers
+    - web-events
+    - web-uievents
   build:
     strict: true
   publish:
