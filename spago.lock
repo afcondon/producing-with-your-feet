@@ -22,6 +22,7 @@
             "js-date",
             "maybe",
             "newtype",
+            "numbers",
             "ordered-collections",
             "prelude",
             "strings",

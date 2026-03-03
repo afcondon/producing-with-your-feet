@@ -85,10 +85,12 @@ render state =
     DocsView, DocsView -> true
     ConnectView, ConnectView -> true
     DetailView _, DetailView _ -> true
+    PedalView _, PedalView _ -> true
     _, _ -> false
 
   isActivePedal pid = case state.view of
     DetailView activePid -> activePid == pid
+    PedalView activePid -> activePid == pid
     BoardsView -> state.boardsActivePedal == Just pid
     _ -> false
 

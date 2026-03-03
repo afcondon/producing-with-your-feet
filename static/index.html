@@ -3173,6 +3173,41 @@ body {
   background: var(--fg-muted);
   color: #fff;
 }
+
+/* --- Pedal Donut View --- */
+
+.pedal-view-container { display: flex; justify-content: center; padding: 16px; }
+.pedal-view { max-width: 600px; width: 100%; }
+.pedal-view-header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
+.pedal-view-header h2 { font-size: 18px; font-weight: 700; }
+.pedal-view-header .brand { font-size: 13px; color: var(--fg-muted); }
+.pedal-view-header .channel { font-size: 13px; color: var(--fg-light); font-family: var(--mono); }
+.pedal-svg { width: 100%; display: block; }
+.pedal-svg text { font-family: var(--font); }
+.pedal-view-back {
+  margin-top: 12px;
+  padding: 4px 12px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.pedal-view-back:hover { color: var(--fg); border-color: var(--fg-muted); }
+
+.card-donut-btn {
+  margin-left: auto;
+  padding: 0 4px;
+  font-size: 14px;
+  line-height: 1;
+  border: none;
+  background: none;
+  color: var(--fg-light);
+  cursor: pointer;
+  opacity: 0.5;
+}
+.card-donut-btn:hover { opacity: 1; color: var(--pedal-color, var(--fg)); }
 </style>
 </head>
 <body>

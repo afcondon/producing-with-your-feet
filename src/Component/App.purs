@@ -6,6 +6,7 @@ import Component.Boards.View as BoardsView
 import Component.Controls.View as ControlsView
 import Component.Detail.View as DetailView
 import Component.Grid.View as GridView
+import Component.Pedal.View as PedalView
 import Component.Header as Header
 import Component.Loopy.Panel as LoopyPanel
 import Data.Loopy as Loopy
@@ -71,6 +72,7 @@ data Action
   | HandleControls ControlsView.Output
   | HandleSideGrid GridView.Output
   | HandleLoopy LoopyPanel.Output
+  | HandlePedal PedalView.Output
   | SelectLoopyOutput String
   | SelectMC6Input String
   | MC6MidiReceived (Array Int)
@@ -92,6 +94,7 @@ type Slots =
   , controls :: ControlsView.Slot Unit
   , sideGrid :: GridView.Slot Unit
   , loopy :: LoopyPanel.Slot Unit
+  , pedal :: PedalView.Slot Unit
   )
 
 component :: forall q i o m. MonadAff m => H.Component q i o m
@@ -143,6 +146,13 @@ render state = case state.configError of
             , registry: state.registry
             }
             HandleDetail
+        PedalView pid ->
+          HH.slot (Proxy :: _ "pedal") unit PedalView.component
+            { engine: state.engine
+            , pedalId: pid
+            , registry: state.registry
+            }
+            HandlePedal
         ControlsView ->
           HH.slot (Proxy :: _ "controls") unit ControlsView.component
             { controlBanks: state.controlBanks
@@ -758,10 +768,14 @@ handleAction = case _ of
     DetailView.PedalSelected pid -> handleAction (SetView (DetailView pid))
     DetailView.InfoChanged pid key val -> handleAction (SetInfo pid key val)
 
+  HandlePedal output -> case output of
+    PedalView.BackToGrid -> handleAction (SetView GridView)
+
   HandleGrid output -> handleGridOutput output
 
   HandleSideGrid output -> case output of
     GridView.PedalClicked _ -> pure unit
+    GridView.PedalViewClicked _ -> pure unit
     GridView.PedalFocused pid -> do
       H.modify_ _ { focusPedalId = Just pid }
       sendAllLEDs pid
@@ -921,6 +935,7 @@ handleAction = case _ of
 handleGridOutput :: forall o m. MonadAff m => GridView.Output -> H.HalogenM AppState Action Slots o m Unit
 handleGridOutput = case _ of
   GridView.PedalClicked pid -> handleAction (SetView (DetailView pid))
+  GridView.PedalViewClicked pid -> handleAction (SetView (PedalView pid))
   GridView.PedalFocused pid -> do
     H.modify_ _ { focusPedalId = Just pid }
     sendAllLEDs pid

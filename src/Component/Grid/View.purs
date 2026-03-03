@@ -45,6 +45,7 @@ type Input =
 
 data Output
   = PedalClicked PedalId
+  | PedalViewClicked PedalId
   | PedalFocused PedalId
   | OrderChanged (Array PedalId)
   | ValueChanged PedalId CC MidiValue
@@ -76,6 +77,7 @@ data Action
   = Receive Input
   | FocusPedal PedalId
   | OpenPedal PedalId
+  | OpenPedalView PedalId
   | ToggleSection String
   | ControlEvent Control.ControlOutput
   | TogglePresets PedalId
@@ -144,6 +146,11 @@ render state =
           [ HH.span [ HP.class_ (H.ClassName "card-name") ] [ HH.text def.meta.name ]
           , HH.span [ HP.class_ (H.ClassName "card-brand") ] [ HH.text def.meta.brand ]
           , HH.span [ HP.class_ (H.ClassName "card-channel") ] [ HH.text ("#" <> show ps.channel) ]
+          , HH.button
+              [ HP.class_ (H.ClassName "card-donut-btn")
+              , HE.onClick \_ -> OpenPedalView pid
+              ]
+              [ HH.text "\x25CE" ]
           ]
       , HH.div [ HP.class_ (H.ClassName "card-sections") ]
           (map (renderSection def.meta.id ps def.modes) def.sections)
@@ -395,6 +402,7 @@ handleAction = case _ of
   Receive input -> H.modify_ _ { input = input }
   FocusPedal pid -> H.raise (PedalFocused pid)
   OpenPedal pid -> H.raise (PedalClicked pid)
+  OpenPedalView pid -> H.raise (PedalViewClicked pid)
   ToggleSection name -> H.modify_ \st ->
     st { collapsedSections =
       if Array.elem name st.collapsedSections
