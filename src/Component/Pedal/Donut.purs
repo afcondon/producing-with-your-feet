@@ -8,8 +8,11 @@ import Prelude
 
 import Component.Pedal.MoodLayout (Channel(..), KnobPair, KnobType(..), Footswitch)
 import Data.Int (toNumber)
-import Data.Maybe (Maybe(..))
+import Data.Map as Map
+import Data.Maybe (Maybe(..), fromMaybe, isJust)
 import Data.Number (cos, sin, pi, abs)
+import Data.Pedal (LabelSource(..))
+import Engine (PedalState)
 import Halogen.HTML as HH
 import Halogen.HTML.Properties as HP
 
@@ -129,9 +132,19 @@ renderContinuousArc cx cy innerR outerR color opacity val center =
               , svgAttr "opacity" opacity
               ] []
 
+-- | Resolve a LabelSource to a concrete string given the current pedal state
+resolveLabel :: PedalState -> LabelSource -> String
+resolveLabel ps = case _ of
+  Static s -> s
+  ModeMap r ->
+    case Map.lookup r.cc ps.values of
+      Just val -> fromMaybe "?" (Map.lookup val r.labels)
+      Nothing -> "?"
+  ChannelMode _ -> "?"
+
 -- | Render a nested donut for one knob pair position
-renderDonut :: forall w i. KnobPair -> { primaryVal :: Int, hiddenVal :: Int } -> HH.HTML w i
-renderDonut knob vals =
+renderDonut :: forall w i. KnobPair -> PedalState -> { primaryVal :: Int, hiddenVal :: Int } -> HH.HTML w i
+renderDonut knob ps vals =
   let
     cfg = defaultConfig
     cx = 0.0
@@ -139,6 +152,8 @@ renderDonut knob vals =
     color = channelColor knob.channel
     colorMuted = channelColorMuted knob.channel
     isToggle typ = typ == Segmented
+    primaryLabel = resolveLabel ps knob.primaryLabel
+    hiddenLabel = resolveLabel ps knob.hiddenLabel
   in
     svgElement "g"
       [ svgAttr "transform" ("translate(" <> show (colX knob.col) <> "," <> show (rowY knob.row) <> ")") ]
@@ -151,6 +166,15 @@ renderDonut knob vals =
           [ svgAttr "d" (donutSegmentPath cx cy cfg.gapRadius cfg.innerRadius minAngle maxAngle 1.0)
           , svgAttr "fill" "#f0f0f0"
           ] []
+      -- Noon tick for center-detente knobs
+      , if isJust knob.primaryCenter || isJust knob.hiddenCenter
+          then svgElement "line"
+            [ svgAttr "x1" (show cx), svgAttr "y1" (show (cy - cfg.innerRadius))
+            , svgAttr "x2" (show cx), svgAttr "y2" (show (cy - cfg.outerRadius))
+            , svgAttr "stroke" "#ccc"
+            , svgAttr "stroke-width" "1"
+            ] []
+          else svgElement "g" [] []
       -- Outer active arc (primary value)
       , if isToggle knob.primaryType
           then renderSegmentedArc cx cy cfg.gapRadius cfg.outerRadius color vals.primaryVal
@@ -159,29 +183,40 @@ renderDonut knob vals =
       , if isToggle knob.hiddenType
           then renderSegmentedArc cx cy cfg.innerRadius cfg.gapRadius "#888" vals.hiddenVal
           else renderContinuousArc cx cy cfg.innerRadius cfg.gapRadius color "0.45" vals.hiddenVal knob.hiddenCenter
-      -- Center label: primary
+      -- Center: dual values (color-coded)
       , svgElement "text"
-          [ svgAttr "x" (show cx), svgAttr "y" (show (cy - 2.0))
+          [ svgAttr "x" (show cx), svgAttr "y" (show (cy + 4.0))
           , svgAttr "text-anchor" "middle"
           , svgAttr "font-size" "8"
           , svgAttr "font-weight" "600"
-          , svgAttr "fill" color
-          ] [ HH.text knob.primaryLabel ]
-      -- Center value
+          ]
+          [ svgElement "tspan" [ svgAttr "fill" color ] [ HH.text (show vals.primaryVal) ]
+          , svgElement "tspan" [ svgAttr "fill" "#999" ] [ HH.text " / " ]
+          , svgElement "tspan" [ svgAttr "fill" colorMuted ] [ HH.text (show vals.hiddenVal) ]
+          ]
+      -- Primary label (in the 60° gap at bottom of arc)
       , svgElement "text"
-          [ svgAttr "x" (show cx), svgAttr "y" (show (cy + 8.0))
+          [ svgAttr "x" (show cx), svgAttr "y" (show (cy + 35.0))
           , svgAttr "text-anchor" "middle"
           , svgAttr "font-size" "7"
-          , svgAttr "font-weight" "500"
-          , svgAttr "fill" "#666"
-          ] [ HH.text (show vals.primaryVal) ]
-      -- Outer label: hidden param name
+          , svgAttr "font-weight" "600"
+          , svgAttr "fill" color
+          , svgAttr "paint-order" "stroke"
+          , svgAttr "stroke" "rgba(245,245,245,0.85)"
+          , svgAttr "stroke-width" "3"
+          , svgAttr "stroke-linejoin" "round"
+          ] [ HH.text primaryLabel ]
+      -- Hidden label (just below, still in gap)
       , svgElement "text"
-          [ svgAttr "x" (show cx), svgAttr "y" (show (cy + cfg.outerRadius + 10.0))
+          [ svgAttr "x" (show cx), svgAttr "y" (show (cy + 44.0))
           , svgAttr "text-anchor" "middle"
           , svgAttr "font-size" "6"
           , svgAttr "fill" colorMuted
-          ] [ HH.text knob.hiddenLabel ]
+          , svgAttr "paint-order" "stroke"
+          , svgAttr "stroke" "rgba(245,245,245,0.85)"
+          , svgAttr "stroke-width" "3"
+          , svgAttr "stroke-linejoin" "round"
+          ] [ HH.text hiddenLabel ]
       ]
 
 -- | For segmented (toggle) controls, render a 3-position indicator

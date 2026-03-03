@@ -130,7 +130,7 @@ renderKnobDonut ps knob =
     primaryVal = lookupCC knob.primaryCC ps
     hiddenVal = lookupCC knob.hiddenCC ps
   in
-    Donut.renderDonut knob { primaryVal, hiddenVal }
+    Donut.renderDonut knob ps { primaryVal, hiddenVal }
 
 renderFsDonut :: forall w i. PedalState -> Layout.Footswitch -> HH.HTML w i
 renderFsDonut ps fs =
