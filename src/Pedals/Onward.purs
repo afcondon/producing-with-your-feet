@@ -53,6 +53,7 @@ pedal =
   , resetOrder: []
   , twister: Just twisterMapping
   , modes: Nothing
+  , layout: Nothing
   , sections:
       [ channelsSection
       , mainSection

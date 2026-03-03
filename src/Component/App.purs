@@ -22,7 +22,8 @@ import Data.Foldable (any, for_)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Midi (CC, MidiValue, ProgramNumber, makeChannel, unCC, unChannel, unMidiValue, unProgramNumber, unsafeCC, unsafeMidiValue)
-import Data.Pedal (PedalId)
+import Data.Pedal (PedalDef, PedalId)
+import Pedals.Registry as PsRegistry
 import Data.Pedal.Engage (EngageConfig(..), EngageState(..), engageCCs)
 import Data.Preset (PedalPreset, BoardPreset, PresetId)
 import Data.String.CodeUnits (contains)
@@ -575,9 +576,10 @@ handleAction = case _ of
         liftEffect $ Console.log $ "Config load failed: " <> show err
         H.modify_ _ { configError = Just (show err) }
       Right { rig, pedals } -> do
-        let registry = CRegistry.mkRegistry pedals rig.slotRanges rig.midiRouting
-            defaultEngine = initEngineFromPedals pedals
-            defaultCardOrder = map _.meta.id pedals
+        let pedalsWithLayout = map mergeLayout pedals
+            registry = CRegistry.mkRegistry pedalsWithLayout rig.slotRanges rig.midiRouting
+            defaultEngine = initEngineFromPedals pedalsWithLayout
+            defaultCardOrder = map _.meta.id pedalsWithLayout
         H.modify_ _ { registry = registry, engine = defaultEngine, cardOrder = defaultCardOrder }
         -- Load controller config (MC6 banks)
         when (rig.controller /= "") do
@@ -1636,3 +1638,10 @@ sendLoopyLEDs = do
   for_ (Array.range 8 15) \idx -> do
     sendRGBColor idx bottomHue
     sendRingPosition idx 0
+
+-- | Merge layout from PureScript pedal definitions into JSON-decoded pedals.
+-- | JSON provides runtime config; layout is PureScript-only (contains ADTs).
+mergeLayout :: PedalDef -> PedalDef
+mergeLayout p = case PsRegistry.findPedal p.meta.id of
+  Just psDef -> p { layout = psDef.layout }
+  Nothing -> p

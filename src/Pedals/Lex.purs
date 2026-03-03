@@ -69,6 +69,7 @@ pedal =
           ]
       }
   , modes: Nothing
+  , layout: Nothing
   , sections:
       [ { name: "Bypass", compact: true, collapsed: false, layout: DefaultLayout, description: Nothing
         , controls:

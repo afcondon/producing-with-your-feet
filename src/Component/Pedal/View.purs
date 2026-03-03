@@ -8,14 +8,15 @@ module Component.Pedal.View
 import Prelude
 
 import Component.Pedal.Donut as Donut
-import Component.Pedal.MoodLayout as Layout
 import Config.Registry (PedalRegistry)
 import Config.Registry as CRegistry
+import Data.Array (mapWithIndex, null) as Array
 import Data.Const (Const)
 import Data.Map as Map
-import Data.Maybe (Maybe(..), fromMaybe)
-import Data.Midi (CC, MidiValue, unMidiValue, unsafeMidiValue)
+import Data.Maybe (Maybe(..))
+import Data.Midi (CC, MidiValue, unsafeMidiValue)
 import Data.Pedal (PedalId)
+import Data.Pedal.Layout (PedalLayout)
 import Effect.Aff.Class (class MonadAff)
 import Engine (EngineState, PedalState)
 import Halogen as H
@@ -76,12 +77,20 @@ render state =
   in
     HH.div [ HP.class_ (H.ClassName "pedal-view-container") ]
       [ case mDef, mPs of
-          Just def, Just ps ->
-            HH.div [ HP.class_ (H.ClassName "pedal-view") ]
-              [ renderHeader def.meta.name def.meta.brand ps
-              , renderSvg ps
-              , renderBackButton
-              ]
+          Just def, Just ps -> case def.layout of
+            Just layout ->
+              HH.div [ HP.class_ (H.ClassName "pedal-view") ]
+                [ renderHeader def.meta.name def.meta.brand ps
+                , renderSvg layout ps
+                , renderBackButton
+                ]
+            Nothing ->
+              HH.div [ HP.class_ (H.ClassName "pedal-view") ]
+                [ renderHeader def.meta.name def.meta.brand ps
+                , HH.div [ HP.class_ (H.ClassName "pedal-view-fallback") ]
+                    [ HH.text "Donut view not yet available for this pedal." ]
+                , renderBackButton
+                ]
           _, _ ->
             HH.div [ HP.class_ (H.ClassName "pedal-view") ]
               [ HH.text "Pedal not found"
@@ -111,58 +120,51 @@ svgElement name = HH.elementNS (HH.Namespace "http://www.w3.org/2000/svg") (HH.E
 svgAttr :: forall r i. String -> String -> HH.IProp r i
 svgAttr name val = HP.attr (HH.AttrName name) val
 
-renderSvg :: forall m. PedalState -> H.ComponentHTML Action () m
-renderSvg ps =
-  svgElement "svg"
-    [ svgAttr "viewBox" "0 0 320 470"
-    , svgAttr "class" "pedal-svg"
-    ]
-    (  [ renderColumnHeaders ]
-    <> map (renderKnobDonut ps) Layout.moodKnobs
-    <> map (renderFsDonut ps) Layout.moodFootswitches
-    <> [ Donut.renderSectionLine 356.0 ]
-    <> [ Donut.renderConfigRow Layout.moodConfig (\cfg -> lookupCC cfg.cc ps) HandleDonut ]
-    <> [ Donut.renderSectionLine 396.0 ]
-    <> [ Donut.renderDipGrid Layout.moodDips (\dip -> lookupCC dip.cc ps) HandleDonut ]
-    )
+renderSvg :: forall m. PedalLayout -> PedalState -> H.ComponentHTML Action () m
+renderSvg layout ps =
+  let
+    vb = layout.viewBox
+    viewBoxStr = "0 0 " <> show vb.width <> " " <> show vb.height
+    fsY = Donut.fsRowY layout.knobRows
+    configY = fsY + 44.0
+    dipBaseY = configY + 36.0
+    hasConfig = not (Array.null layout.config)
+    hasDips = not (Array.null layout.dipBanks)
+  in
+    svgElement "svg"
+      [ svgAttr "viewBox" viewBoxStr
+      , svgAttr "class" "pedal-svg"
+      ]
+      (  [ renderColumnHeaders layout ]
+      <> map (\knob -> Donut.renderDonut layout knob ps HandleDonut) layout.knobs
+      <> map (\fs -> Donut.renderFootswitch layout fs ps HandleDonut) layout.footswitches
+      <> (if hasConfig
+            then [ Donut.renderSectionLine (configY - 18.0)
+                 , Donut.renderConfigRow configY layout ps HandleDonut
+                 ]
+            else [])
+      <> (if hasDips
+            then [ Donut.renderSectionLine (dipBaseY - 14.0)
+                 , Donut.renderDipGrid dipBaseY layout ps HandleDonut
+                 ]
+            else [])
+      )
 
-renderColumnHeaders :: forall w i. HH.HTML w i
-renderColumnHeaders =
+renderColumnHeaders :: forall w i. PedalLayout -> HH.HTML w i
+renderColumnHeaders layout =
   svgElement "g" []
-    [ colHead 60.0 "Wet"
-    , colHead 160.0 "Shared"
-    , colHead 260.0 "ML"
-    ]
+    (Array.mapWithIndex renderGroup layout.groups)
   where
-  colHead x label =
-    svgElement "text"
+  renderGroup idx group =
+    let x = Donut.colXFor layout.viewBox.width layout.columns idx
+    in svgElement "text"
       [ svgAttr "x" (show x), svgAttr "y" "12"
       , svgAttr "text-anchor" "middle"
       , svgAttr "font-size" "10"
       , svgAttr "font-weight" "700"
       , svgAttr "fill" "#999"
       , svgAttr "letter-spacing" "0.05em"
-      ] [ HH.text label ]
-
-renderKnobDonut :: forall m. PedalState -> Layout.KnobPair -> H.ComponentHTML Action () m
-renderKnobDonut ps knob =
-  let
-    primaryVal = lookupCC knob.primaryCC ps
-    hiddenVal = lookupCC knob.hiddenCC ps
-  in
-    Donut.renderDonut knob ps { primaryVal, hiddenVal } HandleDonut
-
-renderFsDonut :: forall m. PedalState -> Layout.Footswitch -> H.ComponentHTML Action () m
-renderFsDonut ps fs =
-  let
-    ledVal = case fs.ledCC of
-      Just lcc -> lookupCC lcc ps
-      Nothing -> 0
-  in
-    Donut.renderFootswitch fs (lookupCC fs.cc ps) ledVal HandleDonut
-
-lookupCC :: CC -> PedalState -> Int
-lookupCC ccNum ps = fromMaybe 0 (map unMidiValue (Map.lookup ccNum ps.values))
+      ] [ HH.text group.label ]
 
 handleAction :: forall m. MonadAff m => Action -> H.HalogenM State Action () Output m Unit
 handleAction = case _ of
@@ -174,7 +176,6 @@ handleAction = case _ of
     let pid = st.input.pedalId
     case evt of
       Donut.KnobDragStart cc val me -> do
-        -- Set up document-level drag tracking
         sid <- H.subscribe $ HS.makeEmitter \emit -> do
           moveFn <- eventListener \e ->
             case ME.fromEvent e of

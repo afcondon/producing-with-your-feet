@@ -80,6 +80,7 @@ pedal =
           ]
       }
   , modes: Nothing
+  , layout: Nothing
   , sections:
       [ { name: "Engage", compact: true, collapsed: false, layout: DefaultLayout, description: Nothing
         , controls:

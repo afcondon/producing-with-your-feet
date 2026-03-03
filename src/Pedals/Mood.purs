@@ -5,6 +5,7 @@ import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Midi (CC, MidiValue, unsafeCC, unsafeMidiValue)
 import Data.Pedal (Annotation, Control(..), LabelSource(..), PedalDef, PedalId(..), RangeOption, SectionLayout(..))
+import Data.Pedal.Layout (ConfigControlType(..), KnobLayer(..), PedalLayout)
 import Data.Pedal.Engage (EngageConfig(..))
 import Data.Tuple (Tuple(..))
 import Data.Twister (TwisterButton(..), TwisterEncoder(..))
@@ -86,6 +87,7 @@ pedal =
           ]
       }
   , modes: Nothing
+  , layout: Just moodLayout
   , sections:
       [ { name: "Channels", compact: true, collapsed: false, layout: DualColumn, description: Nothing
         , controls:
@@ -227,4 +229,108 @@ pedal =
             ]
         }
       ]
+  }
+
+moodLayout :: PedalLayout
+moodLayout =
+  { groups:
+      [ { id: "wet", label: "Wet", color: "#7b4f8a", mutedColor: "#d4c0dc" }
+      , { id: "shared", label: "Shared", color: "#666", mutedColor: "#ccc" }
+      , { id: "ml", label: "ML", color: "#4a7b6a", mutedColor: "#b8d4c8" }
+      ]
+  , knobs:
+      -- Row A
+      [ { col: 0, row: 0, group: "wet"
+        , primaryCC: cc 14
+        , primaryLabel: ModeMap { cc: cc 21, labels: Map.fromFoldable [ mv 0 /\ "Decay", mv 2 /\ "Delay Time", mv 3 /\ "Refresh Rate" ] }
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Just (cc 24), hiddenLabel: Just (Static "Stereo Width")
+        , hiddenLayer: Just (ContinuousKnob { center: Nothing }) }
+      , { col: 1, row: 0, group: "shared"
+        , primaryCC: cc 15, primaryLabel: Static "Mix"
+        , primaryLayer: ContinuousKnob { center: Just 64 }
+        , hiddenCC: Just (cc 25), hiddenLabel: Just (Static "Ramp Wave")
+        , hiddenLayer: Just SegmentedKnob }
+      , { col: 2, row: 0, group: "ml"
+        , primaryCC: cc 16, primaryLabel: Static "Length"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Just (cc 26), hiddenLabel: Just (Static "Fade")
+        , hiddenLayer: Just (ContinuousKnob { center: Nothing }) }
+      -- Row B
+      , { col: 0, row: 1, group: "wet"
+        , primaryCC: cc 17
+        , primaryLabel: ModeMap { cc: cc 21, labels: Map.fromFoldable [ mv 0 /\ "Smear", mv 2 /\ "Feedback", mv 3 /\ "Speed" ] }
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Just (cc 27), hiddenLabel: Just (Static "Tone")
+        , hiddenLayer: Just (ContinuousKnob { center: Nothing }) }
+      , { col: 1, row: 1, group: "shared"
+        , primaryCC: cc 18, primaryLabel: Static "Clock"
+        , primaryLayer: ContinuousKnob { center: Just 64 }
+        , hiddenCC: Just (cc 28), hiddenLabel: Just (Static "Level Bal")
+        , hiddenLayer: Just (ContinuousKnob { center: Just 64 }) }
+      , { col: 2, row: 1, group: "ml"
+        , primaryCC: cc 19
+        , primaryLabel: ModeMap { cc: cc 23, labels: Map.fromFoldable [ mv 0 /\ "Sensitivity", mv 2 /\ "Speed/Dir", mv 3 /\ "Amount" ] }
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Just (cc 29), hiddenLabel: Just (Static "Direct ML")
+        , hiddenLayer: Just (ContinuousKnob { center: Nothing }) }
+      -- Row C (toggle switches)
+      , { col: 0, row: 2, group: "wet"
+        , primaryCC: cc 21, primaryLabel: Static "Rev / Dly / Slip"
+        , primaryLayer: SegmentedKnob
+        , hiddenCC: Just (cc 31), hiddenLabel: Just (Static "ML>W / \x2014 / W>ML")
+        , hiddenLayer: Just SegmentedKnob }
+      , { col: 1, row: 2, group: "shared"
+        , primaryCC: cc 22, primaryLabel: Static "IN / ML+IN / ML"
+        , primaryLayer: SegmentedKnob
+        , hiddenCC: Just (cc 32), hiddenLabel: Just (Static "Wet / Both / ML")
+        , hiddenLayer: Just SegmentedKnob }
+      , { col: 2, row: 2, group: "ml"
+        , primaryCC: cc 23, primaryLabel: Static "Env / Tape / Str"
+        , primaryLayer: SegmentedKnob
+        , hiddenCC: Just (cc 33), hiddenLabel: Just (Static "Half / Full")
+        , hiddenLayer: Just SegmentedKnob }
+      ]
+  , footswitches:
+      [ { col: 0, cc: cc 103, label: "Wet", group: "wet"
+        , ledCC: Just (cc 105), engagedColor: "#c75050", ledColor: "#50a060" }
+      , { col: 2, cc: cc 102, label: "ML", group: "ml"
+        , ledCC: Just (cc 106), engagedColor: "#50a060", ledColor: "#c75050" }
+      ]
+  , dipBanks:
+      [ { label: "Ramping"
+        , switches:
+            [ { cc: cc 61, label: "Time",     index: 0 }
+            , { cc: cc 62, label: "Modify L", index: 1 }
+            , { cc: cc 63, label: "Clock",    index: 2 }
+            , { cc: cc 64, label: "Modify R", index: 3 }
+            , { cc: cc 65, label: "Length",   index: 4 }
+            , { cc: cc 66, label: "Bounce",   index: 5 }
+            , { cc: cc 67, label: "Sweep",    index: 6 }
+            , { cc: cc 68, label: "Polarity", index: 7 }
+            ]
+        }
+      , { label: "Customize"
+        , switches:
+            [ { cc: cc 71, label: "Classic",  index: 0 }
+            , { cc: cc 72, label: "Miso",     index: 1 }
+            , { cc: cc 73, label: "Spread",   index: 2 }
+            , { cc: cc 74, label: "Dry Kill", index: 3 }
+            , { cc: cc 75, label: "Trails",   index: 4 }
+            , { cc: cc 76, label: "Latch",    index: 5 }
+            , { cc: cc 77, label: "No Dub",   index: 6 }
+            , { cc: cc 78, label: "Smooth",   index: 7 }
+            ]
+        }
+      ]
+  , config:
+      [ { cc: cc 107, label: "Tap",     controlType: CfgToggle }
+      , { cc: cc 52,  label: "Ramp",    controlType: CfgToggle }
+      , { cc: cc 20,  label: "Speed",   controlType: CfgSlider }
+      , { cc: cc 51,  label: "Clk Fol", controlType: CfgToggle }
+      , { cc: cc 55,  label: "Bypass",  controlType: CfgToggle }
+      ]
+  , columns: 3
+  , knobRows: 3
+  , viewBox: { width: 320.0, height: 470.0 }
   }

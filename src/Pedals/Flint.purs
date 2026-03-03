@@ -73,6 +73,7 @@ pedal =
           ]
       }
   , modes: Nothing
+  , layout: Nothing
   , sections:
       [ { name: "Channels", compact: true, collapsed: false, layout: DualColumn, description: Nothing
         , controls:

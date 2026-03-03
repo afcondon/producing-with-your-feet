@@ -6,7 +6,7 @@ module Data.Pedal
   , SelectOption
   , RangeOption
   , ModeRangesMode
-  , LabelSource(..)
+  , module Data.Pedal.Label
   , Control(..)
   , Section
   , SectionLayout(..)
@@ -19,7 +19,9 @@ import Data.Map (Map)
 import Data.Maybe (Maybe)
 import Data.Midi (CC, MidiValue)
 import Data.Pedal.Engage (EngageConfig)
-import Data.Pedal.Modes (DualChannelModes, ModeChannel, ModeRole)
+import Data.Pedal.Label (LabelSource(..))
+import Data.Pedal.Layout (PedalLayout)
+import Data.Pedal.Modes (DualChannelModes, ModeChannel)
 import Data.Twister (TwisterMapping)
 
 newtype PedalId = PedalId String
@@ -49,12 +51,6 @@ type ModeRangesMode =
   , hi :: MidiValue
   , ranges :: Array (Array RangeOption)
   }
-
--- | How a control's label is determined
-data LabelSource
-  = Static String
-  | ModeMap { cc :: CC, labels :: Map MidiValue String }
-  | ChannelMode { channel :: ModeChannel, role :: ModeRole }
 
 -- | Control ADT — one constructor per widget type
 data Control
@@ -142,4 +138,5 @@ type PedalDef =
   , sections :: Array Section
   , twister :: Maybe TwisterMapping
   , modes :: Maybe DualChannelModes
+  , layout :: Maybe PedalLayout
   }

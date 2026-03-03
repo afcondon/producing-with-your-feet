@@ -51,7 +51,7 @@ decodePedal channelOverride json = do
         if Json.isNull j then Nothing else decodeDualChannelModes j
   sectionsJson <- FO.lookup "sections" obj >>= Json.toArray
   sections <- traverse decodeSection sectionsJson
-  Just { meta, engage, baseline, resetOrder, twister, modes, sections }
+  Just { meta, engage, baseline, resetOrder, twister, modes, layout: Nothing, sections }
 
 decodeMeta :: Maybe Int -> Json -> Maybe PedalMeta
 decodeMeta channelOverride json = do
