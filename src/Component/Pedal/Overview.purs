@@ -104,15 +104,24 @@ render :: forall m. State -> H.ComponentHTML Action () m
 render state =
   let
     n = Array.length state.input.cardOrder
-    gridCss = case state.input.activePedal of
-      Nothing -> Layout.gridStyle state.containerW state.containerH n
-      Just _  -> Layout.activeGridStyle state.containerW state.containerH n
+    hasActive = state.input.activePedal /= Nothing
+    detailW = if hasActive then min (state.containerH * Layout.svgAspect) (state.containerW * 0.42) else 0.0
+    gridW = if hasActive then state.containerW - detailW - 8.0 else state.containerW
+    gridCss = Layout.gridStyle gridW state.containerH n
   in
-    HH.div
-      [ HP.class_ (H.ClassName "overview-treemap")
-      , HP.attr (HH.AttrName "style") gridCss
+    HH.div [ HP.class_ (H.ClassName "overview-container") ]
+      [ if hasActive
+          then HH.div
+            [ HP.class_ (H.ClassName "overview-detail")
+            , HP.id "overview-detail"
+            ] []
+          else HH.text ""
+      , HH.div
+          [ HP.class_ (H.ClassName "overview-treemap")
+          , HP.attr (HH.AttrName "style") gridCss
+          ]
+          (map (renderCell state) state.input.cardOrder)
       ]
-      (map (renderCell state) state.input.cardOrder)
 
 renderCell :: forall m. State -> PedalId -> H.ComponentHTML Action () m
 renderCell state pid@(PedalId pidStr) =
@@ -125,7 +134,7 @@ renderCell state pid@(PedalId pidStr) =
         Just c -> "background:" <> toHexString c <> "10;"
         Nothing -> ""
       Nothing -> ""
-    cellStyle = colorBg <> if isActive then Layout.activeCellStyle else ""
+    cellStyle = colorBg
     cellProps =
       [ HP.class_ (H.ClassName cls)
       ] <> if cellStyle /= ""
@@ -214,29 +223,42 @@ setupDragSubscription =
       removeEventListener (EventType "mousemove") moveFn false target
       removeEventListener (EventType "mouseup") upFn false target
 
--- | Re-render all pedal donuts. Active gets real callbacks, others get noop.
+detailContainerId :: String
+detailContainerId = "#overview-detail"
+
+-- | Re-render all pedal donuts + the active detail panel.
 rerenderAll :: forall m. MonadAff m => H.HalogenM State Action () Output m Unit
 rerenderAll = do
   st <- H.get
+  -- Render thumbnails (all pedals, noop callbacks)
   for_ st.input.cardOrder \pid -> do
     let mDef = CRegistry.findPedal st.input.registry pid
         mPs = Map.lookup pid st.input.engine
-        isActive = st.input.activePedal == Just pid
     case mDef, mPs of
       Just def, Just ps ->
-        if def.meta.id == PedalId "hedra" then do
-          let callbacks = case isActive, st.hatsListener of
-                true, Just listener -> makeCallbacks pid listener
-                _, _ -> noopCallbacks
-          H.liftEffect $ renderHedraInto (thumbContainerId pid) ps callbacks
+        if def.meta.id == PedalId "hedra" then
+          H.liftEffect $ renderHedraInto (thumbContainerId pid) ps noopCallbacks
         else case def.layout of
-          Just layout -> do
-            let callbacks = case isActive, st.hatsListener of
-                  true, Just listener -> makeCallbacks pid listener
-                  _, _ -> noopCallbacks
-            H.liftEffect $ renderHatsInto (thumbContainerId pid) layout ps callbacks
+          Just layout ->
+            H.liftEffect $ renderHatsInto (thumbContainerId pid) layout ps noopCallbacks
           Nothing -> pure unit
       _, _ -> pure unit
+  -- Render active pedal large in the detail panel (with real callbacks)
+  case st.input.activePedal, st.hatsListener of
+    Just pid, Just listener -> do
+      let mDef = CRegistry.findPedal st.input.registry pid
+          mPs = Map.lookup pid st.input.engine
+          callbacks = makeCallbacks pid listener
+      case mDef, mPs of
+        Just def, Just ps ->
+          if def.meta.id == PedalId "hedra" then
+            H.liftEffect $ renderHedraInto detailContainerId ps callbacks
+          else case def.layout of
+            Just layout ->
+              H.liftEffect $ renderHatsInto detailContainerId layout ps callbacks
+            Nothing -> pure unit
+        _, _ -> pure unit
+    _, _ -> pure unit
 
 handleAction :: forall m. MonadAff m => Action -> H.HalogenM State Action () Output m Unit
 handleAction = case _ of
@@ -246,8 +268,8 @@ handleAction = case _ of
     -- Read initial window dimensions
     w <- H.liftEffect $ Window.innerWidth =<< window
     h <- H.liftEffect $ Window.innerHeight =<< window
-    let cw = toNumber w - 32.0  -- 16px padding each side
-        ch = toNumber h - 82.0  -- header (~50px) + padding (32px)
+    let cw = toNumber w - 32.0   -- 16px padding each side
+        ch = (toNumber h - 75.0 - 32.0) * 0.9  -- 90% of available height
     -- Subscribe to resize events
     resizeId <- H.subscribe $ HS.makeEmitter \emit -> do
       fn <- eventListener \_ -> emit WindowResize
@@ -271,7 +293,7 @@ handleAction = case _ of
     w <- H.liftEffect $ Window.innerWidth =<< window
     h <- H.liftEffect $ Window.innerHeight =<< window
     let cw = toNumber w - 32.0
-        ch = toNumber h - 82.0
+        ch = (toNumber h - 75.0 - 32.0) * 0.9
     H.modify_ _ { containerW = cw, containerH = ch }
     rerenderAll
 
