@@ -3208,6 +3208,66 @@ body {
   opacity: 0.5;
 }
 .card-donut-btn:hover { opacity: 1; color: var(--pedal-color, var(--fg)); }
+
+/* --- Overview View (treemap) --- */
+
+.overview-treemap {
+  padding: 16px;
+  height: calc(100vh - 50px);
+  /* grid-template set via inline style from PureScript */
+}
+
+.overview-cell {
+  min-width: 0;
+  min-height: 0;
+  border: 2px solid var(--border-light);
+  border-radius: var(--radius);
+  padding: 6px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  transition: border-color 0.2s ease;
+}
+.overview-cell:hover { border-color: var(--border); }
+.overview-cell.active {
+  border-color: var(--accent);
+  /* grid-column/grid-row set via inline style from PureScript */
+}
+
+.overview-cell svg { width: 100%; height: 100%; }
+
+.overview-cell-inner {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.overview-cell-inner > div:first-child { flex: 1; min-height: 0; }
+
+.overview-cell-label {
+  font-size: 10px;
+  color: var(--fg-muted);
+  text-align: center;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.overview-cell-placeholder {
+  text-align: center;
+  color: var(--fg-light);
+}
+.overview-cell-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-muted);
+}
+.overview-cell-brand {
+  font-size: 10px;
+}
 </style>
 </head>
 <body>

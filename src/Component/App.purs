@@ -6,6 +6,7 @@ import Component.Boards.View as BoardsView
 import Component.Controls.View as ControlsView
 import Component.Detail.View as DetailView
 import Component.Grid.View as GridView
+import Component.Pedal.Overview as OverviewView
 import Component.Pedal.View as PedalView
 import Component.Header as Header
 import Component.Loopy.Panel as LoopyPanel
@@ -74,6 +75,7 @@ data Action
   | HandleSideGrid GridView.Output
   | HandleLoopy LoopyPanel.Output
   | HandlePedal PedalView.Output
+  | HandleOverview OverviewView.Output
   | SelectLoopyOutput String
   | SelectMC6Input String
   | MC6MidiReceived (Array Int)
@@ -96,6 +98,7 @@ type Slots =
   , sideGrid :: GridView.Slot Unit
   , loopy :: LoopyPanel.Slot Unit
   , pedal :: PedalView.Slot Unit
+  , overview :: OverviewView.Slot Unit
   )
 
 component :: forall q i o m. MonadAff m => H.Component q i o m
@@ -154,6 +157,13 @@ render state = case state.configError of
             , registry: state.registry
             }
             HandlePedal
+        OverviewView ->
+          HH.slot (Proxy :: _ "overview") unit OverviewView.component
+            { engine: state.engine
+            , registry: state.registry
+            , cardOrder: state.cardOrder
+            }
+            HandleOverview
         ControlsView ->
           HH.slot (Proxy :: _ "controls") unit ControlsView.component
             { controlBanks: state.controlBanks
@@ -773,6 +783,10 @@ handleAction = case _ of
   HandlePedal output -> case output of
     PedalView.BackToGrid -> handleAction (SetView GridView)
     PedalView.ValueChanged pid cc val -> handleAction (SetValue pid cc val)
+
+  HandleOverview output -> case output of
+    OverviewView.BackToGrid -> handleAction (SetView GridView)
+    OverviewView.ValueChanged pid cc val -> handleAction (SetValue pid cc val)
 
   HandleGrid output -> handleGridOutput output
 

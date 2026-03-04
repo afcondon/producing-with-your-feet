@@ -62,6 +62,7 @@ render state =
         [ viewButton "Grid" GridView
         , viewButton "Boards" BoardsView
         , viewButton "Controls" ControlsView
+        , viewButton "Overview" OverviewView
         , viewButton "Docs" DocsView
         , viewButton "MIDI" ConnectView
         , viewButton "\x21C5" FilesView
@@ -84,6 +85,7 @@ render state =
     FilesView, FilesView -> true
     DocsView, DocsView -> true
     ConnectView, ConnectView -> true
+    OverviewView, OverviewView -> true
     DetailView _, DetailView _ -> true
     PedalView _, PedalView _ -> true
     _, _ -> false
