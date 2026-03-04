@@ -128,6 +128,7 @@ render state = case state.configError of
         , cardOrder: state.cardOrder
         , hiddenPedals: state.hiddenPedals
         , boardsActivePedal: state.boardsActivePedal
+        , overviewActivePedal: state.overviewActivePedal
         , registry: state.registry
         }
         HandleHeader
@@ -162,6 +163,7 @@ render state = case state.configError of
             { engine: state.engine
             , registry: state.registry
             , cardOrder: state.cardOrder
+            , activePedal: state.overviewActivePedal
             }
             HandleOverview
         ControlsView ->
@@ -772,6 +774,12 @@ handleAction = case _ of
               then Nothing
               else Just pid
           }
+        OverviewView ->
+          H.modify_ \s -> s { overviewActivePedal =
+            if s.overviewActivePedal == Just pid
+              then Nothing
+              else Just pid
+          }
         _ -> pure unit
 
   HandleDetail output -> case output of
@@ -781,11 +789,11 @@ handleAction = case _ of
     DetailView.InfoChanged pid key val -> handleAction (SetInfo pid key val)
 
   HandlePedal output -> case output of
-    PedalView.BackToGrid -> handleAction (SetView GridView)
+    PedalView.BackToGrid -> handleAction (SetView OverviewView)
     PedalView.ValueChanged pid cc val -> handleAction (SetValue pid cc val)
 
   HandleOverview output -> case output of
-    OverviewView.BackToGrid -> handleAction (SetView GridView)
+    OverviewView.BackToGrid -> handleAction (SetView OverviewView)
     OverviewView.ValueChanged pid cc val -> handleAction (SetValue pid cc val)
 
   HandleGrid output -> handleGridOutput output

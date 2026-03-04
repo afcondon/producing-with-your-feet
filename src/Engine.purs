@@ -75,6 +75,7 @@ type AppState =
   , hiddenPedals :: Array PedalId
   , focusPedalId :: Maybe PedalId
   , boardsActivePedal :: Maybe PedalId
+  , overviewActivePedal :: Maybe PedalId
   , suppressTwister :: Boolean
   , presets :: Array PedalPreset
   , boardPresets :: Array BoardPreset
@@ -115,7 +116,7 @@ emptyRouting =
 
 initAppState :: AppState
 initAppState =
-  { view: GridView
+  { view: OverviewView
   , engine: Map.empty
   , registry: CRegistry.mkRegistry [] [] emptyRouting
   , connections:
@@ -139,6 +140,7 @@ initAppState =
   , hiddenPedals: []
   , focusPedalId: Nothing
   , boardsActivePedal: Nothing
+  , overviewActivePedal: Nothing
   , suppressTwister: false
   , presets: []
   , boardPresets: []

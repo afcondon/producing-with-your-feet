@@ -27,6 +27,7 @@ type Input =
   , cardOrder :: Array PedalId
   , hiddenPedals :: Array PedalId
   , boardsActivePedal :: Maybe PedalId
+  , overviewActivePedal :: Maybe PedalId
   , registry :: PedalRegistry
   }
 
@@ -59,10 +60,9 @@ render state =
   HH.header
     [ HP.class_ (H.ClassName "app-header") ]
     [ HH.div [ HP.class_ (H.ClassName "view-toggle") ]
-        [ viewButton "Grid" GridView
+        [ viewButton "Overview" OverviewView
         , viewButton "Boards" BoardsView
         , viewButton "Controls" ControlsView
-        , viewButton "Overview" OverviewView
         , viewButton "Docs" DocsView
         , viewButton "MIDI" ConnectView
         , viewButton "\x21C5" FilesView
@@ -79,7 +79,6 @@ render state =
       [ HH.text label ]
 
   isActive = case _, state.view of
-    GridView, GridView -> true
     BoardsView, BoardsView -> true
     ControlsView, ControlsView -> true
     FilesView, FilesView -> true
@@ -94,6 +93,7 @@ render state =
     DetailView activePid -> activePid == pid
     PedalView activePid -> activePid == pid
     BoardsView -> state.boardsActivePedal == Just pid
+    OverviewView -> state.overviewActivePedal == Just pid
     _ -> false
 
   renderPill pid = do
