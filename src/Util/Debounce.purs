@@ -8,7 +8,7 @@ import Prelude
 
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
-import Effect.Aff (Aff, Milliseconds(..), delay, forkAff, killFiber)
+import Effect.Aff (Aff, Milliseconds, delay, forkAff, killFiber)
 import Effect.Aff.Class (class MonadAff, liftAff)
 import Effect.Class (liftEffect)
 import Effect.Exception (error)

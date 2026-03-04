@@ -7,16 +7,16 @@ module Component.Pedal.View
 
 import Prelude
 
-import Component.Pedal.Donut as Donut
+import Component.Pedal.DonutTree as DonutTree
 import Config.Registry (PedalRegistry)
 import Config.Registry as CRegistry
-import Data.Array (mapWithIndex, null) as Array
 import Data.Const (Const)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Midi (CC, MidiValue, unsafeMidiValue)
 import Data.Pedal (PedalId)
 import Data.Pedal.Layout (PedalLayout)
+import Effect (Effect)
 import Effect.Aff.Class (class MonadAff)
 import Engine (EngineState, PedalState)
 import Halogen as H
@@ -24,6 +24,7 @@ import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Halogen.Subscription as HS
+import Hylograph.HATS.InterpreterTick (clearContainer, rerender)
 import Web.Event.Event (EventType(..))
 import Web.Event.EventTarget (addEventListener, eventListener, removeEventListener)
 import Web.HTML (window)
@@ -46,24 +47,39 @@ type State =
   { input :: Input
   , dragging :: Maybe DragContext
   , dragSub :: Maybe H.SubscriptionId
+  , hatsListener :: Maybe (HS.Listener Action)
+  , hatsSub :: Maybe H.SubscriptionId
   }
 
 data Action
-  = Receive Input
+  = Initialize
+  | Receive Input
   | ClickBack
-  | HandleDonut Donut.DonutEvent
-  | DragMove Int       -- current clientY
+  | HatsKnobDragStart CC Int  -- CC, current value (from pointerdown)
+  | HatsSegmentClick CC Int
+  | HatsToggleClick CC Int
+  | DragMove Int               -- current clientY
   | DragEnd
 
 type Slot = H.Slot (Const Void) Output
 
+hatsContainerId :: String
+hatsContainerId = "#pedal-donut-hats"
+
 component :: forall q m. MonadAff m => H.Component q Input Output m
 component =
   H.mkComponent
-    { initialState: \i -> { input: i, dragging: Nothing, dragSub: Nothing }
+    { initialState: \i ->
+        { input: i
+        , dragging: Nothing
+        , dragSub: Nothing
+        , hatsListener: Nothing
+        , hatsSub: Nothing
+        }
     , render
     , eval: H.mkEval H.defaultEval
-        { handleAction = handleAction
+        { initialize = Just Initialize
+        , handleAction = handleAction
         , receive = Just <<< Receive
         }
     }
@@ -78,10 +94,11 @@ render state =
     HH.div [ HP.class_ (H.ClassName "pedal-view-container") ]
       [ case mDef, mPs of
           Just def, Just ps -> case def.layout of
-            Just layout ->
+            Just _ ->
               HH.div [ HP.class_ (H.ClassName "pedal-view") ]
                 [ renderHeader def.meta.name def.meta.brand ps
-                , renderSvg layout ps
+                -- Empty container — HATS renders into this
+                , HH.div [ HP.id "pedal-donut-hats" ] []
                 , renderBackButton
                 ]
             Nothing ->
@@ -114,96 +131,76 @@ renderBackButton =
     ]
     [ HH.text "Back to Grid" ]
 
-svgElement :: forall w i. String -> Array (HH.IProp () i) -> Array (HH.HTML w i) -> HH.HTML w i
-svgElement name = HH.elementNS (HH.Namespace "http://www.w3.org/2000/svg") (HH.ElemName name)
+-- | Build HATS callbacks that notify the Halogen listener
+makeCallbacks :: HS.Listener Action -> DonutTree.PedalCallbacks
+makeCallbacks listener =
+  { onKnobDragStart: \cc val -> HS.notify listener (HatsKnobDragStart cc val)
+  , onSegmentClick: \cc val -> HS.notify listener (HatsSegmentClick cc val)
+  , onToggleClick: \cc val -> HS.notify listener (HatsToggleClick cc val)
+  }
 
-svgAttr :: forall r i. String -> String -> HH.IProp r i
-svgAttr name val = HP.attr (HH.AttrName name) val
-
-renderSvg :: forall m. PedalLayout -> PedalState -> H.ComponentHTML Action () m
-renderSvg layout ps =
-  let
-    vb = layout.viewBox
-    viewBoxStr = "0 0 " <> show vb.width <> " " <> show vb.height
-    fsY = Donut.fsRowY layout.knobRows
-    configY = fsY + 44.0
-    dipBaseY = configY + 36.0
-    hasConfig = not (Array.null layout.config)
-    hasDips = not (Array.null layout.dipBanks)
-  in
-    svgElement "svg"
-      [ svgAttr "viewBox" viewBoxStr
-      , svgAttr "class" "pedal-svg"
-      ]
-      (  [ renderColumnHeaders layout ]
-      <> map (\knob -> Donut.renderDonut layout knob ps HandleDonut) layout.knobs
-      <> map (\fs -> Donut.renderFootswitch layout fs ps HandleDonut) layout.footswitches
-      <> (if hasConfig
-            then [ Donut.renderSectionLine (configY - 18.0)
-                 , Donut.renderConfigRow configY layout ps HandleDonut
-                 ]
-            else [])
-      <> (if hasDips
-            then [ Donut.renderSectionLine (dipBaseY - 14.0)
-                 , Donut.renderDipGrid dipBaseY layout ps HandleDonut
-                 ]
-            else [])
-      )
-
-renderColumnHeaders :: forall w i. PedalLayout -> HH.HTML w i
-renderColumnHeaders layout =
-  svgElement "g" []
-    (Array.mapWithIndex renderGroup layout.groups)
-  where
-  renderGroup idx group =
-    let x = Donut.colXFor layout.viewBox.width layout.columns idx
-    in svgElement "text"
-      [ svgAttr "x" (show x), svgAttr "y" "12"
-      , svgAttr "text-anchor" "middle"
-      , svgAttr "font-size" "10"
-      , svgAttr "font-weight" "700"
-      , svgAttr "fill" "#999"
-      , svgAttr "letter-spacing" "0.05em"
-      ] [ HH.text group.label ]
+-- | Render the HATS tree into the container
+renderHats :: PedalLayout -> PedalState -> DonutTree.PedalCallbacks -> Effect Unit
+renderHats layout ps callbacks = do
+  clearContainer hatsContainerId
+  let tree = DonutTree.pedalTree layout ps callbacks
+  _ <- rerender hatsContainerId tree
+  pure unit
 
 handleAction :: forall m. MonadAff m => Action -> H.HalogenM State Action () Output m Unit
 handleAction = case _ of
-  Receive input -> H.modify_ _ { input = input }
+  Initialize -> do
+    -- Set up the HATS event bridge
+    { listener, emitter } <- H.liftEffect HS.create
+    sid <- H.subscribe emitter
+    H.modify_ _ { hatsListener = Just listener, hatsSub = Just sid }
+    -- Initial render
+    rerenderIfReady
+
+  Receive input -> do
+    H.modify_ _ { input = input }
+    rerenderIfReady
+
   ClickBack -> H.raise BackToGrid
 
-  HandleDonut evt -> do
+  HatsKnobDragStart cc val -> do
+    -- Subscribe to document-level mouse events for drag tracking
+    sid <- H.subscribe $ HS.makeEmitter \emit -> do
+      moveFn <- eventListener \e ->
+        case ME.fromEvent e of
+          Just mouseEvt -> emit (DragMove (ME.clientY mouseEvt))
+          Nothing -> pure unit
+      upFn <- eventListener \_ -> emit DragEnd
+      target <- Window.toEventTarget <$> window
+      addEventListener (EventType "mousemove") moveFn false target
+      addEventListener (EventType "mouseup") upFn false target
+      pure do
+        removeEventListener (EventType "mousemove") moveFn false target
+        removeEventListener (EventType "mouseup") upFn false target
+    -- We don't have clientY from the pointerdown event (HATS doesn't pass it),
+    -- so use 0 as startY — the first DragMove will set the real baseline
+    H.modify_ _ { dragging = Just { cc, startY: 0, startVal: val }, dragSub = Just sid }
+
+  HatsSegmentClick cc val -> do
     st <- H.get
-    let pid = st.input.pedalId
-    case evt of
-      Donut.KnobDragStart cc val me -> do
-        sid <- H.subscribe $ HS.makeEmitter \emit -> do
-          moveFn <- eventListener \e ->
-            case ME.fromEvent e of
-              Just mouseEvt -> emit (DragMove (ME.clientY mouseEvt))
-              Nothing -> pure unit
-          upFn <- eventListener \_ -> emit DragEnd
-          target <- Window.toEventTarget <$> window
-          addEventListener (EventType "mousemove") moveFn false target
-          addEventListener (EventType "mouseup") upFn false target
-          pure do
-            removeEventListener (EventType "mousemove") moveFn false target
-            removeEventListener (EventType "mouseup") upFn false target
-        H.modify_ _ { dragging = Just { cc, startY: ME.clientY me, startVal: val }, dragSub = Just sid }
+    H.raise (ValueChanged st.input.pedalId cc (unsafeMidiValue val))
 
-      Donut.SegmentClick cc val ->
-        H.raise (ValueChanged pid cc (unsafeMidiValue val))
-
-      Donut.ToggleClick cc val ->
-        H.raise (ValueChanged pid cc (unsafeMidiValue (if val > 63 then 0 else 127)))
+  HatsToggleClick cc val -> do
+    st <- H.get
+    H.raise (ValueChanged st.input.pedalId cc (unsafeMidiValue (if val > 63 then 0 else 127)))
 
   DragMove clientY -> do
     st <- H.get
     case st.dragging of
       Just drag -> do
-        let
-          delta = drag.startY - clientY
-          newVal = clamp 0 127 (drag.startVal + delta)
-        H.raise (ValueChanged st.input.pedalId drag.cc (unsafeMidiValue newVal))
+        if drag.startY == 0
+          -- First move: set baseline, don't emit value change yet
+          then H.modify_ _ { dragging = Just drag { startY = clientY } }
+          else do
+            let
+              delta = drag.startY - clientY
+              newVal = clamp 0 127 (drag.startVal + delta)
+            H.raise (ValueChanged st.input.pedalId drag.cc (unsafeMidiValue newVal))
       Nothing -> pure unit
 
   DragEnd -> do
@@ -214,3 +211,16 @@ handleAction = case _ of
         H.modify_ _ { dragging = Nothing, dragSub = Nothing }
       Nothing ->
         H.modify_ _ { dragging = Nothing }
+
+-- | Re-render HATS tree if we have layout + state + listener
+rerenderIfReady :: forall m. MonadAff m => H.HalogenM State Action () Output m Unit
+rerenderIfReady = do
+  st <- H.get
+  let pid = st.input.pedalId
+      mDef = CRegistry.findPedal st.input.registry pid
+      mPs = Map.lookup pid st.input.engine
+  case mDef, mPs, st.hatsListener of
+    Just def, Just ps, Just listener -> case def.layout of
+      Just layout -> H.liftEffect $ renderHats layout ps (makeCallbacks listener)
+      Nothing -> pure unit
+    _, _, _ -> pure unit
