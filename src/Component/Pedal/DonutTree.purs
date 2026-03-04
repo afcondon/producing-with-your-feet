@@ -9,14 +9,14 @@ module Component.Pedal.DonutTree
 
 import Prelude
 
-import Data.Array (find, index, length, mapWithIndex, null) as Array
+import Data.Array (find, index, length, mapWithIndex, null, findIndex) as Array
 import Data.Int (toNumber)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe, isJust)
 import Data.Midi (CC, unMidiValue)
 import Data.Number (cos, sin, pi, abs)
 import Data.Pedal.Label (LabelSource(..))
-import Data.Pedal.Layout (ConfigControlType(..), ConfigDef, DipBankDef, FootswitchDef, GroupStyle, KnobDef, KnobLayer(..), PedalLayout)
+import Data.Pedal.Layout (ConfigControlType(..), ConfigDef, DipBankDef, FootswitchDef, GroupStyle, KnobDef, KnobLayer(..), PedalLayout, SegmentDef)
 import Effect (Effect)
 import Engine (PedalState)
 import Hylograph.HATS (Tree, elem, forEach, staticStr, staticNum, thunkedStr, thunkedNum, withBehaviors, onClick, onPointerDown, siblings, empty)
@@ -25,6 +25,7 @@ import Hylograph.Internal.Element.Types (ElementType(..))
 -- | Callbacks for interactive elements
 type PedalCallbacks =
   { onKnobDragStart :: CC -> Int -> Effect Unit  -- CC, current value
+  , onKnobDragStart2D :: CC -> Int -> CC -> Int -> Effect Unit  -- Y-CC, Y-val, X-CC, X-val
   , onSegmentClick :: CC -> Int -> Effect Unit
   , onToggleClick :: CC -> Int -> Effect Unit
   }
@@ -98,12 +99,16 @@ resolveLabel ps = case _ of
 
 -- | Layer helpers
 isSegmented :: KnobLayer -> Boolean
-isSegmented SegmentedKnob = true
+isSegmented (SegmentedKnob _) = true
 isSegmented _ = false
 
 layerCenter :: KnobLayer -> Maybe Int
 layerCenter (ContinuousKnob r) = r.center
-layerCenter SegmentedKnob = Nothing
+layerCenter (SegmentedKnob _) = Nothing
+
+segmentsOf :: KnobLayer -> Array SegmentDef
+segmentsOf (SegmentedKnob segs) = segs
+segmentsOf _ = []
 
 -- | Arc path generation (same as Donut.purs)
 donutSegmentPath :: Number -> Number -> Number -> Number -> Number -> Number -> String
@@ -257,11 +262,11 @@ dualLayerKnob cx cy color colorMuted knob primaryVal primaryLabel hCC ps callbac
           else empty
       -- Outer active arc (primary)
       , if primarySeg
-          then segmentedArc cx cy gapRadius outerRadius color primaryVal knob.primaryCC callbacks
+          then segmentedArc cx cy gapRadius outerRadius color primaryVal (segmentsOf knob.primaryLayer) knob.primaryCC callbacks
           else continuousArc cx cy gapRadius outerRadius color "0.85" primaryVal (layerCenter knob.primaryLayer)
       -- Inner active arc (hidden)
       , if hiddenSeg
-          then segmentedArc cx cy innerRadius gapRadius "#888" hiddenVal hCC callbacks
+          then segmentedArc cx cy innerRadius gapRadius "#888" hiddenVal (segmentsOf hiddenLayer) hCC callbacks
           else continuousArc cx cy innerRadius gapRadius color "0.45" hiddenVal (layerCenter hiddenLayer)
       -- Center: dual values
       , elem Text
@@ -305,7 +310,7 @@ singleLayerKnob cx cy color knob primaryVal primaryLabel _ps callbacks =
           else empty
       -- Active arc
       , if primarySeg
-          then segmentedArc cx cy innerRadius outerRadius color primaryVal knob.primaryCC callbacks
+          then segmentedArc cx cy innerRadius outerRadius color primaryVal (segmentsOf knob.primaryLayer) knob.primaryCC callbacks
           else continuousArc cx cy innerRadius outerRadius color "0.85" primaryVal (layerCenter knob.primaryLayer)
       -- Center value
       , elem Text
@@ -349,39 +354,29 @@ continuousArc cx cy innerR outerR color opacity val center =
              , thunkedStr "opacity" opacity
              ] []
 
--- | Segmented arc (3 positions)
-segmentedArc :: Number -> Number -> Number -> Number -> String -> Int -> CC -> PedalCallbacks -> Tree
-segmentedArc cx cy innerR outerR color val theCC callbacks =
+-- | Segmented arc (N positions from SegmentDef array)
+segmentedArc :: Number -> Number -> Number -> Number -> String -> Int -> Array SegmentDef -> CC -> PedalCallbacks -> Tree
+segmentedArc cx cy innerR outerR color val segments theCC callbacks =
   let
-    seg = if val < 43 then 0 else if val < 85 then 1 else 2
+    n = Array.length segments
+    activeSeg = fromMaybe 0 (Array.findIndex (\s -> val >= s.lo && val <= s.hi) segments)
     gap = 0.06
-    segStart i = case i of
-      0 -> minAngle
-      1 -> -pi / 3.0
-      _ -> pi / 3.0
-    segEnd i = case i of
-      0 -> -pi / 3.0
-      1 -> pi / 3.0
-      _ -> maxAngle
-    segMidiVal i = case i of
-      0 -> 0
-      1 -> 64
-      _ -> 127
-    renderSeg i =
+    segWidth = sweepRange / toNumber n
+    renderSeg i seg =
       let
-        startA = segStart i + gap
-        endA = segEnd i - gap
-        active = i == seg
+        startA = minAngle + toNumber i * segWidth + gap
+        endA = minAngle + toNumber (i + 1) * segWidth - gap
+        active = i == activeSeg
         op = if active then "0.85" else "0.12"
       in
-        withBehaviors [ onClick (callbacks.onSegmentClick theCC (segMidiVal i)) ]
+        withBehaviors [ onClick (callbacks.onSegmentClick theCC seg.send) ]
         $ elem Path
           [ thunkedStr "d" (donutSegmentPath cx cy outerR innerR startA endA)
           , thunkedStr "fill" color
           , thunkedStr "opacity" op
           , staticStr "style" "cursor:pointer"
           ] []
-  in siblings [ renderSeg 0, renderSeg 1, renderSeg 2 ]
+  in siblings (Array.mapWithIndex renderSeg segments)
 
 -- | Label text with halo
 labelText :: Number -> Number -> String -> String -> String -> String -> Tree

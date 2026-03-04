@@ -7,7 +7,9 @@ module Component.Pedal.Overview
 
 import Prelude
 
+import Color (toHexString)
 import Component.Pedal.DonutTree as DonutTree
+import Component.Pedal.HedraTree as HedraTree
 import Component.Pedal.OverviewLayout as Layout
 import Config.Registry (PedalRegistry)
 import Config.Registry as CRegistry
@@ -18,14 +20,13 @@ import Data.Int (toNumber)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Midi (CC, MidiValue, unsafeMidiValue)
-import Data.Pedal (PedalId(..))
+import Data.Pedal (PedalDef, PedalId(..))
 import Data.Pedal.Layout (PedalLayout)
 import Effect (Effect)
 import Effect.Aff.Class (class MonadAff)
 import Engine (EngineState, PedalState)
 import Halogen as H
 import Halogen.HTML as HH
-import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Halogen.Subscription as HS
 import Hylograph.HATS.InterpreterTick (clearContainer, rerender)
@@ -39,17 +40,20 @@ type Input =
   { engine :: EngineState
   , registry :: PedalRegistry
   , cardOrder :: Array PedalId
+  , activePedal :: Maybe PedalId
   }
 
 data Output
   = BackToGrid
   | ValueChanged PedalId CC MidiValue
 
-type DragContext = { cc :: CC, startY :: Int, startVal :: Int, pedalId :: PedalId }
+type DragContext =
+  { cc :: CC, startY :: Int, startVal :: Int, pedalId :: PedalId
+  , ccX :: Maybe CC, startX :: Int, startValX :: Int
+  }
 
 type State =
   { input :: Input
-  , activePedal :: Maybe PedalId
   , dragging :: Maybe DragContext
   , dragSub :: Maybe H.SubscriptionId
   , hatsListener :: Maybe (HS.Listener Action)
@@ -62,12 +66,12 @@ type State =
 data Action
   = Initialize
   | Receive Input
-  | SelectActive PedalId
   | WindowResize
   | HatsKnobDragStart PedalId CC Int
+  | HatsKnobDragStart2D PedalId CC Int CC Int
   | HatsSegmentClick PedalId CC Int
   | HatsToggleClick PedalId CC Int
-  | DragMove Int
+  | DragMove Int Int
   | DragEnd
 
 type Slot = H.Slot (Const Void) Output
@@ -80,7 +84,6 @@ component =
   H.mkComponent
     { initialState: \i ->
         { input: i
-        , activePedal: Nothing
         , dragging: Nothing
         , dragSub: Nothing
         , hatsListener: Nothing
@@ -101,7 +104,7 @@ render :: forall m. State -> H.ComponentHTML Action () m
 render state =
   let
     n = Array.length state.input.cardOrder
-    gridCss = case state.activePedal of
+    gridCss = case state.input.activePedal of
       Nothing -> Layout.gridStyle state.containerW state.containerH n
       Just _  -> Layout.activeGridStyle state.containerW state.containerH n
   in
@@ -115,27 +118,38 @@ renderCell :: forall m. State -> PedalId -> H.ComponentHTML Action () m
 renderCell state pid@(PedalId pidStr) =
   let
     mDef = CRegistry.findPedal state.input.registry pid
-    isActive = state.activePedal == Just pid
+    isActive = state.input.activePedal == Just pid
     cls = "overview-cell" <> if isActive then " active" else ""
+    colorBg = case mDef of
+      Just def -> case def.meta.color of
+        Just c -> "background:" <> toHexString c <> "10;"
+        Nothing -> ""
+      Nothing -> ""
+    cellStyle = colorBg <> if isActive then Layout.activeCellStyle else ""
     cellProps =
       [ HP.class_ (H.ClassName cls)
-      , HE.onClick \_ -> SelectActive pid
-      ] <> if isActive
-             then [ HP.attr (HH.AttrName "style") Layout.activeCellStyle ]
+      ] <> if cellStyle /= ""
+             then [ HP.attr (HH.AttrName "style") cellStyle ]
              else []
   in
     HH.div cellProps
       [ case mDef of
-          Just def -> case def.layout of
-            Just _ ->
-              HH.div [ HP.class_ (H.ClassName "overview-cell-inner") ]
+          Just def ->
+            if hasHatsView def then
+              let labelStyle = case def.meta.color of
+                    Just c -> "background:" <> toHexString c
+                    Nothing -> "background:var(--fg-muted)"
+              in HH.div [ HP.class_ (H.ClassName "overview-cell-inner") ]
                 [ HH.div [ HP.id ("pedal-thumb-" <> pidStr) ] []
-                , HH.div [ HP.class_ (H.ClassName "overview-cell-label") ]
-                    [ HH.text def.meta.shortName ]
+                , HH.div
+                    [ HP.class_ (H.ClassName "overview-cell-label")
+                    , HP.attr (HH.AttrName "style") labelStyle
+                    ]
+                    [ HH.text def.meta.name ]
                 ]
-            Nothing ->
+            else
               HH.div [ HP.class_ (H.ClassName "overview-cell-placeholder") ]
-                [ HH.div [ HP.class_ (H.ClassName "overview-cell-name") ] [ HH.text def.meta.shortName ]
+                [ HH.div [ HP.class_ (H.ClassName "overview-cell-name") ] [ HH.text def.meta.name ]
                 , HH.div [ HP.class_ (H.ClassName "overview-cell-brand") ] [ HH.text def.meta.brand ]
                 ]
           Nothing ->
@@ -147,6 +161,7 @@ renderCell state pid@(PedalId pidStr) =
 noopCallbacks :: DonutTree.PedalCallbacks
 noopCallbacks =
   { onKnobDragStart: \_ _ -> pure unit
+  , onKnobDragStart2D: \_ _ _ _ -> pure unit
   , onSegmentClick: \_ _ -> pure unit
   , onToggleClick: \_ _ -> pure unit
   }
@@ -155,6 +170,7 @@ noopCallbacks =
 makeCallbacks :: PedalId -> HS.Listener Action -> DonutTree.PedalCallbacks
 makeCallbacks pid listener =
   { onKnobDragStart: \cc val -> HS.notify listener (HatsKnobDragStart pid cc val)
+  , onKnobDragStart2D: \ccY valY ccXArg valX -> HS.notify listener (HatsKnobDragStart2D pid ccY valY ccXArg valX)
   , onSegmentClick: \cc val -> HS.notify listener (HatsSegmentClick pid cc val)
   , onToggleClick: \cc val -> HS.notify listener (HatsToggleClick pid cc val)
   }
@@ -167,6 +183,37 @@ renderHatsInto containerId layout ps callbacks = do
   _ <- rerender containerId tree
   pure unit
 
+-- | Check if a pedal has a HATS view (layout or custom like Hedra)
+hasHatsView :: PedalDef -> Boolean
+hasHatsView def = def.meta.id == PedalId "hedra" || isJust def.layout
+  where
+  isJust (Just _) = true
+  isJust Nothing = false
+
+-- | Render the Hedra piano keyboard into a container
+renderHedraInto :: String -> PedalState -> DonutTree.PedalCallbacks -> Effect Unit
+renderHedraInto containerId ps callbacks = do
+  clearContainer containerId
+  let tree = HedraTree.hedraTree ps callbacks
+  _ <- rerender containerId tree
+  pure unit
+
+-- | Subscribe to document-level mouse events for drag tracking
+setupDragSubscription :: forall m. MonadAff m => H.HalogenM State Action () Output m H.SubscriptionId
+setupDragSubscription =
+  H.subscribe $ HS.makeEmitter \emit -> do
+    moveFn <- eventListener \e ->
+      case ME.fromEvent e of
+        Just mouseEvt -> emit (DragMove (ME.clientY mouseEvt) (ME.clientX mouseEvt))
+        Nothing -> pure unit
+    upFn <- eventListener \_ -> emit DragEnd
+    target <- Window.toEventTarget <$> window
+    addEventListener (EventType "mousemove") moveFn false target
+    addEventListener (EventType "mouseup") upFn false target
+    pure do
+      removeEventListener (EventType "mousemove") moveFn false target
+      removeEventListener (EventType "mouseup") upFn false target
+
 -- | Re-render all pedal donuts. Active gets real callbacks, others get noop.
 rerenderAll :: forall m. MonadAff m => H.HalogenM State Action () Output m Unit
 rerenderAll = do
@@ -174,15 +221,21 @@ rerenderAll = do
   for_ st.input.cardOrder \pid -> do
     let mDef = CRegistry.findPedal st.input.registry pid
         mPs = Map.lookup pid st.input.engine
-        isActive = st.activePedal == Just pid
+        isActive = st.input.activePedal == Just pid
     case mDef, mPs of
-      Just def, Just ps -> case def.layout of
-        Just layout -> do
+      Just def, Just ps ->
+        if def.meta.id == PedalId "hedra" then do
           let callbacks = case isActive, st.hatsListener of
                 true, Just listener -> makeCallbacks pid listener
                 _, _ -> noopCallbacks
-          H.liftEffect $ renderHatsInto (thumbContainerId pid) layout ps callbacks
-        Nothing -> pure unit
+          H.liftEffect $ renderHedraInto (thumbContainerId pid) ps callbacks
+        else case def.layout of
+          Just layout -> do
+            let callbacks = case isActive, st.hatsListener of
+                  true, Just listener -> makeCallbacks pid listener
+                  _, _ -> noopCallbacks
+            H.liftEffect $ renderHatsInto (thumbContainerId pid) layout ps callbacks
+          Nothing -> pure unit
       _, _ -> pure unit
 
 handleAction :: forall m. MonadAff m => Action -> H.HalogenM State Action () Output m Unit
@@ -222,26 +275,17 @@ handleAction = case _ of
     H.modify_ _ { containerW = cw, containerH = ch }
     rerenderAll
 
-  SelectActive pid -> do
-    st <- H.get
-    let newActive = if st.activePedal == Just pid then Nothing else Just pid
-    H.modify_ _ { activePedal = newActive }
-    rerenderAll
-
   HatsKnobDragStart pid cc val -> do
-    sid <- H.subscribe $ HS.makeEmitter \emit -> do
-      moveFn <- eventListener \e ->
-        case ME.fromEvent e of
-          Just mouseEvt -> emit (DragMove (ME.clientY mouseEvt))
-          Nothing -> pure unit
-      upFn <- eventListener \_ -> emit DragEnd
-      target <- Window.toEventTarget <$> window
-      addEventListener (EventType "mousemove") moveFn false target
-      addEventListener (EventType "mouseup") upFn false target
-      pure do
-        removeEventListener (EventType "mousemove") moveFn false target
-        removeEventListener (EventType "mouseup") upFn false target
-    H.modify_ _ { dragging = Just { cc, startY: 0, startVal: val, pedalId: pid }, dragSub = Just sid }
+    sid <- setupDragSubscription
+    H.modify_ _ { dragging = Just { cc, startY: 0, startVal: val, pedalId: pid
+                                   , ccX: Nothing, startX: 0, startValX: 0 }
+                 , dragSub = Just sid }
+
+  HatsKnobDragStart2D pid ccY valY ccXArg valX -> do
+    sid <- setupDragSubscription
+    H.modify_ _ { dragging = Just { cc: ccY, startY: 0, startVal: valY, pedalId: pid
+                                   , ccX: Just ccXArg, startX: 0, startValX: valX }
+                 , dragSub = Just sid }
 
   HatsSegmentClick pid cc val ->
     H.raise (ValueChanged pid cc (unsafeMidiValue val))
@@ -249,17 +293,24 @@ handleAction = case _ of
   HatsToggleClick pid cc val ->
     H.raise (ValueChanged pid cc (unsafeMidiValue (if val > 63 then 0 else 127)))
 
-  DragMove clientY -> do
+  DragMove clientY clientX -> do
     st <- H.get
     case st.dragging of
       Just drag -> do
         if drag.startY == 0
-          then H.modify_ _ { dragging = Just drag { startY = clientY } }
+          then H.modify_ _ { dragging = Just drag { startY = clientY, startX = clientX } }
           else do
-            let
-              delta = drag.startY - clientY
-              newVal = clamp 0 127 (drag.startVal + delta)
-            H.raise (ValueChanged drag.pedalId drag.cc (unsafeMidiValue newVal))
+            -- Y axis (always active)
+            let deltaY = drag.startY - clientY
+                newValY = clamp 0 127 (drag.startVal + deltaY)
+            H.raise (ValueChanged drag.pedalId drag.cc (unsafeMidiValue newValY))
+            -- X axis (only for 2D drags)
+            case drag.ccX of
+              Just xCC -> do
+                let deltaX = clientX - drag.startX
+                    newValX = clamp 0 127 (drag.startValX + deltaX)
+                H.raise (ValueChanged drag.pedalId xCC (unsafeMidiValue newValX))
+              Nothing -> pure unit
       Nothing -> pure unit
 
   DragEnd -> do
