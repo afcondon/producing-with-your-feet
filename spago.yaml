@@ -38,6 +38,8 @@ package:
     version: 0.1.0
 
 workspace:
+  packageSet:
+    registry: 77.13.1
   extraPackages:
     hylograph-selection:
       path: "/Users/afc/work/afc-work/purescript-hylograph-libs/purescript-hylograph-\
