@@ -2,3 +2,4 @@
 output/
 index.js
 node_modules/
+.direnv/
