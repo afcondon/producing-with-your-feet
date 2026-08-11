@@ -1,0 +1,234 @@
+[
+  {
+    "id": "ee432fd1-5b0f-4fdc-b537-854213671b8b",
+    "name": "Cocteau-ish base",
+    "description": "",
+    "notes": "Clean tones, modded multitap, small room into cathedra. Lex on tap for organ sounds. M7 preset not saved here yet.",
+    "pedals": {
+      "onward": {
+        "presetId": null,
+        "engage": "off"
+      },
+      "mood": {
+        "presetId": null,
+        "engage": "no-change"
+      },
+      "clean": {
+        "presetId": null,
+        "engage": "no-change"
+      },
+      "habit": {
+        "presetId": null,
+        "engage": "no-change"
+      },
+      "hedra": {
+        "presetId": null,
+        "engage": "no-change"
+      },
+      "flint": {
+        "presetId": "f194b4c7-58b7-43c6-aeeb-69a6e2b75164",
+        "engage": "b"
+      },
+      "lex": {
+        "presetId": "15dbf293-5030-4a66-b72d-57e4f5acaf5f",
+        "engage": "off"
+      },
+      "iridium": {
+        "presetId": "56b07210-9ba7-452a-92f1-6c97978446c7",
+        "engage": "no-change"
+      },
+      "riverside": {
+        "presetId": "bb11ab29-59e1-4605-888a-12b94fa4a709",
+        "engage": "no-change"
+      },
+      "mercury7": {
+        "presetId": null,
+        "engage": "on"
+      },
+      "brig": {
+        "presetId": "9c21577e-4211-4bf4-9009-5a0a5d7c0cc0",
+        "engage": "no-change"
+      },
+      "lostandfound": {
+        "presetId": null,
+        "engage": "no-change"
+      }
+    },
+    "created": "2026-02-25T08:04:13.248Z",
+    "modified": "2026-02-25T08:04:13.248Z"
+  },
+  {
+    "id": "9e00ab1c-a68f-4d3c-9107-11d866c566d1",
+    "name": "test of split pedal settings",
+    "description": "",
+    "notes": "only trem side of flint",
+    "pedals": {
+      "onward": {
+        "presetId": null,
+        "engage": "b"
+      },
+      "mood": {
+        "presetId": null,
+        "engage": "off"
+      },
+      "clean": {
+        "presetId": null,
+        "engage": "on"
+      },
+      "habit": {
+        "presetId": null,
+        "engage": "off"
+      },
+      "hedra": {
+        "presetId": null,
+        "engage": "off"
+      },
+      "flint": {
+        "presetId": "74c8d5b9-4515-4d75-bbe5-95c2624634f4",
+        "engage": "a"
+      },
+      "lex": {
+        "presetId": null,
+        "engage": "off"
+      },
+      "iridium": {
+        "presetId": "fe4fcb9c-df8d-4e97-b026-16e964b0af81",
+        "engage": "on"
+      },
+      "riverside": {
+        "presetId": null,
+        "engage": "off"
+      },
+      "mercury7": {
+        "presetId": null,
+        "engage": "off"
+      },
+      "brig": {
+        "presetId": null,
+        "engage": "on"
+      },
+      "lostandfound": {
+        "presetId": null,
+        "engage": "off"
+      }
+    },
+    "created": "2026-02-24T20:39:01.714Z",
+    "modified": "2026-02-24T20:39:01.714Z"
+  },
+  {
+    "id": "45b08aa8-98e3-4227-b49f-42f1ea996914",
+    "name": "test board 2",
+    "description": "",
+    "notes": "",
+    "pedals": {
+      "onward": {
+        "presetId": null,
+        "engage": "off"
+      },
+      "mood": {
+        "presetId": null,
+        "engage": "off"
+      },
+      "clean": {
+        "presetId": null,
+        "engage": "off"
+      },
+      "habit": {
+        "presetId": null,
+        "engage": "off"
+      },
+      "hedra": {
+        "presetId": null,
+        "engage": "off"
+      },
+      "flint": {
+        "presetId": "5658c542-62d4-4ba8-94c0-673e3d86848f",
+        "engage": "on"
+      },
+      "lex": {
+        "presetId": "15dbf293-5030-4a66-b72d-57e4f5acaf5f",
+        "engage": "off"
+      },
+      "iridium": {
+        "presetId": "fe4fcb9c-df8d-4e97-b026-16e964b0af81",
+        "engage": "on"
+      },
+      "riverside": {
+        "presetId": "bb11ab29-59e1-4605-888a-12b94fa4a709",
+        "engage": "on"
+      },
+      "mercury7": {
+        "presetId": null,
+        "engage": "off"
+      },
+      "brig": {
+        "presetId": null,
+        "engage": "off"
+      },
+      "lostandfound": {
+        "presetId": null,
+        "engage": "off"
+      }
+    },
+    "created": "2026-02-24T20:23:22.380Z",
+    "modified": "2026-02-24T20:23:22.380Z"
+  },
+  {
+    "id": "c7577e82-6d59-40ba-a9fb-e23b14a52a36",
+    "name": "Testing board presets",
+    "description": "",
+    "notes": "first set up",
+    "pedals": {
+      "onward": {
+        "presetId": null,
+        "engage": "off"
+      },
+      "mood": {
+        "presetId": null,
+        "engage": "off"
+      },
+      "clean": {
+        "presetId": null,
+        "engage": "off"
+      },
+      "habit": {
+        "presetId": null,
+        "engage": "off"
+      },
+      "hedra": {
+        "presetId": null,
+        "engage": "off"
+      },
+      "flint": {
+        "presetId": "60d66483-5deb-4e3c-9801-26b15b306d62",
+        "engage": "on"
+      },
+      "lex": {
+        "presetId": "2ffd95c5-9687-42bc-959a-cc4534a8d180",
+        "engage": "on"
+      },
+      "iridium": {
+        "presetId": "56b07210-9ba7-452a-92f1-6c97978446c7",
+        "engage": "on"
+      },
+      "riverside": {
+        "presetId": "daca29e9-5034-4117-b9f7-777104228973",
+        "engage": "on"
+      },
+      "mercury7": {
+        "presetId": null,
+        "engage": "off"
+      },
+      "brig": {
+        "presetId": null,
+        "engage": "off"
+      },
+      "lostandfound": {
+        "presetId": null,
+        "engage": "off"
+      }
+    },
+    "created": "2026-02-24T20:22:30.848Z",
+    "modified": "2026-02-24T20:22:30.848Z"
+  }
+]

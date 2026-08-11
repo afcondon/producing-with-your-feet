@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PWYF Preset Restore (2026-04-14)</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 720px; margin: 2rem auto; padding: 1rem; color: #1a1a1a; background: #fafafa; }
+  h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+  .sub { color: #666; font-size: 0.9rem; margin-bottom: 1.5rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #ddd; }
+  th { background: #f2f2f2; font-weight: 600; }
+  td.num { font-family: 'SF Mono', monospace; text-align: right; }
+  button { padding: 0.6rem 1.2rem; font-size: 1rem; cursor: pointer; border: 1px solid #1a1a1a; background: #1a1a1a; color: #fff; border-radius: 4px; }
+  button:hover { background: #333; }
+  button.dry-run { background: #fff; color: #1a1a1a; margin-right: 0.5rem; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  #log { margin-top: 1rem; padding: 1rem; background: #fff; border: 1px solid #ddd; border-radius: 4px; font-family: 'SF Mono', monospace; font-size: 0.85rem; white-space: pre-wrap; min-height: 2rem; }
+  .warn { color: #b45309; }
+  .ok { color: #047857; }
+  .err { color: #b91c1c; }
+  a { color: #2563eb; }
+</style>
+</head>
+<body>
+
+<h1>Restore PWYF presets</h1>
+<p class="sub">Backup snapshot from Chrome Profile 2 <code>http://localhost:8080</code> — captured 2026-04-14.</p>
+
+<p>This page writes four <code>pedal-explorer-*</code> keys into <strong>this origin's</strong> localStorage.
+Load it at <code>http://localhost:3006/restore.html</code> to restore into the current dev server.
+Existing values for the same keys will be <em>overwritten</em>.</p>
+
+<table>
+  <thead><tr><th>localStorage key</th><th>File</th><th>Items</th></tr></thead>
+  <tbody>
+    <tr><td><code>pedal-explorer-presets</code></td><td>pedal-explorer-presets.json</td><td class="num" id="count-presets">—</td></tr>
+    <tr><td><code>pedal-explorer-board-presets</code></td><td>pedal-explorer-board-presets.json</td><td class="num" id="count-boards">—</td></tr>
+    <tr><td><code>pedal-explorer-control-banks</code></td><td>pedal-explorer-control-banks.json</td><td class="num" id="count-banks">—</td></tr>
+    <tr><td><code>pedal-explorer-mc6-assignments</code></td><td>pedal-explorer-mc6-assignments.json</td><td class="num" id="count-mc6">—</td></tr>
+  </tbody>
+</table>
+
+<button class="dry-run" onclick="restore(true)">Dry-run (fetch + preview counts)</button>
+<button onclick="restore(false)">Restore to localStorage</button>
+<p style="margin-top: 1rem;"><a href="/">← back to app</a></p>
+
+<div id="log"></div>
+
+<script>
+const log = (msg, cls = '') => {
+  const el = document.getElementById('log');
+  const span = document.createElement('div');
+  if (cls) span.className = cls;
+  span.textContent = msg;
+  el.appendChild(span);
+};
+
+const keys = [
+  { key: 'pedal-explorer-presets',         file: 'pedal-explorer-presets.json',         countEl: 'count-presets' },
+  { key: 'pedal-explorer-board-presets',   file: 'pedal-explorer-board-presets.json',   countEl: 'count-boards' },
+  { key: 'pedal-explorer-control-banks',   file: 'pedal-explorer-control-banks.json',   countEl: 'count-banks' },
+  { key: 'pedal-explorer-mc6-assignments', file: 'pedal-explorer-mc6-assignments.json', countEl: 'count-mc6' },
+];
+
+async function restore(dryRun) {
+  document.getElementById('log').innerHTML = '';
+  log(`origin: ${location.origin}`);
+  log(`mode: ${dryRun ? 'dry run' : 'live write'}`, dryRun ? 'warn' : '');
+
+  for (const spec of keys) {
+    try {
+      const resp = await fetch(`./preset-backup-2026-04-14/${spec.file}`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const json = await resp.json();
+      const n = Array.isArray(json) ? json.length : Object.keys(json).length;
+      document.getElementById(spec.countEl).textContent = n;
+      if (dryRun) {
+        log(`  ${spec.key}: ${n} items (dry run — not written)`);
+      } else {
+        localStorage.setItem(spec.key, JSON.stringify(json));
+        log(`  ${spec.key}: ${n} items written`, 'ok');
+      }
+    } catch (e) {
+      log(`  ${spec.key}: ERROR ${e.message}`, 'err');
+    }
+  }
+
+  if (!dryRun) {
+    log('\nDone. Reload the app at / to pick up the restored presets.', 'ok');
+  }
+}
+</script>
+
+</body>
+</html>
