@@ -91,6 +91,10 @@ type AppState =
   , mc6Assignments :: Array MC6Assignment
   , controlBanks :: Array ControlBank
   , activeControlBankIdx :: Maybe Int
+  -- Folder backup (Chrome File System Access API → Infovore path)
+  , backupFolderName :: Maybe String
+  , backupLastSaveAt :: Maybe String
+  , backupLastError :: Maybe String
   }
 
 defaultPedalState :: PedalDef -> PedalState
@@ -155,6 +159,9 @@ initAppState =
   , mc6Assignments: []
   , controlBanks: [exampleControlBank]
   , activeControlBankIdx: Just 0
+  , backupFolderName: Nothing
+  , backupLastSaveAt: Nothing
+  , backupLastError: Nothing
   }
 
 getValue :: PedalId -> CC -> EngineState -> Maybe MidiValue

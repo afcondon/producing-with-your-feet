@@ -43,6 +43,7 @@ import Config.Preset as CPreset
 import Engine.Storage as Storage
 import Engine.Twister as Twister
 import Foreign.FileIO as FileIO
+import Foreign.FolderBackup as FolderBackup
 import Foreign.LoopyProject as LoopyProject
 import Foreign.WebMIDI as MIDI
 import Halogen as H
@@ -88,6 +89,10 @@ data Action
   | ClickMC6Switch Int
   | UnassignMC6Switch Int
   | ClearMC6Bank
+  | BackupPickFolderAction
+  | BackupReconnectAction
+  | BackupSaveNowAction
+  | BackupDisconnectAction
 
 type Slots =
   ( header :: Header.Slot Unit
@@ -174,7 +179,7 @@ render state = case state.configError of
             , mc6BoardBankNum: state.mc6BoardBankNum
             }
             HandleControls
-        FilesView -> renderFilesView
+        FilesView -> renderFilesView state
         DocsView -> renderDocsView state
         ConnectView -> renderConnectView state
         BoardsView -> HH.text ""
@@ -221,11 +226,12 @@ render state = case state.configError of
         )
     ]
 
-renderFilesView :: forall m. MonadAff m => H.ComponentHTML Action Slots m
-renderFilesView =
+renderFilesView :: forall m. MonadAff m => AppState -> H.ComponentHTML Action Slots m
+renderFilesView state =
   HH.div [ HP.class_ (H.ClassName "files-view") ]
     [ HH.p [ HP.class_ (H.ClassName "files-description") ]
-        [ HH.text "Your presets are stored in this browser's local storage and will persist as long as the app is served from the same location. To back up your presets, share them, or edit them by hand, you can export to a JSON file and import it later." ]
+        [ HH.text "Your presets are stored in this browser's local storage and will persist as long as the app is served from the same location. To back up your presets, share them, or edit them by hand, you can export to a JSON file and import it later. For more durable storage, connect a backup folder below — the app will write a single JSON envelope (latest.json plus a dated snapshot in history/) that sits inside the Infovore data larder and rides its backup posture." ]
+    , renderFolderBackup state
     , HH.div [ HP.class_ (H.ClassName "files-actions") ]
         [ HH.div [ HP.class_ (H.ClassName "files-group") ]
             [ HH.h3_ [ HH.text "Pedal Presets" ]
@@ -254,6 +260,54 @@ renderFilesView =
                 [ HH.text "Import Boards" ]
             ]
         ]
+    ]
+
+-- | Folder backup card: connect / reconnect / save-now / disconnect.
+-- | Shown above the existing per-category Export/Import buttons.
+renderFolderBackup :: forall m. AppState -> H.ComponentHTML Action Slots m
+renderFolderBackup state =
+  HH.div [ HP.class_ (H.ClassName "folder-backup") ]
+    [ HH.h3_ [ HH.text "Folder Backup" ]
+    , case state.backupFolderName of
+        Just name ->
+          HH.div [ HP.class_ (H.ClassName "folder-backup-row") ]
+            [ HH.span [ HP.class_ (H.ClassName "folder-backup-chip connected") ]
+                [ HH.text ("connected: " <> name) ]
+            , case state.backupLastSaveAt of
+                Nothing -> HH.span [ HP.class_ (H.ClassName "folder-backup-muted") ]
+                  [ HH.text "no save yet this session" ]
+                Just t -> HH.span [ HP.class_ (H.ClassName "folder-backup-muted") ]
+                  [ HH.text ("last save: " <> t) ]
+            , HH.button
+                [ HP.class_ (H.ClassName "files-btn")
+                , HE.onClick \_ -> BackupSaveNowAction
+                ]
+                [ HH.text "Save now" ]
+            , HH.button
+                [ HP.class_ (H.ClassName "files-btn files-btn-muted")
+                , HE.onClick \_ -> BackupDisconnectAction
+                ]
+                [ HH.text "Disconnect" ]
+            ]
+        Nothing ->
+          HH.div [ HP.class_ (H.ClassName "folder-backup-row") ]
+            [ HH.span [ HP.class_ (H.ClassName "folder-backup-chip disconnected") ]
+                [ HH.text "no folder connected" ]
+            , HH.button
+                [ HP.class_ (H.ClassName "files-btn")
+                , HE.onClick \_ -> BackupPickFolderAction
+                ]
+                [ HH.text "Set backup folder…" ]
+            , HH.button
+                [ HP.class_ (H.ClassName "files-btn files-btn-muted")
+                , HE.onClick \_ -> BackupReconnectAction
+                ]
+                [ HH.text "Reconnect last folder" ]
+            ]
+    , case state.backupLastError of
+        Nothing -> HH.text ""
+        Just err -> HH.div [ HP.class_ (H.ClassName "folder-backup-error") ]
+          [ HH.text ("error: " <> err) ]
     ]
 
 -- | MIDI connections view — port selection and signal flow
@@ -659,6 +713,11 @@ handleAction = case _ of
           for_ mMC6Out \port -> do
             mOut <- liftEffect $ MIDI.openOutput mAccess port.id
             H.modify_ _ { connections { mc6Output = mOut, mc6OutputId = Just port.id } }
+        -- Try to silently reconnect the folder-backup handle (IndexedDB). If
+        -- the browser needs a fresh gesture, this surfaces Nothing and the
+        -- user will see a "Reconnect" affordance in the Files view.
+        mBackupFolder <- H.liftAff FolderBackup.attemptReconnect
+        H.modify_ _ { backupFolderName = mBackupFolder }
 
   SetView view -> do
     H.modify_ _ { view = view }
@@ -846,6 +905,7 @@ handleAction = case _ of
       H.modify_ _ { controlBanks = banks, activeControlBankIdx = mActiveIdx }
       st <- H.get
       liftEffect $ Storage.saveControlBanks st.controlBanks
+      liftEffect FolderBackup.scheduleBackup
     ControlsView.SyncControlBankToMC6 ->
       syncControlBankToMC6
 
@@ -914,9 +974,43 @@ handleAction = case _ of
     let updated = Array.filter (\a -> not (a.bankNumber == st.mc6BoardBankNum && a.switchIndex == switchIdx)) st.mc6Assignments
     H.modify_ _ { mc6Assignments = updated }
     liftEffect $ Storage.saveMC6Assignments updated
+    liftEffect FolderBackup.scheduleBackup
     syncSwitchToMC6 st.mc6BoardBankNum switchIdx Nothing
 
   ClearMC6Bank -> handleClearMC6Bank
+
+  BackupPickFolderAction -> do
+    mName <- H.liftAff FolderBackup.pickAndSetFolder
+    status <- liftEffect FolderBackup.getStatus
+    H.modify_ _
+      { backupFolderName = mName
+      , backupLastError = if status.lastError == "" then Nothing else Just status.lastError
+      }
+
+  BackupReconnectAction -> do
+    mName <- H.liftAff FolderBackup.reconnectWithPrompt
+    status <- liftEffect FolderBackup.getStatus
+    H.modify_ _
+      { backupFolderName = mName
+      , backupLastError = if status.lastError == "" then Nothing else Just status.lastError
+      }
+
+  BackupSaveNowAction -> do
+    mName <- H.liftAff FolderBackup.saveBackupNow
+    status <- liftEffect FolderBackup.getStatus
+    H.modify_ _
+      { backupFolderName = if status.connected then mName else Nothing
+      , backupLastSaveAt = if status.lastSaveAt == "" then Nothing else Just status.lastSaveAt
+      , backupLastError = if status.lastError == "" then Nothing else Just status.lastError
+      }
+
+  BackupDisconnectAction -> do
+    _ <- H.liftAff FolderBackup.disconnectFolder
+    H.modify_ _
+      { backupFolderName = Nothing
+      , backupLastSaveAt = Nothing
+      , backupLastError = Nothing
+      }
 
   SelectLoopyOutput portId -> do
     st <- H.get
@@ -1121,6 +1215,7 @@ handleAssignBoardToSwitch boardId switchIdx = do
       updated = Array.snoc filtered newAssignment
   H.modify_ _ { mc6Assignments = updated }
   liftEffect $ Storage.saveMC6Assignments updated
+  liftEffect FolderBackup.scheduleBackup
   -- Auto-sync: program this switch to MC6
   let mBoard = Array.find (\bp -> bp.id == boardId) st.boardPresets
   syncSwitchToMC6 bankNum switchIdx mBoard
@@ -1133,6 +1228,7 @@ handleUnassignBoard boardId = do
       updated = Array.filter (\a -> a.boardPresetId /= boardId) st.mc6Assignments
   H.modify_ _ { mc6Assignments = updated }
   liftEffect $ Storage.saveMC6Assignments updated
+  liftEffect FolderBackup.scheduleBackup
   -- Auto-sync: clear each affected switch on MC6
   for_ boardAssignments \a ->
     syncSwitchToMC6 a.bankNumber a.switchIndex Nothing
@@ -1181,6 +1277,7 @@ handleClearMC6Bank = do
       updated = Array.filter (\a -> a.bankNumber /= bankNum) st.mc6Assignments
   H.modify_ _ { mc6Assignments = updated }
   liftEffect $ Storage.saveMC6Assignments updated
+  liftEffect FolderBackup.scheduleBackup
   -- SysEx: clear all 9 switches on MC6 hardware
   case st.connections.mc6Output of
     Nothing -> liftEffect $ Console.log "MC6 SysEx: no MC6 output connected (assignments cleared locally)"
@@ -1354,11 +1451,13 @@ persistPresets :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m
 persistPresets = do
   st <- H.get
   liftEffect $ Storage.savePresets (Storage.presetsToJsonString st.presets)
+  liftEffect FolderBackup.scheduleBackup
 
 persistBoardPresets :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
 persistBoardPresets = do
   st <- H.get
   liftEffect $ Storage.saveBoardPresets (Storage.boardPresetsToJsonString st.boardPresets)
+  liftEffect FolderBackup.scheduleBackup
 
 -- Recall helpers
 
