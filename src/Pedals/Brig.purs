@@ -6,6 +6,7 @@ import Data.Maybe (Maybe(..))
 import Data.Midi (CC, MidiValue, unsafeCC, unsafeMidiValue)
 import Data.Pedal (Annotation, Control(..), LabelSource(..), PedalDef, PedalId(..), SectionLayout(..))
 import Data.Pedal.Engage (EngageConfig(..))
+import Data.Pedal.Layout (ConfigControlType(..), KnobLayer(..), PedalLayout)
 import Data.Tuple (Tuple(..))
 import Data.Twister (TwisterButton(..), TwisterEncoder(..))
 
@@ -63,7 +64,7 @@ pedal =
           ]
       }
   , modes: Nothing
-  , layout: Nothing
+  , layout: Just brigLayout
   , sections:
       [ { name: "Engage", compact: true, collapsed: false, layout: DefaultLayout, description: Nothing
         , controls:
@@ -104,4 +105,59 @@ pedal =
             ]
         }
       ]
+  }
+
+-- | Donut view layout. Olive green monochrome — simple dBucket delay.
+-- | Voice toggle sits in the grid (top center). Single footswitch.
+brigLayout :: PedalLayout
+brigLayout =
+  { groups:
+      [ { id: "delay", label: "Delay", color: "#2d6a4f", mutedColor: "#a8d0b8" }
+      ]
+  , knobs:
+      -- Row A: Time, Voice (3-way toggle), Mix
+      [ { col: 0, row: 0, group: "delay"
+        , primaryCC: cc 12, primaryLabel: Static "Time"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 1, row: 0, group: "delay"
+        , primaryCC: cc 11, primaryLabel: Static "3205 / 3005 / Multi"
+        , primaryLayer: SegmentedKnob
+            [ { lo: 0, hi: 1, send: 1 }, { lo: 2, hi: 2, send: 2 }, { lo: 3, hi: 127, send: 3 } ]
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 2, row: 0, group: "delay"
+        , primaryCC: cc 16, primaryLabel: Static "Mix"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      -- Row B: Filter, Repeats, Mod
+      , { col: 0, row: 1, group: "delay"
+        , primaryCC: cc 13, primaryLabel: Static "Filter"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 1, row: 1, group: "delay"
+        , primaryCC: cc 14, primaryLabel: Static "Repeats"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 2, row: 1, group: "delay"
+        , primaryCC: cc 15, primaryLabel: Static "Mod"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      ]
+  , footswitches:
+      [ { col: 1, cc: cc 102, label: "Bypass", group: "delay"
+        , ledCC: Nothing, engagedColor: "#2d6a4f", ledColor: "#2d6a4f" }
+      ]
+  , dipBanks: []
+  , config:
+      [ { cc: cc 17, label: "TapDiv", controlType: CfgToggle }
+      ]
+  , columns: 3
+  , knobRows: 2
+  , viewBox: { width: 320.0, height: 370.0 }
   }

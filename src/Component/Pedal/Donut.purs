@@ -159,12 +159,12 @@ resolveLabel ps = case _ of
 
 -- | Layer helpers
 isSegmented :: KnobLayer -> Boolean
-isSegmented SegmentedKnob = true
+isSegmented (SegmentedKnob _) = true
 isSegmented _ = false
 
 layerCenter :: KnobLayer -> Maybe Int
 layerCenter (ContinuousKnob r) = r.center
-layerCenter SegmentedKnob = Nothing
+layerCenter (SegmentedKnob _) = Nothing
 
 -- | Render a continuous arc with optional center detente
 renderContinuousArc :: forall w i. Number -> Number -> Number -> Number -> String -> String -> Int -> Maybe Int -> HH.HTML w i

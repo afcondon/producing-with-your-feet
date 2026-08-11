@@ -5,6 +5,7 @@ import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Midi (CC, MidiValue, unsafeCC, unsafeMidiValue)
 import Data.Pedal (Annotation, Control(..), LabelSource(..), PedalDef, PedalId(..), SectionLayout(..))
+import Data.Pedal.Layout (ConfigControlType(..), KnobLayer(..), PedalLayout)
 import Data.Pedal.Engage (EngageConfig(..))
 import Data.Tuple (Tuple(..))
 import Data.Twister (TwisterButton(..), TwisterEncoder(..))
@@ -66,7 +67,7 @@ pedal =
           ]
       }
   , modes: Nothing
-  , layout: Nothing
+  , layout: Just riversideLayout
   , sections:
       [ { name: "Engage", compact: true, collapsed: false, layout: DefaultLayout, description: Nothing
         , controls:
@@ -119,4 +120,64 @@ pedal =
             ]
         }
       ]
+  }
+
+-- | Donut view layout. Gold monochrome — drive pedal, single signal chain.
+-- | 5 knobs in 3×2 grid (one empty cell). Toggles (Gain, Push) in config.
+riversideLayout :: PedalLayout
+riversideLayout =
+  { groups:
+      [ { id: "drive", label: "Drive", color: "#b8860b", mutedColor: "#e0d098" }
+      , { id: "eq", label: "EQ", color: "#8a7a40", mutedColor: "#d0c890" }
+      ]
+  , knobs:
+      -- Row A (gain + output)
+      [ { col: 0, row: 0, group: "drive"
+        , primaryCC: cc 13, primaryLabel: Static "Drive"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 1, row: 0, group: "drive"
+        , primaryCC: cc 12, primaryLabel: Static "Level"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 2, row: 0, group: "drive"
+        , primaryCC: cc 17, primaryLabel: Static "Boost"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      -- Row B (EQ)
+      , { col: 0, row: 1, group: "eq"
+        , primaryCC: cc 14, primaryLabel: Static "Bass"
+        , primaryLayer: ContinuousKnob { center: Just 64 }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 1, row: 1, group: "eq"
+        , primaryCC: cc 15, primaryLabel: Static "Mid"
+        , primaryLayer: ContinuousKnob { center: Just 64 }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 2, row: 1, group: "eq"
+        , primaryCC: cc 16, primaryLabel: Static "Treble"
+        , primaryLayer: ContinuousKnob { center: Just 64 }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      ]
+  , footswitches:
+      [ { col: 0, cc: cc 18, label: "Boost", group: "drive"
+        , ledCC: Nothing, engagedColor: "#b8860b", ledColor: "#b8860b" }
+      , { col: 2, cc: cc 102, label: "Bypass", group: "drive"
+        , ledCC: Nothing, engagedColor: "#b8860b", ledColor: "#b8860b" }
+      ]
+  , dipBanks: []
+  , config:
+      [ { cc: cc 19, label: "Gain",   controlType: CfgToggle }
+      , { cc: cc 20, label: "Push",   controlType: CfgToggle }
+      , { cc: cc 21, label: "Pres",   controlType: CfgToggle }
+      , { cc: cc 22, label: "Gate",   controlType: CfgSlider }
+      ]
+  , columns: 3
+  , knobRows: 2
+  , viewBox: { width: 320.0, height: 370.0 }
   }

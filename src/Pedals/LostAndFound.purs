@@ -6,6 +6,7 @@ import Data.Maybe (Maybe(..))
 import Data.Midi (CC, MidiValue, unsafeCC, unsafeMidiValue)
 import Data.Pedal (Annotation, Control(..), LabelSource(..), PedalDef, PedalId(..), SectionLayout(..))
 import Data.Pedal.Engage (EngageConfig(..))
+import Data.Pedal.Layout (ConfigControlType(..), KnobLayer(..), PedalLayout)
 import Data.Pedal.Modes (DualChannelModes, ModeChannel(..), ModeRole(..))
 import Data.Tuple (Tuple(..))
 import Data.Twister (TwisterButton(..), TwisterEncoder(..))
@@ -87,7 +88,7 @@ pedal =
           ]
       }
   , modes: Just modes
-  , layout: Nothing
+  , layout: Just lfLayout
   , sections:
       [ { name: "Channels", compact: true, collapsed: false, layout: DualColumn, description: Nothing
         , controls:
@@ -233,6 +234,111 @@ pedal =
             ]
         }
       ]
+  }
+
+-- | Common CBA 3-way toggle: values 0, 2, 3
+cba3 :: Array { lo :: Int, hi :: Int, send :: Int }
+cba3 = [ { lo: 0, hi: 1, send: 0 }, { lo: 2, hi: 2, send: 2 }, { lo: 3, hi: 127, send: 3 } ]
+
+-- | Donut view layout. Mirror-symmetric: left channel / shared center / right channel.
+lfLayout :: PedalLayout
+lfLayout =
+  { groups:
+      [ { id: "left", label: "Left", color: "#5a8a3c", mutedColor: "#b8d4a8" }
+      , { id: "shared", label: "Shared", color: "#8a8a60", mutedColor: "#d0d0b8" }
+      , { id: "right", label: "Right", color: "#3c6a8a", mutedColor: "#a8c8d8" }
+      ]
+  , knobs:
+      -- Row A
+      [ { col: 0, row: 0, group: "left"
+        , primaryCC: cc 14, primaryLabel: Static "Time"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Just (cc 24), hiddenLabel: Just (Static "Alt")
+        , hiddenLayer: Just (ContinuousKnob { center: Nothing }) }
+      , { col: 1, row: 0, group: "shared"
+        , primaryCC: cc 15, primaryLabel: Static "Mix"
+        , primaryLayer: ContinuousKnob { center: Just 64 }
+        , hiddenCC: Just (cc 25), hiddenLabel: Just (Static "Spill")
+        , hiddenLayer: Just (ContinuousKnob { center: Nothing }) }
+      , { col: 2, row: 0, group: "right"
+        , primaryCC: cc 16, primaryLabel: Static "Time"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Just (cc 26), hiddenLabel: Just (Static "Alt")
+        , hiddenLayer: Just (ContinuousKnob { center: Nothing }) }
+      -- Row B
+      , { col: 0, row: 1, group: "left"
+        , primaryCC: cc 17, primaryLabel: Static "Modify"
+        , primaryLayer: ContinuousKnob { center: Just 64 }
+        , hiddenCC: Just (cc 27), hiddenLabel: Just (Static "EQ")
+        , hiddenLayer: Just (ContinuousKnob { center: Just 64 }) }
+      , { col: 1, row: 1, group: "shared"
+        , primaryCC: cc 18, primaryLabel: Static "Blend"
+        , primaryLayer: ContinuousKnob { center: Just 64 }
+        , hiddenCC: Just (cc 28), hiddenLabel: Just (Static "Glue")
+        , hiddenLayer: Just (ContinuousKnob { center: Nothing }) }
+      , { col: 2, row: 1, group: "right"
+        , primaryCC: cc 19, primaryLabel: Static "Modify"
+        , primaryLayer: ContinuousKnob { center: Just 64 }
+        , hiddenCC: Just (cc 29), hiddenLabel: Just (Static "EQ")
+        , hiddenLayer: Just (ContinuousKnob { center: Just 64 }) }
+      -- Row C (toggle switches / mode selectors)
+      , { col: 0, row: 2, group: "left"
+        , primaryCC: cc 21, primaryLabel: Static "Rev / Pit / Wrp"
+        , primaryLayer: SegmentedKnob cba3
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 1, row: 2, group: "shared"
+        , primaryCC: cc 22, primaryLabel: Static "L>R / L+R / L<R"
+        , primaryLayer: SegmentedKnob cba3
+        , hiddenCC: Just (cc 32), hiddenLabel: Just (Static "L / Both / R")
+        , hiddenLayer: Just (SegmentedKnob cba3) }
+      , { col: 2, row: 2, group: "right"
+        , primaryCC: cc 23, primaryLabel: Static "Dly / Syn / Bnd"
+        , primaryLayer: SegmentedKnob cba3
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      ]
+  , footswitches:
+      [ { col: 0, cc: cc 103, label: "Left", group: "left"
+        , ledCC: Just (cc 105), engagedColor: "#c75050", ledColor: "#5a9a50" }
+      , { col: 2, cc: cc 102, label: "Right", group: "right"
+        , ledCC: Just (cc 106), engagedColor: "#c75050", ledColor: "#5a9a50" }
+      ]
+  , dipBanks:
+      [ { label: "Ramping"
+        , switches:
+            [ { cc: cc 61, label: "L Time",    index: 0 }
+            , { cc: cc 62, label: "L Modify",  index: 1 }
+            , { cc: cc 63, label: "Blend",     index: 2 }
+            , { cc: cc 64, label: "R Modify",  index: 3 }
+            , { cc: cc 65, label: "R Time",    index: 4 }
+            , { cc: cc 66, label: "Bounce",    index: 5 }
+            , { cc: cc 67, label: "Sweep",     index: 6 }
+            , { cc: cc 68, label: "Polarity",  index: 7 }
+            ]
+        }
+      , { label: "Customize"
+        , switches:
+            [ { cc: cc 71, label: "Miso",    index: 0 }
+            , { cc: cc 72, label: "Spread",  index: 1 }
+            , { cc: cc 73, label: "Latch",   index: 2 }
+            , { cc: cc 74, label: "L Swap",  index: 3 }
+            , { cc: cc 75, label: "R Swap",  index: 4 }
+            , { cc: cc 76, label: "Unsync",  index: 5 }
+            , { cc: cc 77, label: "Trails",  index: 6 }
+            , { cc: cc 78, label: "Bank",    index: 7 }
+            ]
+        }
+      ]
+  , config:
+      [ { cc: cc 52,  label: "Ramp",    controlType: CfgToggle }
+      , { cc: cc 20,  label: "Speed",   controlType: CfgSlider }
+      , { cc: cc 57,  label: "Dry Kill", controlType: CfgToggle }
+      , { cc: cc 51,  label: "Clk Fol", controlType: CfgToggle }
+      ]
+  , columns: 3
+  , knobRows: 3
+  , viewBox: { width: 320.0, height: 470.0 }
   }
 
 modes :: DualChannelModes

@@ -6,6 +6,7 @@ import Data.Maybe (Maybe(..))
 import Data.Midi (CC, MidiValue, unsafeCC, unsafeMidiValue)
 import Data.Pedal (Annotation, Control(..), LabelSource(..), PedalDef, PedalId(..), SectionLayout(..))
 import Data.Pedal.Engage (EngageConfig(..))
+import Data.Pedal.Layout (ConfigControlType(..), KnobLayer(..), PedalLayout)
 import Data.Tuple (Tuple(..))
 import Data.Twister (TwisterButton(..), TwisterEncoder(..))
 
@@ -72,7 +73,7 @@ pedal =
           ]
       }
   , modes: Nothing
-  , layout: Nothing
+  , layout: Just habitLayout
   , sections:
       [ { name: "Engage", compact: true, collapsed: false, layout: DefaultLayout, description: Nothing
         , controls:
@@ -147,4 +148,82 @@ pedal =
             ]
         }
       ]
+  }
+
+-- | Habit 3-way toggle: values 1, 2, 3
+habit3 :: Array { lo :: Int, hi :: Int, send :: Int }
+habit3 = [ { lo: 0, hi: 1, send: 1 }, { lo: 2, hi: 2, send: 2 }, { lo: 3, hi: 127, send: 3 } ]
+
+-- | Donut view layout. Gold = echo parameters, dark = modifiers.
+-- | No hidden layer (Habit has no alt knobs). DIP switches are not MIDI-controllable.
+habitLayout :: PedalLayout
+habitLayout =
+  { groups:
+      [ { id: "echo", label: "Echo", color: "#d4a017", mutedColor: "#e8d498" }
+      , { id: "modifier", label: "Modifier", color: "#5a4a3a", mutedColor: "#b8b0a0" }
+      ]
+  , knobs:
+      -- Row A (gold — echo parameters)
+      [ { col: 0, row: 0, group: "echo"
+        , primaryCC: cc 14, primaryLabel: Static "Level"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 1, row: 0, group: "echo"
+        , primaryCC: cc 15, primaryLabel: Static "Repeats"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 2, row: 0, group: "echo"
+        , primaryCC: cc 16, primaryLabel: Static "Size"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      -- Row B (dark — modifiers)
+      , { col: 0, row: 1, group: "modifier"
+        , primaryCC: cc 17, primaryLabel: Static "Modify"
+        , primaryLayer: ContinuousKnob { center: Just 64 }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 1, row: 1, group: "modifier"
+        , primaryCC: cc 18, primaryLabel: Static "Spread"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 2, row: 1, group: "modifier"
+        , primaryCC: cc 19, primaryLabel: Static "Scan"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      -- Row C (toggle switches — modifier matrix + mode)
+      , { col: 0, row: 2, group: "modifier"
+        , primaryCC: cc 21, primaryLabel: Static "1 / 2 / 3"
+        , primaryLayer: SegmentedKnob habit3
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 1, row: 2, group: "modifier"
+        , primaryCC: cc 22, primaryLabel: Static "L / Off / R"
+        , primaryLayer: SegmentedKnob habit3
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 2, row: 2, group: "echo"
+        , primaryCC: cc 23, primaryLabel: Static "In / Out / Feed"
+        , primaryLayer: SegmentedKnob habit3
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      ]
+  , footswitches:
+      [ { col: 0, cc: cc 24, label: "Tap/Hold", group: "modifier"
+        , ledCC: Nothing, engagedColor: "#d4a017", ledColor: "#d4a017" }
+      , { col: 2, cc: cc 102, label: "Bypass", group: "echo"
+        , ledCC: Nothing, engagedColor: "#d4a017", ledColor: "#d4a017" }
+      ]
+  , dipBanks: []  -- Habit DIPs are not MIDI-controllable (InfoToggle only)
+  , config:
+      [ { cc: cc 51, label: "Clk Fol", controlType: CfgToggle }
+      , { cc: cc 20, label: "Speed",   controlType: CfgSlider }
+      ]
+  , columns: 3
+  , knobRows: 3
+  , viewBox: { width: 320.0, height: 470.0 }
   }

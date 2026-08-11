@@ -231,6 +231,10 @@ pedal =
       ]
   }
 
+-- | Common CBA 3-way toggle: values 0, 2, 3
+cba3 :: Array { lo :: Int, hi :: Int, send :: Int }
+cba3 = [ { lo: 0, hi: 1, send: 0 }, { lo: 2, hi: 2, send: 2 }, { lo: 3, hi: 127, send: 3 } ]
+
 moodLayout :: PedalLayout
 moodLayout =
   { groups:
@@ -250,7 +254,10 @@ moodLayout =
         , primaryCC: cc 15, primaryLabel: Static "Mix"
         , primaryLayer: ContinuousKnob { center: Just 64 }
         , hiddenCC: Just (cc 25), hiddenLabel: Just (Static "Ramp Wave")
-        , hiddenLayer: Just SegmentedKnob }
+        , hiddenLayer: Just (SegmentedKnob
+            [ { lo: 0, hi: 7, send: 3 }, { lo: 8, hi: 35, send: 21 }
+            , { lo: 36, hi: 68, send: 52 }, { lo: 69, hi: 104, send: 86 }
+            , { lo: 105, hi: 127, send: 116 } ]) }
       , { col: 2, row: 0, group: "ml"
         , primaryCC: cc 16, primaryLabel: Static "Length"
         , primaryLayer: ContinuousKnob { center: Nothing }
@@ -277,19 +284,19 @@ moodLayout =
       -- Row C (toggle switches)
       , { col: 0, row: 2, group: "wet"
         , primaryCC: cc 21, primaryLabel: Static "Rev / Dly / Slip"
-        , primaryLayer: SegmentedKnob
+        , primaryLayer: SegmentedKnob cba3
         , hiddenCC: Just (cc 31), hiddenLabel: Just (Static "ML>W / \x2014 / W>ML")
-        , hiddenLayer: Just SegmentedKnob }
+        , hiddenLayer: Just (SegmentedKnob cba3) }
       , { col: 1, row: 2, group: "shared"
         , primaryCC: cc 22, primaryLabel: Static "IN / ML+IN / ML"
-        , primaryLayer: SegmentedKnob
+        , primaryLayer: SegmentedKnob cba3
         , hiddenCC: Just (cc 32), hiddenLabel: Just (Static "Wet / Both / ML")
-        , hiddenLayer: Just SegmentedKnob }
+        , hiddenLayer: Just (SegmentedKnob cba3) }
       , { col: 2, row: 2, group: "ml"
         , primaryCC: cc 23, primaryLabel: Static "Env / Tape / Str"
-        , primaryLayer: SegmentedKnob
+        , primaryLayer: SegmentedKnob cba3
         , hiddenCC: Just (cc 33), hiddenLabel: Just (Static "Half / Full")
-        , hiddenLayer: Just SegmentedKnob }
+        , hiddenLayer: Just (SegmentedKnob [ { lo: 0, hi: 63, send: 0 }, { lo: 64, hi: 127, send: 127 } ]) }
       ]
   , footswitches:
       [ { col: 0, cc: cc 103, label: "Wet", group: "wet"

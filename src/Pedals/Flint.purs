@@ -5,6 +5,7 @@ import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Midi (CC, MidiValue, unsafeCC, unsafeMidiValue)
 import Data.Pedal (Annotation, Control(..), LabelSource(..), PedalDef, PedalId(..), SectionLayout(..))
+import Data.Pedal.Layout (ConfigControlType(..), KnobLayer(..), PedalLayout)
 import Data.Pedal.Engage (EngageConfig(..))
 import Data.Tuple (Tuple(..))
 import Data.Twister (TwisterButton(..), TwisterEncoder(..))
@@ -73,7 +74,7 @@ pedal =
           ]
       }
   , modes: Nothing
-  , layout: Nothing
+  , layout: Just flintLayout
   , sections:
       [ { name: "Channels", compact: true, collapsed: false, layout: DualColumn, description: Nothing
         , controls:
@@ -147,4 +148,59 @@ pedal =
             ]
         }
       ]
+  }
+
+-- | Donut view layout. Tremolo (left) + reverb (right) dual-section.
+-- | 5 knobs in 3×2 grid (one empty cell). Toggles (type selectors) in config.
+flintLayout :: PedalLayout
+flintLayout =
+  { groups:
+      [ { id: "trem", label: "Tremolo", color: "#a85a50", mutedColor: "#d8b8b0" }
+      , { id: "verb", label: "Reverb", color: "#6a5a50", mutedColor: "#c8c0b8" }
+      ]
+  , knobs:
+      -- Row A (main controls)
+      [ { col: 0, row: 0, group: "trem"
+        , primaryCC: cc 12, primaryLabel: Static "Intensity"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 1, row: 0, group: "verb"
+        , primaryCC: cc 20, primaryLabel: Static "Decay"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 2, row: 0, group: "verb"
+        , primaryCC: cc 18, primaryLabel: Static "Mix"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      -- Row B (secondary)
+      , { col: 0, row: 1, group: "trem"
+        , primaryCC: cc 13, primaryLabel: Static "Speed"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 2, row: 1, group: "verb"
+        , primaryCC: cc 19, primaryLabel: Static "Color"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      ]
+  , footswitches:
+      [ { col: 0, cc: cc 10, label: "Trem", group: "trem"
+        , ledCC: Nothing, engagedColor: "#a85a50", ledColor: "#a85a50" }
+      , { col: 2, cc: cc 16, label: "Verb", group: "verb"
+        , ledCC: Nothing, engagedColor: "#6a5a50", ledColor: "#6a5a50" }
+      ]
+  , dipBanks: []
+  , config:
+      [ { cc: cc 11, label: "Trem",   controlType: CfgToggle }
+      , { cc: cc 17, label: "Verb",   controlType: CfgToggle }
+      , { cc: cc 23, label: "Order",  controlType: CfgToggle }
+      , { cc: cc 63, label: "Clock",  controlType: CfgToggle }
+      ]
+  , columns: 3
+  , knobRows: 2
+  , viewBox: { width: 320.0, height: 370.0 }
   }

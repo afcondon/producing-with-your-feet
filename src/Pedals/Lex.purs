@@ -5,6 +5,7 @@ import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Midi (CC, MidiValue, unsafeCC, unsafeMidiValue)
 import Data.Pedal (Annotation, Control(..), LabelSource(..), PedalDef, PedalId(..), SectionLayout(..))
+import Data.Pedal.Layout (ConfigControlType(..), KnobLayer(..), PedalLayout)
 import Data.Pedal.Engage (EngageConfig(..))
 import Data.Tuple (Tuple(..))
 import Data.Twister (TwisterButton(..), TwisterEncoder(..))
@@ -69,7 +70,7 @@ pedal =
           ]
       }
   , modes: Nothing
-  , layout: Nothing
+  , layout: Just lexLayout
   , sections:
       [ { name: "Bypass", compact: true, collapsed: false, layout: DefaultLayout, description: Nothing
         , controls:
@@ -146,4 +147,65 @@ pedal =
             ]
         }
       ]
+  }
+
+-- | Donut view layout. Brown monochrome — rotary speaker simulation.
+-- | Toggles (Mic, Ramp) go in config.
+lexLayout :: PedalLayout
+lexLayout =
+  { groups:
+      [ { id: "rotor", label: "Rotor", color: "#8b4513", mutedColor: "#d4b898" }
+      , { id: "amp", label: "Amp", color: "#6a4a30", mutedColor: "#c8b8a0" }
+      ]
+  , knobs:
+      -- Row A (speed + output)
+      [ { col: 0, row: 0, group: "rotor"
+        , primaryCC: cc 12, primaryLabel: Static "Speed"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 1, row: 0, group: "amp"
+        , primaryCC: cc 17, primaryLabel: Static "Volume"
+        , primaryLayer: ContinuousKnob { center: Just 64 }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 2, row: 0, group: "amp"
+        , primaryCC: cc 18, primaryLabel: Static "Dry"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      -- Row B (mic + drive)
+      , { col: 0, row: 1, group: "rotor"
+        , primaryCC: cc 14, primaryLabel: Static "Mic Dist"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 1, row: 1, group: "rotor"
+        , primaryCC: cc 15, primaryLabel: Static "Horn Lvl"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 2, row: 1, group: "amp"
+        , primaryCC: cc 19, primaryLabel: Static "Drive"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      ]
+  , footswitches:
+      [ { col: 0, cc: cc 22, label: "Spd", group: "rotor"
+        , ledCC: Nothing, engagedColor: "#8b4513", ledColor: "#8b4513" }
+      , { col: 2, cc: cc 102, label: "Bypass", group: "amp"
+        , ledCC: Nothing, engagedColor: "#8b4513", ledColor: "#8b4513" }
+      ]
+  , dipBanks: []
+  , config:
+      [ { cc: cc 11, label: "Mic",    controlType: CfgToggle }
+      , { cc: cc 16, label: "Ramp",   controlType: CfgToggle }
+      , { cc: cc 20, label: "Bi-Amp", controlType: CfgToggle }
+      , { cc: cc 21, label: "Cab",    controlType: CfgToggle }
+      , { cc: cc 63, label: "Clock",  controlType: CfgToggle }
+      ]
+  , columns: 3
+  , knobRows: 2
+  , viewBox: { width: 320.0, height: 370.0 }
   }

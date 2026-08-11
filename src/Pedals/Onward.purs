@@ -6,6 +6,7 @@ import Data.Maybe (Maybe(..))
 import Data.Midi (CC, MidiValue, unsafeCC, unsafeMidiValue)
 import Data.Pedal (Annotation, Control(..), LabelSource(..), PedalDef, PedalId(..), Section, SectionLayout(..))
 import Data.Pedal.Engage (EngageConfig(..))
+import Data.Pedal.Layout (ConfigControlType(..), KnobLayer(..), PedalLayout)
 import Data.Tuple (Tuple(..))
 import Data.Twister (TwisterButton(..), TwisterEncoder(..), TwisterMapping)
 
@@ -53,7 +54,7 @@ pedal =
   , resetOrder: []
   , twister: Just twisterMapping
   , modes: Nothing
-  , layout: Nothing
+  , layout: Just onwardLayout
   , sections:
       [ channelsSection
       , mainSection
@@ -285,4 +286,112 @@ otherSection =
         , annotations: [ ann 0 "Min", ann 127 "Max" ] }
       , Momentary { cc: cc 93, label: "Tap Tempo", value: mv 127, description: Nothing }
       ]
+  }
+
+-- | Common CBA 3-way toggle: values 0, 2, 3
+cba3 :: Array { lo :: Int, hi :: Int, send :: Int }
+cba3 = [ { lo: 0, hi: 1, send: 0 }, { lo: 2, hi: 2, send: 2 }, { lo: 3, hi: 127, send: 3 } ]
+
+-- | Donut view layout. Groups follow the physical linkage lines on the pedal:
+-- | Error→Type, Sustain→Fade, Octave→Texture→Animate
+onwardLayout :: PedalLayout
+onwardLayout =
+  { groups:
+      [ { id: "shared", label: "Shared", color: "#8a8070", mutedColor: "#d0cbc0" }
+      , { id: "error", label: "Error", color: "#b06840", mutedColor: "#dcc0a8" }
+      , { id: "sustain", label: "Sustain", color: "#6a8a5a", mutedColor: "#c0d4b4" }
+      , { id: "character", label: "Character", color: "#5a7090", mutedColor: "#b8c8d8" }
+      ]
+  , knobs:
+      -- Row A (continuous knobs)
+      [ { col: 0, row: 0, group: "shared"
+        , primaryCC: cc 14, primaryLabel: Static "Size"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Just (cc 24), hiddenLabel: Just (Static "Sensitivity")
+        , hiddenLayer: Just (ContinuousKnob { center: Just 64 }) }
+      , { col: 1, row: 0, group: "shared"
+        , primaryCC: cc 15, primaryLabel: Static "Mix"
+        , primaryLayer: ContinuousKnob { center: Just 64 }
+        , hiddenCC: Just (cc 25), hiddenLabel: Just (Static "Balance")
+        , hiddenLayer: Just (ContinuousKnob { center: Just 64 }) }
+      , { col: 2, row: 0, group: "character"
+        , primaryCC: cc 16, primaryLabel: Static "Octave"
+        , primaryLayer: ContinuousKnob { center: Just 64 }
+        , hiddenCC: Just (cc 26), hiddenLabel: Just (Static "Duck Depth")
+        , hiddenLayer: Just (ContinuousKnob { center: Nothing }) }
+      -- Row B (continuous knobs)
+      , { col: 0, row: 1, group: "error"
+        , primaryCC: cc 17, primaryLabel: Static "Error"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Just (cc 27), hiddenLabel: Just (Static "Error Blend")
+        , hiddenLayer: Just (ContinuousKnob { center: Nothing }) }
+      , { col: 1, row: 1, group: "sustain"
+        , primaryCC: cc 18, primaryLabel: Static "Sustain"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Just (cc 28), hiddenLabel: Just (Static "User")
+        , hiddenLayer: Just (ContinuousKnob { center: Nothing }) }
+      , { col: 2, row: 1, group: "character"
+        , primaryCC: cc 19, primaryLabel: Static "Texture"
+        , primaryLayer: ContinuousKnob { center: Just 64 }
+        , hiddenCC: Just (cc 29), hiddenLabel: Just (Static "EQ")
+        , hiddenLayer: Just (ContinuousKnob { center: Just 64 }) }
+      -- Row C (toggle switches / segment selectors)
+      , { col: 0, row: 2, group: "error"
+        , primaryCC: cc 21, primaryLabel: Static "Tim / Cnd / Ply"
+        , primaryLayer: SegmentedKnob cba3
+        , hiddenCC: Just (cc 31), hiddenLabel: Just (Static "G / Both / F")
+        , hiddenLayer: Just (SegmentedKnob cba3) }
+      , { col: 1, row: 2, group: "sustain"
+        , primaryCC: cc 22, primaryLabel: Static "Long / User / Short"
+        , primaryLayer: SegmentedKnob cba3
+        , hiddenCC: Just (cc 32), hiddenLabel: Just (Static "G / Both / F")
+        , hiddenLayer: Just (SegmentedKnob cba3) }
+      , { col: 2, row: 2, group: "character"
+        , primaryCC: cc 23, primaryLabel: Static "Vib / Off / Cho"
+        , primaryLayer: SegmentedKnob cba3
+        , hiddenCC: Just (cc 33), hiddenLabel: Just (Static "G / Both / F")
+        , hiddenLayer: Just (SegmentedKnob cba3) }
+      ]
+  , footswitches:
+      [ { col: 0, cc: cc 103, label: "Glitch", group: "shared"
+        , ledCC: Just (cc 105), engagedColor: "#5a9a50", ledColor: "#5a9a50" }
+      , { col: 2, cc: cc 102, label: "Freeze", group: "shared"
+        , ledCC: Just (cc 106), engagedColor: "#5a9a50", ledColor: "#5a9a50" }
+      ]
+  , dipBanks:
+      [ { label: "Ramping"
+        , switches:
+            [ { cc: cc 61, label: "Size",     index: 0 }
+            , { cc: cc 62, label: "Error",    index: 1 }
+            , { cc: cc 63, label: "Sustain",  index: 2 }
+            , { cc: cc 64, label: "Texture",  index: 3 }
+            , { cc: cc 65, label: "Octave",   index: 4 }
+            , { cc: cc 66, label: "Bounce",   index: 5 }
+            , { cc: cc 67, label: "Sweep",    index: 6 }
+            , { cc: cc 68, label: "Polarity", index: 7 }
+            ]
+        }
+      , { label: "Customize"
+        , switches:
+            [ { cc: cc 71, label: "Miso",      index: 0 }
+            , { cc: cc 72, label: "Spread",    index: 1 }
+            , { cc: cc 73, label: "Latch",     index: 2 }
+            , { cc: cc 74, label: "Sidechain", index: 3 }
+            , { cc: cc 75, label: "Duck",      index: 4 }
+            , { cc: cc 76, label: "Reverse",   index: 5 }
+            , { cc: cc 77, label: "1/2 Spd",   index: 6 }
+            , { cc: cc 78, label: "Manual",    index: 7 }
+            ]
+        }
+      ]
+  , config:
+      [ { cc: cc 52,  label: "Ramp",    controlType: CfgToggle }
+      , { cc: cc 20,  label: "Speed",   controlType: CfgSlider }
+      , { cc: cc 57,  label: "Dry Kill", controlType: CfgToggle }
+      , { cc: cc 58,  label: "Trails",  controlType: CfgToggle }
+      , { cc: cc 51,  label: "Clk Fol", controlType: CfgToggle }
+      ]
+  , columns: 3
+  , knobRows: 3
+  , viewBox: { width: 320.0, height: 470.0 }
   }

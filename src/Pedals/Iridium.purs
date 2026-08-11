@@ -5,6 +5,7 @@ import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Midi (CC, MidiValue, unsafeCC, unsafeMidiValue)
 import Data.Pedal (Annotation, Control(..), LabelSource(..), PedalDef, PedalId(..), SectionLayout(..))
+import Data.Pedal.Layout (ConfigControlType(..), KnobLayer(..), PedalLayout)
 import Data.Pedal.Engage (EngageConfig(..))
 import Data.Tuple (Tuple(..))
 import Data.Twister (TwisterButton(..), TwisterEncoder(..))
@@ -65,7 +66,7 @@ pedal =
           ]
       }
   , modes: Nothing
-  , layout: Nothing
+  , layout: Just iridiumLayout
   , sections:
       [ { name: "Engage", compact: true, collapsed: false, layout: DefaultLayout, description: Nothing
         , controls:
@@ -132,4 +133,61 @@ pedal =
             ]
         }
       ]
+  }
+
+-- | Donut view layout. Steel-blue monochrome — single signal chain, no dual-channel split.
+-- | Toggles (AMP 3-way, CAB 9-way) go in config since CAB depends on AMP.
+iridiumLayout :: PedalLayout
+iridiumLayout =
+  { groups:
+      [ { id: "amp", label: "Amp", color: "#5a6a8a", mutedColor: "#b8c0d0" }
+      , { id: "output", label: "Output", color: "#7a8070", mutedColor: "#c8ccbf" }
+      ]
+  , knobs:
+      -- Row A (gain + output)
+      [ { col: 0, row: 0, group: "amp"
+        , primaryCC: cc 13, primaryLabel: Static "Drive"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 1, row: 0, group: "output"
+        , primaryCC: cc 12, primaryLabel: Static "Level"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 2, row: 0, group: "output"
+        , primaryCC: cc 17, primaryLabel: Static "Room"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      -- Row B (EQ)
+      , { col: 0, row: 1, group: "amp"
+        , primaryCC: cc 14, primaryLabel: Static "Bass"
+        , primaryLayer: ContinuousKnob { center: Just 64 }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 1, row: 1, group: "amp"
+        , primaryCC: cc 15, primaryLabel: Static "Mid"
+        , primaryLayer: ContinuousKnob { center: Just 64 }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      , { col: 2, row: 1, group: "amp"
+        , primaryCC: cc 16, primaryLabel: Static "Treble"
+        , primaryLayer: ContinuousKnob { center: Just 64 }
+        , hiddenCC: Nothing, hiddenLabel: Nothing
+        , hiddenLayer: Nothing }
+      ]
+  , footswitches:
+      [ { col: 2, cc: cc 102, label: "Bypass", group: "amp"
+        , ledCC: Nothing, engagedColor: "#5a6a8a", ledColor: "#5a6a8a" }
+      ]
+  , dipBanks: []
+  , config:
+      [ { cc: cc 19, label: "Amp",    controlType: CfgToggle }
+      , { cc: cc 18, label: "Room",   controlType: CfgToggle }
+      , { cc: cc 21, label: "Amp Dis", controlType: CfgToggle }
+      ]
+  , columns: 3
+  , knobRows: 2
+  , viewBox: { width: 320.0, height: 370.0 }
   }

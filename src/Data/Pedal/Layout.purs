@@ -3,6 +3,7 @@ module Data.Pedal.Layout
   , GroupStyle
   , KnobDef
   , KnobLayer(..)
+  , SegmentDef
   , FootswitchDef
   , DipBankDef
   , ConfigDef
@@ -15,9 +16,13 @@ import Data.Maybe (Maybe)
 import Data.Midi (CC)
 import Data.Pedal.Label (LabelSource)
 
+-- | A segment in a segmented knob: lo..hi defines the MIDI value range
+-- | that activates this segment, send is the value emitted on click.
+type SegmentDef = { lo :: Int, hi :: Int, send :: Int }
+
 data KnobLayer
   = ContinuousKnob { center :: Maybe Int }
-  | SegmentedKnob
+  | SegmentedKnob (Array SegmentDef)
 
 derive instance Eq KnobLayer
 

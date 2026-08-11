@@ -5,6 +5,7 @@ import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Midi (CC, MidiValue, unsafeCC, unsafeMidiValue)
 import Data.Pedal (Annotation, Control(..), LabelSource(..), PedalDef, PedalId(..), RangeOption, SectionLayout(..))
+import Data.Pedal.Layout (ConfigControlType(..), KnobLayer(..), PedalLayout)
 import Data.Pedal.Engage (EngageConfig(..))
 import Data.Tuple (Tuple(..))
 import Data.Twister (TwisterButton(..), TwisterEncoder(..))
@@ -72,7 +73,7 @@ pedal =
           ]
       }
   , modes: Nothing
-  , layout: Nothing
+  , layout: Just mercury7Layout
   , sections:
       [ { name: "Engage", compact: true, collapsed: false, layout: DefaultLayout, description: Nothing
         , controls:
@@ -133,4 +134,62 @@ pedal =
             ]
         }
       ]
+  }
+
+-- | Donut view layout. Deep blue monochrome — ambient reverb, dual-layer.
+-- | Every knob has an alt function (ALT hold on pedal, hidden layer here).
+-- | Pitch Vector at center-bottom has center detente at 64 (Off).
+mercury7Layout :: PedalLayout
+mercury7Layout =
+  { groups:
+      [ { id: "reverb", label: "Reverb", color: "#2a5a8a", mutedColor: "#a0b8d0" }
+      , { id: "tone", label: "Tone", color: "#3a6a70", mutedColor: "#a8c8c0" }
+      ]
+  , knobs:
+      -- Row A: Space Decay (alt Predelay), Modulate (alt Mod Speed), Mix (alt PV Mix)
+      [ { col: 0, row: 0, group: "reverb"
+        , primaryCC: cc 16, primaryLabel: Static "Decay"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Just (cc 22), hiddenLabel: Just (Static "Predly")
+        , hiddenLayer: Just (ContinuousKnob { center: Nothing }) }
+      , { col: 1, row: 0, group: "reverb"
+        , primaryCC: cc 17, primaryLabel: Static "Mod"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Just (cc 23), hiddenLabel: Just (Static "Mod Spd")
+        , hiddenLayer: Just (ContinuousKnob { center: Nothing }) }
+      , { col: 2, row: 0, group: "reverb"
+        , primaryCC: cc 18, primaryLabel: Static "Mix"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Just (cc 24), hiddenLabel: Just (Static "PV Mix")
+        , hiddenLayer: Just (ContinuousKnob { center: Nothing }) }
+      -- Row B: Lo Freq (alt Density), Pitch Vector (alt Attack Time), Hi Freq (alt Vibrato)
+      , { col: 0, row: 1, group: "tone"
+        , primaryCC: cc 19, primaryLabel: Static "Lo Freq"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Just (cc 25), hiddenLabel: Just (Static "Density")
+        , hiddenLayer: Just (ContinuousKnob { center: Nothing }) }
+      , { col: 1, row: 1, group: "tone"
+        , primaryCC: cc 20, primaryLabel: Static "Pitch V"
+        , primaryLayer: ContinuousKnob { center: Just 64 }
+        , hiddenCC: Just (cc 26), hiddenLabel: Just (Static "Attack")
+        , hiddenLayer: Just (ContinuousKnob { center: Nothing }) }
+      , { col: 2, row: 1, group: "tone"
+        , primaryCC: cc 21, primaryLabel: Static "Hi Freq"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Just (cc 27), hiddenLabel: Just (Static "Vibrato")
+        , hiddenLayer: Just (ContinuousKnob { center: Nothing }) }
+      ]
+  , footswitches:
+      [ { col: 0, cc: cc 28, label: "Swell", group: "reverb"
+        , ledCC: Nothing, engagedColor: "#2a5a8a", ledColor: "#2a5a8a" }
+      , { col: 2, cc: cc 14, label: "Bypass", group: "reverb"
+        , ledCC: Nothing, engagedColor: "#2a5a8a", ledColor: "#2a5a8a" }
+      ]
+  , dipBanks: []
+  , config:
+      [ { cc: cc 29, label: "Algo", controlType: CfgToggle }
+      ]
+  , columns: 3
+  , knobRows: 2
+  , viewBox: { width: 320.0, height: 370.0 }
   }

@@ -6,6 +6,7 @@ import Data.Maybe (Maybe(..))
 import Data.Midi (CC, MidiValue, unsafeCC, unsafeMidiValue)
 import Data.Pedal (Annotation, Control(..), LabelSource(..), PedalDef, PedalId(..), SectionLayout(..))
 import Data.Pedal.Engage (EngageConfig(..))
+import Data.Pedal.Layout (ConfigControlType(..), KnobLayer(..), PedalLayout)
 import Data.Tuple (Tuple(..))
 import Data.Twister (TwisterButton(..), TwisterEncoder(..))
 
@@ -80,7 +81,7 @@ pedal =
           ]
       }
   , modes: Nothing
-  , layout: Nothing
+  , layout: Just cleanLayout
   , sections:
       [ { name: "Engage", compact: true, collapsed: false, layout: DefaultLayout, description: Nothing
         , controls:
@@ -189,4 +190,106 @@ pedal =
             ]
         }
       ]
+  }
+
+-- | Common CBA 3-way toggle: values 0, 2, 3
+cba3 :: Array { lo :: Int, hi :: Int, send :: Int }
+cba3 = [ { lo: 0, hi: 1, send: 0 }, { lo: 2, hi: 2, send: 2 }, { lo: 3, hi: 127, send: 3 } ]
+
+-- | Donut view layout. Green = dynamics/envelope, teal = output/swell (matching panel colors).
+cleanLayout :: PedalLayout
+cleanLayout =
+  { groups:
+      [ { id: "dynamics", label: "Dynamics", color: "#7cb342", mutedColor: "#c8e0a0" }
+      , { id: "output", label: "Output", color: "#2a9d8f", mutedColor: "#a8d8d0" }
+      ]
+  , knobs:
+      -- Row A
+      [ { col: 0, row: 0, group: "dynamics"
+        , primaryCC: cc 14, primaryLabel: Static "Dynamics"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Just (cc 24), hiddenLabel: Just (Static "Gate Rel")
+        , hiddenLayer: Just (ContinuousKnob { center: Nothing }) }
+      , { col: 1, row: 0, group: "dynamics"
+        , primaryCC: cc 15, primaryLabel: Static "Sensitivity"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Just (cc 25), hiddenLabel: Just (Static "Gate Thresh")
+        , hiddenLayer: Just (ContinuousKnob { center: Nothing }) }
+      , { col: 2, row: 0, group: "output"
+        , primaryCC: cc 16, primaryLabel: Static "Wet"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Just (cc 26), hiddenLabel: Just (Static "Swell In")
+        , hiddenLayer: Just (ContinuousKnob { center: Nothing }) }
+      -- Row B
+      , { col: 0, row: 1, group: "dynamics"
+        , primaryCC: cc 17, primaryLabel: Static "Attack"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Just (cc 27), hiddenLabel: Just (Static "User Rel")
+        , hiddenLayer: Just (ContinuousKnob { center: Nothing }) }
+      , { col: 1, row: 1, group: "dynamics"
+        , primaryCC: cc 18, primaryLabel: Static "EQ"
+        , primaryLayer: ContinuousKnob { center: Just 64 }
+        , hiddenCC: Just (cc 28), hiddenLabel: Just (Static "Env Bal")
+        , hiddenLayer: Just (ContinuousKnob { center: Nothing }) }
+      , { col: 2, row: 1, group: "output"
+        , primaryCC: cc 19, primaryLabel: Static "Dry"
+        , primaryLayer: ContinuousKnob { center: Nothing }
+        , hiddenCC: Just (cc 29), hiddenLabel: Just (Static "Swell Out")
+        , hiddenLayer: Just (ContinuousKnob { center: Nothing }) }
+      -- Row C (toggle switches)
+      , { col: 0, row: 2, group: "dynamics"
+        , primaryCC: cc 21, primaryLabel: Static "Fast / User / Slow"
+        , primaryLayer: SegmentedKnob cba3
+        , hiddenCC: Just (cc 31), hiddenLabel: Just (Static "Anl / Cmb / Adp")
+        , hiddenLayer: Just (SegmentedKnob cba3) }
+      , { col: 1, row: 2, group: "dynamics"
+        , primaryCC: cc 22, primaryLabel: Static "Shft / Man / Mod"
+        , primaryLayer: SegmentedKnob cba3
+        , hiddenCC: Just (cc 32), hiddenLabel: Just (Static "ASR / ENV")
+        , hiddenLayer: Just (SegmentedKnob [ { lo: 0, hi: 63, send: 0 }, { lo: 64, hi: 127, send: 127 } ]) }
+      , { col: 2, row: 2, group: "output"
+        , primaryCC: cc 23, primaryLabel: Static "Wob / Off / Twt"
+        , primaryLayer: SegmentedKnob cba3
+        , hiddenCC: Just (cc 33), hiddenLabel: Just (Static "EQ / Both / V/C")
+        , hiddenLayer: Just (SegmentedKnob cba3) }
+      ]
+  , footswitches:
+      [ { col: 0, cc: cc 103, label: "Swell", group: "output"
+        , ledCC: Nothing, engagedColor: "#5a9a50", ledColor: "#5a9a50" }
+      , { col: 2, cc: cc 102, label: "Bypass", group: "dynamics"
+        , ledCC: Nothing, engagedColor: "#5a9a50", ledColor: "#5a9a50" }
+      ]
+  , dipBanks:
+      [ { label: "Ramping"
+        , switches:
+            [ { cc: cc 61, label: "Dynamics", index: 0 }
+            , { cc: cc 62, label: "Attack",   index: 1 }
+            , { cc: cc 63, label: "EQ",       index: 2 }
+            , { cc: cc 64, label: "Dry",      index: 3 }
+            , { cc: cc 65, label: "Wet",      index: 4 }
+            , { cc: cc 66, label: "Bounce",   index: 5 }
+            , { cc: cc 67, label: "Sweep",    index: 6 }
+            , { cc: cc 68, label: "Polarity", index: 7 }
+            ]
+        }
+      , { label: "Customize"
+        , switches:
+            [ { cc: cc 71, label: "Miso",      index: 0 }
+            , { cc: cc 72, label: "Spread",    index: 1 }
+            , { cc: cc 73, label: "Latch",     index: 2 }
+            , { cc: cc 74, label: "Sidechain", index: 3 }
+            , { cc: cc 75, label: "Gate",      index: 4 }
+            , { cc: cc 76, label: "Motion",    index: 5 }
+            , { cc: cc 77, label: "Swell Aux", index: 6 }
+            , { cc: cc 78, label: "Dusty",     index: 7 }
+            ]
+        }
+      ]
+  , config:
+      [ { cc: cc 52,  label: "Ramp",  controlType: CfgToggle }
+      , { cc: cc 20,  label: "Speed", controlType: CfgSlider }
+      ]
+  , columns: 3
+  , knobRows: 3
+  , viewBox: { width: 320.0, height: 470.0 }
   }
