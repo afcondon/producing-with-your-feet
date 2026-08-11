@@ -3,3 +3,7 @@ output/
 index.js
 node_modules/
 .direnv/
+.DS_Store
+.psc-ide-port
+static/app.js
+static/bundle.js

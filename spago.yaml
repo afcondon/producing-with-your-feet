@@ -1,5 +1,5 @@
 package:
-  name: explorer-ps
+  name: producing-with-your-feet
   dependencies:
     - aff: ">=8.0.0 <9.0.0"
     - argonaut-core: ">=7.0.0 <8.0.0"
@@ -14,9 +14,9 @@ package:
     - foreign-object: ">=4.1.0 <5.0.0"
     - halogen: ">=7.0.0 <8.0.0"
     - halogen-subscriptions: ">=2.0.0 <3.0.0"
-    - hylograph-graph: "*"
-    - hylograph-selection: "*"
-    - hylograph-transitions: "*"
+    - hylograph-graph
+    - hylograph-selection
+    - hylograph-transitions
     - integers: ">=6.0.0 <7.0.0"
     - js-date: ">=8.0.0 <9.0.0"
     - maybe: ">=6.0.0 <7.0.0"
@@ -41,12 +41,6 @@ workspace:
   packageSet:
     registry: 77.13.1
   extraPackages:
-    hylograph-selection:
-      path: "/Users/afc/work/afc-work/purescript-hylograph-libs/purescript-hylograph-\
-        selection"
-    hylograph-graph:
-      path: "/Users/afc/work/afc-work/purescript-hylograph-libs/purescript-hylograph-\
-        graph"
-    hylograph-transitions:
-      path: "/Users/afc/work/afc-work/purescript-hylograph-libs/purescript-hylograph-\
-        transitions"
+    hylograph-selection: 0.5.3
+    hylograph-graph: 0.3.0
+    hylograph-transitions: 0.1.0
