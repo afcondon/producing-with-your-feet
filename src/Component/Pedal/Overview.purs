@@ -207,21 +207,27 @@ renderHedraInto containerId ps callbacks = do
   _ <- rerender containerId tree
   pure unit
 
--- | Subscribe to document-level mouse events for drag tracking
+-- | Subscribe to window-level pointer events for drag tracking.
+-- | See the note on the equivalent in `Component.Pedal.View` — pointer rather
+-- | than mouse events so touch drags work, `MouseEvent.fromEvent` because
+-- | PointerEvent extends MouseEvent, and `pointercancel` so an interrupted
+-- | gesture cannot leave the drag stuck.
 setupDragSubscription :: forall m. MonadAff m => H.HalogenM State Action () Output m H.SubscriptionId
 setupDragSubscription =
   H.subscribe $ HS.makeEmitter \emit -> do
     moveFn <- eventListener \e ->
       case ME.fromEvent e of
-        Just mouseEvt -> emit (DragMove (ME.clientY mouseEvt) (ME.clientX mouseEvt))
+        Just pointerEvt -> emit (DragMove (ME.clientY pointerEvt) (ME.clientX pointerEvt))
         Nothing -> pure unit
     upFn <- eventListener \_ -> emit DragEnd
     target <- Window.toEventTarget <$> window
-    addEventListener (EventType "mousemove") moveFn false target
-    addEventListener (EventType "mouseup") upFn false target
+    addEventListener (EventType "pointermove") moveFn false target
+    addEventListener (EventType "pointerup") upFn false target
+    addEventListener (EventType "pointercancel") upFn false target
     pure do
-      removeEventListener (EventType "mousemove") moveFn false target
-      removeEventListener (EventType "mouseup") upFn false target
+      removeEventListener (EventType "pointermove") moveFn false target
+      removeEventListener (EventType "pointerup") upFn false target
+      removeEventListener (EventType "pointercancel") upFn false target
 
 detailContainerId :: String
 detailContainerId = "#overview-detail"

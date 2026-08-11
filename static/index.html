@@ -3231,6 +3231,19 @@ body {
   box-sizing: border-box;
 }
 .overview-detail svg { width: 100%; height: 100%; }
+
+/* Knob drags are pointer-driven, so the browser must not claim the gesture for
+   scrolling or pinch-zoom. Without this, touch drags on iOS fire pointercancel
+   the moment the finger moves and the knob stops tracking. Desktop is
+   unaffected. Thumbnails are excluded — they are not draggable, so leaving them
+   scrollable keeps the treemap usable on touch. */
+#pedal-donut-hats,
+#pedal-donut-hats svg,
+.overview-detail,
+.overview-detail svg {
+  touch-action: none;
+}
+
 .overview-treemap {
   flex: 1;
   min-width: 0;

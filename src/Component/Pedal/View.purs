@@ -232,21 +232,35 @@ handleAction = case _ of
       Nothing ->
         H.modify_ _ { dragging = Nothing }
 
--- | Subscribe to document-level mouse events for drag tracking
+-- | Subscribe to window-level pointer events for drag tracking.
+-- |
+-- | Pointer rather than mouse events, because iOS synthesises mouse events only
+-- | as tap emulation after touchend — a touch drag never fires `mousemove`, so
+-- | mouse listeners leave every knob dead on an iPad. HATS initiates the drag
+-- | from a real `pointerdown` (InterpreterTick), so this is the matching half.
+-- |
+-- | `MouseEvent.fromEvent` is correct here despite the name: PointerEvent
+-- | extends MouseEvent, so the coercion succeeds and clientX/clientY are
+-- | inherited.
+-- |
+-- | `pointercancel` ends the drag too — iOS fires it when the system claims the
+-- | gesture, and without it the drag would stick with the subscription live.
 setupDragSubscription :: forall m. MonadAff m => H.HalogenM State Action () Output m H.SubscriptionId
 setupDragSubscription =
   H.subscribe $ HS.makeEmitter \emit -> do
     moveFn <- eventListener \e ->
       case ME.fromEvent e of
-        Just mouseEvt -> emit (DragMove (ME.clientY mouseEvt) (ME.clientX mouseEvt))
+        Just pointerEvt -> emit (DragMove (ME.clientY pointerEvt) (ME.clientX pointerEvt))
         Nothing -> pure unit
     upFn <- eventListener \_ -> emit DragEnd
     target <- Window.toEventTarget <$> window
-    addEventListener (EventType "mousemove") moveFn false target
-    addEventListener (EventType "mouseup") upFn false target
+    addEventListener (EventType "pointermove") moveFn false target
+    addEventListener (EventType "pointerup") upFn false target
+    addEventListener (EventType "pointercancel") upFn false target
     pure do
-      removeEventListener (EventType "mousemove") moveFn false target
-      removeEventListener (EventType "mouseup") upFn false target
+      removeEventListener (EventType "pointermove") moveFn false target
+      removeEventListener (EventType "pointerup") upFn false target
+      removeEventListener (EventType "pointercancel") upFn false target
 
 -- | Re-render HATS tree if we have layout + state + listener
 rerenderIfReady :: forall m. MonadAff m => H.HalogenM State Action () Output m Unit
