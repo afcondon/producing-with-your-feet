@@ -1,0 +1,27 @@
+package:
+  name: pwyf-store
+  description: Preset and patch store for Producing With Your Feet — a dumb JSON
+    document store over HTTP, so the app stops depending on per-origin
+    localStorage. Content lives as plain files in a git repo; the codecs stay
+    in the client.
+  dependencies:
+    - aff
+    - argonaut-core
+    - arrays
+    - console
+    - effect
+    - either
+    - exceptions
+    - foldable-traversable
+    - httpurple
+    - integers
+    - maybe
+    - node-fs
+    - node-path
+    - node-process
+    - prelude
+    - strings
+    - transformers
+    - tuples
+  build:
+    strict: true
