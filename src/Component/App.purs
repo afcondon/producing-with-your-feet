@@ -54,6 +54,7 @@ import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Halogen.Subscription as HS
 import Config.Registry as CRegistry
+import Config.Types (MidiRouting)
 import Type.Proxy (Proxy(..))
 import Web.DOM.Element as Element
 import Web.HTML (window)
@@ -63,6 +64,7 @@ import Web.HTML.Window (document)
 
 data Action
   = Initialize
+  | InitializeMIDI MidiRouting
   | SetView View
   | SetValue PedalId CC MidiValue
   | SendMomentary PedalId CC MidiValue
@@ -694,47 +696,60 @@ handleAction = case _ of
           for_ mb \b -> case st.view of
             GridView -> Element.setClassName "grid-mode" (HTMLElement.toElement b)
             _ -> pure unit
-        -- MIDI initialization
-        mAccess <- H.liftAff MIDI.requestMIDIAccess
-        outputs <- liftEffect $ MIDI.getOutputs mAccess
-        inputs <- liftEffect $ MIDI.getInputs mAccess
-        H.modify_ _ { connections { access = Just mAccess
-                                   , availableOutputs = outputs
-                                   , availableInputs = inputs } }
-        -- Auto-select MIDI ports using routing patterns from registry
-        let routing = rig.midiRouting
-        -- Auto-select Twister input
-        let mTwisterIn = Array.find (\p -> contains (Pattern routing.twisterInput.match) p.name) inputs
-        for_ mTwisterIn \port ->
-          handleAction (SelectTwisterInput port.id)
-        -- Auto-select Twister output
-        let mTwisterOut = Array.find (\p -> contains (Pattern routing.twisterOutput.match) p.name) outputs
-        for_ mTwisterOut \port -> do
-          mOut <- liftEffect $ MIDI.openOutput mAccess port.id
-          H.modify_ _ { connections { twisterOutput = mOut, twisterOutputId = Just port.id } }
-        -- Auto-select pedal output (MC6 via USB)
-        let mPedalOut = Array.find (\p -> contains (Pattern routing.pedalOutput.match) p.name) outputs
-        for_ mPedalOut \port ->
-          handleAction (SelectPedalOutput port.id)
-        -- Auto-select LoopyPro output
-        let mLoopyOut = Array.find (\p -> contains (Pattern routing.loopyOutput.match) p.name) outputs
-        for_ mLoopyOut \port ->
-          handleAction (SelectLoopyOutput port.id)
-        -- Auto-select MC6 input (relay to LoopyPro)
-        let mMC6In = Array.find (\p -> contains (Pattern routing.mc6Input.match) p.name) inputs
-        for_ mMC6In \port ->
-          handleAction (SelectMC6Input port.id)
-        -- Auto-select MC6 output (SysEx programming) — same device name as input
-        when (routing.mc6Input.match /= "") do
-          let mMC6Out = Array.find (\p -> contains (Pattern routing.mc6Input.match) p.name) outputs
-          for_ mMC6Out \port -> do
-            mOut <- liftEffect $ MIDI.openOutput mAccess port.id
-            H.modify_ _ { connections { mc6Output = mOut, mc6OutputId = Just port.id } }
+        -- MIDI initialisation is forked, not awaited.
+        --
+        -- requestMIDIAccess does not settle until the user answers the
+        -- permission prompt, and Halogen serialises a component's actions — so
+        -- awaiting it here means an unanswered prompt silently wedges the whole
+        -- app. Every later click queues behind Initialize forever, with no
+        -- error and no clue: nav dead, pills dead, and the Overview detail
+        -- panel never appearing because it needs a pill action first.
+        --
+        -- It also matters on the iPad, where Safari has no Web MIDI at all and
+        -- this can only fail. Forking lets startup finish and MIDI turn up late
+        -- or never.
+        void $ H.fork $ handleAction (InitializeMIDI rig.midiRouting)
         -- Try to silently reconnect the folder-backup handle (IndexedDB). If
         -- the browser needs a fresh gesture, this surfaces Nothing and the
         -- user will see a "Reconnect" affordance in the Files view.
         mBackupFolder <- H.liftAff FolderBackup.attemptReconnect
         H.modify_ _ { backupFolderName = mBackupFolder }
+
+  InitializeMIDI routing -> do
+    mAccess <- H.liftAff MIDI.requestMIDIAccess
+    outputs <- liftEffect $ MIDI.getOutputs mAccess
+    inputs <- liftEffect $ MIDI.getInputs mAccess
+    H.modify_ _ { connections { access = Just mAccess
+                               , availableOutputs = outputs
+                               , availableInputs = inputs } }
+    -- Auto-select MIDI ports using routing patterns from registry
+    -- Auto-select Twister input
+    let mTwisterIn = Array.find (\p -> contains (Pattern routing.twisterInput.match) p.name) inputs
+    for_ mTwisterIn \port ->
+      handleAction (SelectTwisterInput port.id)
+    -- Auto-select Twister output
+    let mTwisterOut = Array.find (\p -> contains (Pattern routing.twisterOutput.match) p.name) outputs
+    for_ mTwisterOut \port -> do
+      mOut <- liftEffect $ MIDI.openOutput mAccess port.id
+      H.modify_ _ { connections { twisterOutput = mOut, twisterOutputId = Just port.id } }
+    -- Auto-select pedal output (MC6 via USB)
+    let mPedalOut = Array.find (\p -> contains (Pattern routing.pedalOutput.match) p.name) outputs
+    for_ mPedalOut \port ->
+      handleAction (SelectPedalOutput port.id)
+    -- Auto-select LoopyPro output
+    let mLoopyOut = Array.find (\p -> contains (Pattern routing.loopyOutput.match) p.name) outputs
+    for_ mLoopyOut \port ->
+      handleAction (SelectLoopyOutput port.id)
+    -- Auto-select MC6 input (relay to LoopyPro)
+    let mMC6In = Array.find (\p -> contains (Pattern routing.mc6Input.match) p.name) inputs
+    for_ mMC6In \port ->
+      handleAction (SelectMC6Input port.id)
+    -- Auto-select MC6 output (SysEx programming) — same device name as input
+    when (routing.mc6Input.match /= "") do
+      let mMC6Out = Array.find (\p -> contains (Pattern routing.mc6Input.match) p.name) outputs
+      for_ mMC6Out \port -> do
+        mOut <- liftEffect $ MIDI.openOutput mAccess port.id
+        H.modify_ _ { connections { mc6Output = mOut, mc6OutputId = Just port.id } }
 
   SetView view -> do
     H.modify_ _ { view = view }
