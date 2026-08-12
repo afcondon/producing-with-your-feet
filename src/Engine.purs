@@ -92,6 +92,8 @@ type AppState =
   , controlBanks :: Array ControlBank
   , activeControlBankIdx :: Maybe Int
   -- Folder backup (Chrome File System Access API → Infovore path)
+  -- Result of the last manual MIDI test, shown on the MIDI page.
+  , midiTest :: Maybe String
   , backupFolderName :: Maybe String
   , backupLastSaveAt :: Maybe String
   , backupLastError :: Maybe String
@@ -159,6 +161,7 @@ initAppState =
   , mc6Assignments: []
   , controlBanks: [exampleControlBank]
   , activeControlBankIdx: Just 0
+  , midiTest: Nothing
   , backupFolderName: Nothing
   , backupLastSaveAt: Nothing
   , backupLastError: Nothing

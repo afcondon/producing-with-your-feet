@@ -65,6 +65,9 @@ import Web.HTML.Window (document)
 data Action
   = Initialize
   | InitializeMIDI MidiRouting
+  | RescanMIDI
+  | SelectMC6Output String
+  | PingMC6
   | SetView View
   | SetValue PedalId CC MidiValue
   | SendMomentary PedalId CC MidiValue
@@ -355,7 +358,26 @@ renderConnectView state =
             [ HH.text "Twister/MC6 \x2192 this app \x2192 LoopyPro (via AUDIO4c). "
             , HH.text "Pedal CCs go out a separate MIDI output to the pedalboard via MC6 MIDI Thru."
             ]
+        , connectCard
+            { label: "MC6 SysEx Out"
+            , description: "Output to the MC6 itself for programming switches over SysEx. Distinct from Pedal MIDI, which passes through the MC6 to the pedals."
+            , selectedId: state.connections.mc6OutputId
+            , ports: state.connections.availableOutputs
+            , onChange: SelectMC6Output
+            }
         ]
+    , HH.div [ HP.class_ (H.ClassName "midi-test") ]
+        [ HH.button
+            [ HP.class_ (H.ClassName "files-btn")
+            , HE.onClick \_ -> PingMC6
+            ]
+            [ HH.text "Ping MC6 (SysEx connect)" ]
+        , HH.span [ HP.class_ (H.ClassName "midi-test-result") ]
+            [ HH.text (case state.midiTest of
+                Nothing -> ""
+                Just msg -> msg) ]
+        ]
+    , renderMidiDiagnostics state
     ]
   where
   connectCard { label, description, selectedId, ports, onChange } =
@@ -381,6 +403,57 @@ renderConnectView state =
               ) ports
           )
       ]
+
+
+-- | Raw MIDI state, shown on the connections page.
+-- |
+-- | Port selection failing is invisible from the outside: a control that will
+-- | not stick looks the same whether the change event never fired, or the id
+-- | stored fine but matches no port, or the port refuses to open. Guessing
+-- | between those from a description costs more than printing them.
+renderMidiDiagnostics :: forall m. MonadAff m => AppState -> H.ComponentHTML Action Slots m
+renderMidiDiagnostics state =
+  HH.details [ HP.class_ (H.ClassName "midi-diagnostics") ]
+    [ HH.summary_ [ HH.text "Diagnostics" ]
+    , line "MIDI access" (case state.connections.access of
+        Nothing -> "NONE - requestMIDIAccess did not succeed"
+        Just _ -> "granted")
+    , HH.h4_ [ HH.text ("Outputs (" <> show (Array.length state.connections.availableOutputs) <> ")") ]
+    , portList state.connections.availableOutputs
+    , HH.h4_ [ HH.text ("Inputs (" <> show (Array.length state.connections.availableInputs) <> ")") ]
+    , portList state.connections.availableInputs
+    , HH.h4_ [ HH.text "Stored selections" ]
+    , line "pedalOutputId" (showMb state.connections.pedalOutputId)
+    , line "mc6InputId" (showMb state.connections.mc6InputId)
+    , line "twisterInputId" (showMb state.connections.twisterInputId)
+    , line "loopyOutputId" (showMb state.connections.loopyOutputId)
+    , HH.h4_ [ HH.text "Ports actually opened" ]
+    , line "pedalOutput" (case state.connections.pedalOutput of
+        Nothing -> "not open"
+        Just _ -> "open")
+    , line "mc6Input" (case state.connections.mc6Input of
+        Nothing -> "not open"
+        Just _ -> "open")
+    , line "mc6Output" (case state.connections.mc6Output of
+        Nothing -> "not open"
+        Just _ -> "open")
+    , line "mc6OutputId" (showMb state.connections.mc6OutputId)
+    , line "last MIDI test" (case state.midiTest of
+        Nothing -> "(none run)"
+        Just m -> m)
+    ]
+  where
+  showMb = case _ of
+    Nothing -> "(nothing stored)"
+    Just v -> "\"" <> v <> "\""
+  line label val =
+    HH.div [ HP.class_ (H.ClassName "midi-diag-line") ]
+      [ HH.span [ HP.class_ (H.ClassName "midi-diag-key") ] [ HH.text (label <> ": ") ]
+      , HH.span_ [ HH.text val ]
+      ]
+  portList ports =
+    if Array.null ports then HH.p_ [ HH.text "(none)" ]
+    else HH.div_ (map (\p -> line ("name=\"" <> p.name <> "\"") ("id=\"" <> p.id <> "\"")) ports)
 
 -- | Documentation view — MIDI reference derived from config data
 renderDocsView :: forall m. MonadAff m => AppState -> H.ComponentHTML Action Slots m
@@ -722,6 +795,14 @@ handleAction = case _ of
     H.modify_ _ { connections { access = Just mAccess
                                , availableOutputs = outputs
                                , availableInputs = inputs } }
+    -- Devices arrive late. A WIDI transceiver pairs over Bluetooth well after
+    -- the page has loaded, and a USB cable gets plugged in mid-session as a
+    -- matter of course on a pedalboard. Enumerating only at startup meant any
+    -- of that was invisible until a reload, with no hint that a reload was
+    -- what was needed.
+    { listener: midiListener, emitter: midiEmitter } <- H.liftEffect HS.create
+    void $ H.subscribe midiEmitter
+    void $ liftEffect $ MIDI.onStateChange mAccess (HS.notify midiListener RescanMIDI)
     -- Auto-select MIDI ports using routing patterns from registry
     -- Auto-select Twister input
     let mTwisterIn = Array.find (\p -> contains (Pattern routing.twisterInput.match) p.name) inputs
@@ -751,6 +832,19 @@ handleAction = case _ of
         mOut <- liftEffect $ MIDI.openOutput mAccess port.id
         H.modify_ _ { connections { mc6Output = mOut, mc6OutputId = Just port.id } }
 
+  RescanMIDI -> do
+    st <- H.get
+    case st.connections.access of
+      Nothing -> pure unit
+      Just access -> do
+        outputs <- liftEffect $ MIDI.getOutputs access
+        inputs <- liftEffect $ MIDI.getInputs access
+        H.modify_ _ { connections { availableOutputs = outputs
+                                  , availableInputs = inputs } }
+        liftEffect $ Console.log $ "MIDI rescan: "
+          <> show (Array.length outputs) <> " out, "
+          <> show (Array.length inputs) <> " in"
+
   SetView view -> do
     H.modify_ _ { view = view }
     case view of
@@ -775,15 +869,25 @@ handleAction = case _ of
           st.engine
       }
     st <- H.get
+    -- Record the outcome of every CC send on the MIDI page. Without it, a pedal
+    -- not responding is indistinguishable between "no output selected", "the
+    -- pedal has no channel", and "sent correctly and something downstream ate
+    -- it" - three very different problems that look identical from the stage.
     case st.connections.pedalOutput of
-      Nothing -> pure unit
+      Nothing ->
+        H.modify_ _ { midiTest = Just "CC not sent: no Pedal MIDI output selected" }
       Just output -> do
         let mCh = do
               ps <- Map.lookup pid st.engine
               makeChannel ps.channel
         case mCh of
-          Nothing -> pure unit
-          Just ch -> liftEffect $ MIDI.sendCC output ch ccNum val
+          Nothing ->
+            H.modify_ _ { midiTest = Just ("CC not sent: no channel for " <> show pid) }
+          Just ch -> do
+            liftEffect $ MIDI.sendCC output ch ccNum val
+            H.modify_ _ { midiTest = Just
+              ("sent CC " <> show (unCC ccNum) <> " val " <> show (unMidiValue val)
+                <> " ch " <> show (unChannel ch) <> " to " <> show pid) }
     -- LED feedback for UI-originated changes
     unless st.suppressTwister do
       for_ st.focusPedalId \focusPid ->
@@ -819,12 +923,43 @@ handleAction = case _ of
         mOut <- liftEffect $ MIDI.openOutput access portId
         H.modify_ _ { connections { pedalOutput = mOut, pedalOutputId = Just portId } }
 
+  SelectMC6Output portId -> do
+    st <- H.get
+    case st.connections.access of
+      Nothing -> pure unit
+      Just access -> do
+        mOut <- liftEffect $ MIDI.openOutput access portId
+        H.modify_ _ { connections { mc6Output = mOut, mc6OutputId = Just portId } }
+
+  -- | Send the Morningstar editor handshake and nothing else.
+  -- |
+  -- | The cheapest possible proof that bytes leave the app and reach the MC6:
+  -- | it is the same frame the official editor opens with, it writes nothing,
+  -- | and the device acknowledges it visibly. Worth having as a deliberate
+  -- | button because every other path to the MC6 is a side effect of editing
+  -- | something, which is a poor thing to be doing while you are still
+  -- | establishing whether the cable works.
+  PingMC6 -> do
+    st <- H.get
+    case st.connections.mc6Output of
+      Nothing ->
+        H.modify_ _ { midiTest = Just "no MC6 SysEx output selected" }
+      Just output -> do
+        liftEffect $ MIDI.send output SysEx.sysexConnect
+        H.modify_ _ { midiTest = Just
+          ("sent SysEx connect (" <> show (Array.length SysEx.sysexConnect)
+            <> " bytes) - MC6 should show an editor session") }
+
   SelectTwisterInput portId -> do
     st <- H.get
     case st.connections.access of
       Nothing -> pure unit
       Just access -> do
         mInput <- liftEffect $ MIDI.openInput access portId
+        -- Record the choice even when the port will not open, so a
+        -- failed open shows as "selected but dead" rather than silently
+        -- reverting to "not connected" and looking like the tap was missed.
+        H.modify_ _ { connections { twisterInputId = Just portId } }
         case mInput of
           Nothing -> pure unit
           Just input -> do
@@ -1060,6 +1195,10 @@ handleAction = case _ of
       Nothing -> pure unit
       Just access -> do
         mInput <- liftEffect $ MIDI.openInput access portId
+        -- Record the choice even when the port will not open, so a
+        -- failed open shows as "selected but dead" rather than silently
+        -- reverting to "not connected" and looking like the tap was missed.
+        H.modify_ _ { connections { mc6InputId = Just portId } }
         case mInput of
           Nothing -> pure unit
           Just input -> do

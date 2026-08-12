@@ -11,7 +11,17 @@
 const STORE_PORT = 3002;
 
 export const storeBaseUrlImpl = function () {
+  // ?store=http://host:port wins and is remembered. A device opening the app
+  // for the first time has an empty cache and no way to be told where the
+  // store is, so the address has to be able to arrive in the URL — otherwise
+  // pointing a new iPad at a store on a non-default port is a chicken-and-egg
+  // problem.
   try {
+    const q = new URLSearchParams(location.search).get("store");
+    if (q) {
+      localStorage.setItem("pwyf-store-url", q);
+      return q;
+    }
     const override = localStorage.getItem("pwyf-store-url");
     if (override) return override;
   } catch (e) {
