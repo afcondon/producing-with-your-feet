@@ -27,6 +27,9 @@ module Engine.Storage
   , boardPresetToJson
   , presetsToJsonString
   , boardPresetsToJsonString
+  , mc6AssignmentsToJsonString
+  , hydrateFromSnapshot
+  , snapshotToJsonString
   , StorageKey(..)
   ) where
 
@@ -534,3 +537,44 @@ parseMC6Message json = do
     0 -> ToggleOff
     1 -> ToggleOn
     _ -> ToggleBoth
+
+-- Remote store <-> cache
+--
+-- localStorage is no longer the system of record; pwyf-store is. These two
+-- functions are the bridge, and they are deliberately the only place that
+-- knows it: everything downstream still reads the same cache keys it always
+-- did, so a store that cannot be reached simply leaves the last good copy in
+-- place and the app carries on.
+
+mc6AssignmentsToJsonString :: Array MC6Assignment -> String
+mc6AssignmentsToJsonString =
+  stringify <<< Json.fromArray <<< map mc6AssignmentToJson
+
+-- | The document the store expects: whole collections, keyed as it keys them.
+snapshotToJsonString
+  :: Array PedalPreset -> Array BoardPreset -> Array MC6Assignment -> String
+snapshotToJsonString presets boards assignments =
+  stringify $ Json.fromObject $ FO.fromFoldable
+    [ Tuple "presets" (Json.fromArray (map presetToJson presets))
+    , Tuple "patches" (Json.fromArray (map boardPresetToJson boards))
+    , Tuple "assignments" (Json.fromArray (map mc6AssignmentToJson assignments))
+    ]
+
+-- | Fill the cache from a snapshot fetched off the store.
+-- |
+-- | Returns false if the payload could not be read at all, so the caller can
+-- | say so rather than silently continuing on stale data. Individual
+-- | collections that are absent are left as they are — the store's own guard
+-- | treats absence as "no change", and the cache should agree.
+hydrateFromSnapshot :: String -> Effect Boolean
+hydrateFromSnapshot raw = case hush (jsonParser raw) >>= Json.toObject of
+  Nothing -> pure false
+  Just o -> do
+    write "presets" PresetsKey o
+    write "patches" BoardPresetsKey o
+    write "assignments" MC6AssignmentsKey o
+    pure true
+  where
+  write key storageKey o = case FO.lookup key o of
+    Nothing -> pure unit
+    Just j -> setItem storageKey (stringify j)

@@ -35,6 +35,7 @@ import Effect.Aff (Milliseconds(..), delay)
 import Effect.Aff.Class (class MonadAff)
 import Effect.Class (liftEffect)
 import Effect.Console as Console
+import Effect.Exception as Exception
 import Config.Decode as Decode
 import Data.Either (Either(..))
 import Data.String.CodeUnits as SCU
@@ -44,6 +45,7 @@ import Engine.Storage as Storage
 import Engine.Twister as Twister
 import Foreign.FileIO as FileIO
 import Foreign.FolderBackup as FolderBackup
+import Foreign.Remote as Remote
 import Foreign.LoopyProject as LoopyProject
 import Foreign.WebMIDI as MIDI
 import Halogen as H
@@ -656,7 +658,22 @@ handleAction = case _ of
             Right ctrlConfig -> do
               liftEffect $ Console.log $ "MC6 banks loaded: " <> show (Array.length ctrlConfig.banks) <> " banks"
               H.modify_ _ { mc6Banks = ctrlConfig.banks }
-        -- Load saved state from localStorage (overrides defaults)
+        -- Pull from pwyf-store into the localStorage cache before reading it.
+        -- The store is the system of record; the cache is what makes the app
+        -- survive the store being unreachable, so a failure here is logged and
+        -- shrugged off rather than fatal.
+        storeBase <- liftEffect Remote.storeBaseUrl
+        snapRes <- H.liftAff (Remote.getSnapshot storeBase)
+        case snapRes of
+          Right raw -> do
+            okHydrate <- liftEffect (Storage.hydrateFromSnapshot raw)
+            liftEffect $ Console.log $
+              if okHydrate then "pwyf-store: loaded from " <> storeBase
+              else "pwyf-store: unreadable snapshot from " <> storeBase <> " - using cache"
+          Left errSnap -> liftEffect $ Console.log $
+            "pwyf-store unreachable at " <> storeBase <> " (" <> Exception.message errSnap
+              <> ") - using cache"
+        -- Load saved state from the cache (overrides defaults)
         mEngine <- liftEffect Storage.loadEngineState
         case mEngine of
           Just eng -> H.modify_ _ { engine = eng }
@@ -906,6 +923,7 @@ handleAction = case _ of
       st <- H.get
       liftEffect $ Storage.saveControlBanks st.controlBanks
       liftEffect FolderBackup.scheduleBackup
+      pushSnapshot
     ControlsView.SyncControlBankToMC6 ->
       syncControlBankToMC6
 
@@ -975,6 +993,7 @@ handleAction = case _ of
     H.modify_ _ { mc6Assignments = updated }
     liftEffect $ Storage.saveMC6Assignments updated
     liftEffect FolderBackup.scheduleBackup
+    pushSnapshot
     syncSwitchToMC6 st.mc6BoardBankNum switchIdx Nothing
 
   ClearMC6Bank -> handleClearMC6Bank
@@ -1216,6 +1235,7 @@ handleAssignBoardToSwitch boardId switchIdx = do
   H.modify_ _ { mc6Assignments = updated }
   liftEffect $ Storage.saveMC6Assignments updated
   liftEffect FolderBackup.scheduleBackup
+  pushSnapshot
   -- Auto-sync: program this switch to MC6
   let mBoard = Array.find (\bp -> bp.id == boardId) st.boardPresets
   syncSwitchToMC6 bankNum switchIdx mBoard
@@ -1229,6 +1249,7 @@ handleUnassignBoard boardId = do
   H.modify_ _ { mc6Assignments = updated }
   liftEffect $ Storage.saveMC6Assignments updated
   liftEffect FolderBackup.scheduleBackup
+  pushSnapshot
   -- Auto-sync: clear each affected switch on MC6
   for_ boardAssignments \a ->
     syncSwitchToMC6 a.bankNumber a.switchIndex Nothing
@@ -1278,6 +1299,7 @@ handleClearMC6Bank = do
   H.modify_ _ { mc6Assignments = updated }
   liftEffect $ Storage.saveMC6Assignments updated
   liftEffect FolderBackup.scheduleBackup
+  pushSnapshot
   -- SysEx: clear all 9 switches on MC6 hardware
   case st.connections.mc6Output of
     Nothing -> liftEffect $ Console.log "MC6 SysEx: no MC6 output connected (assignments cleared locally)"
@@ -1447,17 +1469,40 @@ handleImportBoardsFromFile = do
 
 -- Persistence helpers
 
+-- | Mirror presets, patches and assignments to pwyf-store.
+-- |
+-- | One round trip rather than one per record: the app persists whole
+-- | collections and the store reconciles, deleting files whose records have
+-- | gone. A failure is logged, not raised — the cache write has already
+-- | happened, so the edit is not lost, and the next successful push carries it.
+-- |
+-- | A 409 here is not a network problem: it is the store refusing to empty
+-- | itself because this client's state looked empty. Its body says so.
+pushSnapshot :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
+pushSnapshot = do
+  st <- H.get
+  base <- liftEffect Remote.storeBaseUrl
+  let
+    body = Storage.snapshotToJsonString st.presets st.boardPresets st.mc6Assignments
+  res <- H.liftAff (Remote.putSnapshot base body)
+  case res of
+    Right _ -> pure unit
+    Left err -> liftEffect $ Console.log $
+      "pwyf-store save failed: " <> Exception.message err
+
 persistPresets :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
 persistPresets = do
   st <- H.get
   liftEffect $ Storage.savePresets (Storage.presetsToJsonString st.presets)
   liftEffect FolderBackup.scheduleBackup
+  pushSnapshot
 
 persistBoardPresets :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
 persistBoardPresets = do
   st <- H.get
   liftEffect $ Storage.saveBoardPresets (Storage.boardPresetsToJsonString st.boardPresets)
   liftEffect FolderBackup.scheduleBackup
+  pushSnapshot
 
 -- Recall helpers
 
