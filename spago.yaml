@@ -44,3 +44,4 @@ workspace:
     hylograph-selection: 0.5.3
     hylograph-graph: 0.3.0
     hylograph-transitions: 0.1.0
+    httpurple: 4.0.0
