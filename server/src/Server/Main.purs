@@ -37,11 +37,13 @@ import HTTPurple
   , ServerM
   , badRequest
   , notFound
+  , response'
   , ok'
   , serve
   , toString
   )
 import HTTPurple.Headers (ResponseHeaders, headers)
+import HTTPurple.Status as Status
 import Node.Process as Process
 import Routing.Duplex (RouteDuplex', root, segment)
 import Routing.Duplex.Generic (noArgs, sum)
@@ -51,6 +53,7 @@ import Server.Store as Store
 data Route
   = Health
   | Snapshot
+  | SnapshotForce
   | Presets
   | PresetOne String String
   | Patches
@@ -63,6 +66,7 @@ route :: RouteDuplex' Route
 route = root $ sum
   { "Health": "health" / noArgs
   , "Snapshot": "api" / "snapshot" / noArgs
+  , "SnapshotForce": "api" / "snapshot" / "force" / noArgs
   , "Presets": "api" / "presets" / noArgs
   , "PresetOne": "api" / "presets" / segment / segment
   , "Patches": "api" / "patches" / noArgs
@@ -83,6 +87,11 @@ jsonHeaders = headers
 okJson :: AJ.Json -> ResponseM
 okJson = ok' jsonHeaders <<< AJ.stringify
 
+-- | 409: the request was well-formed but would have destroyed data.
+conflict :: String -> ResponseM
+conflict msg = response' Status.conflict jsonHeaders
+  (AJ.stringify (AJ.fromString msg))
+
 router :: String -> Request Route -> ResponseM
 router dir { route: r, method, body } = case r, method of
   _, Options -> ok' jsonHeaders ""
@@ -90,6 +99,8 @@ router dir { route: r, method, body } = case r, method of
   Health, Get -> okJson (AJ.fromString "ok")
 
   Snapshot, Get -> okJson =<< liftAff (Store.snapshot dir)
+  Snapshot, Put -> putSnapshot false
+  SnapshotForce, Put -> putSnapshot true
 
   Presets, Get -> okJson =<< liftAff (Store.listPresets dir)
 
@@ -116,6 +127,12 @@ router dir { route: r, method, body } = case r, method of
 
   _, _ -> notFound
   where
+  putSnapshot force = withJsonBody \j -> do
+    outcome <- liftAff (Store.replaceAll dir force j)
+    case outcome of
+      Left msg -> conflict msg
+      Right _ -> okJson =<< liftAff (Store.snapshot dir)
+
   withJsonBody k = do
     raw <- toString body
     case jsonParser raw of
