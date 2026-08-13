@@ -21,12 +21,14 @@ import Data.MC6.SysEx as SysEx
 import Data.MC6.Types (MC6Message, MC6NativeBank, MC6Preset, MC6MsgType(..), MC6Action(..))
 import Data.Foldable (any, for_)
 import Data.Map as Map
+import Data.Int as Int
 import Data.Maybe (Maybe(..), fromMaybe)
-import Data.Midi (CC, MidiValue, ProgramNumber, makeChannel, unCC, unChannel, unMidiValue, unProgramNumber, unsafeCC, unsafeMidiValue)
+import Data.Midi (CC, MidiValue, ProgramNumber, makeCC, makeChannel, unCC, unChannel, unMidiValue, unProgramNumber, unsafeCC, unsafeMidiValue)
 import Data.Pedal (PedalDef, PedalId)
 import Pedals.Registry as PsRegistry
 import Data.Pedal.Engage (EngageConfig(..), EngageState(..), engageCCs)
 import Data.Preset (PedalPreset, BoardPreset, PresetId)
+import Data.String as String
 import Data.String.CodeUnits (contains)
 import Data.String.Pattern (Pattern(..))
 import Data.Tuple (Tuple(..))
@@ -68,6 +70,9 @@ data Action
   | RescanMIDI
   | SelectMC6Output String
   | PingMC6
+  | SetTestCh String
+  | SetTestCC String
+  | SendTestCC Int
   | SetView View
   | SetValue PedalId CC MidiValue
   | SendMomentary PedalId CC MidiValue
@@ -372,6 +377,30 @@ renderConnectView state =
             , HE.onClick \_ -> PingMC6
             ]
             [ HH.text "Ping MC6 (SysEx connect)" ]
+        , HH.span [ HP.class_ (H.ClassName "midi-test-label") ] [ HH.text " ch " ]
+        , HH.input
+            [ HP.class_ (H.ClassName "midi-test-num")
+            , HP.type_ HP.InputNumber
+            , HP.value (show state.testCh)
+            , HE.onValueInput SetTestCh
+            ]
+        , HH.span [ HP.class_ (H.ClassName "midi-test-label") ] [ HH.text " CC " ]
+        , HH.input
+            [ HP.class_ (H.ClassName "midi-test-num")
+            , HP.type_ HP.InputNumber
+            , HP.value (show state.testCC)
+            , HE.onValueInput SetTestCC
+            ]
+        , HH.button
+            [ HP.class_ (H.ClassName "files-btn")
+            , HE.onClick \_ -> SendTestCC 127
+            ]
+            [ HH.text "Send 127 (down)" ]
+        , HH.button
+            [ HP.class_ (H.ClassName "files-btn files-btn-muted")
+            , HE.onClick \_ -> SendTestCC 0
+            ]
+            [ HH.text "Send 0 (up)" ]
         , HH.span [ HP.class_ (H.ClassName "midi-test-result") ]
             [ HH.text (case state.midiTest of
                 Nothing -> ""
@@ -380,6 +409,22 @@ renderConnectView state =
     , renderMidiDiagnostics state
     ]
   where
+  -- | Distinguish ports that share a name.
+  -- |
+  -- | iOS reports every Bluetooth MIDI port as, simply, "Bluetooth" - so two
+  -- | WIDI transceivers doing entirely different jobs are indistinguishable in
+  -- | a picker, and choosing between them is a coin toss you have to verify by
+  -- | stomping on something. Where the name repeats, show a tail of the id:
+  -- | ugly, but it is the only thing that differs, and it makes the choice
+  -- | writable down.
+  portLabel ports port =
+    let dupes = Array.length (Array.filter (\p -> p.name == port.name) ports)
+    in if dupes <= 1 then port.name
+       else port.name <> "  ·  " <> suffix port.id
+  suffix pid =
+    let n = String.length pid
+    in if n <= 6 then pid else String.drop (n - 6) pid
+
   connectCard { label, description, selectedId, ports, onChange } =
     let connected = selectedId /= Nothing
         cls = "connect-card" <> if connected then " connected" else " disconnected"
@@ -399,7 +444,7 @@ renderConnectView state =
                   [ HP.value port.id
                   , HP.selected (selectedId == Just port.id)
                   ]
-                  [ HH.text port.name ]
+                  [ HH.text (portLabel ports port) ]
               ) ports
           )
       ]
@@ -949,6 +994,30 @@ handleAction = case _ of
         H.modify_ _ { midiTest = Just
           ("sent SysEx connect (" <> show (Array.length SysEx.sysexConnect)
             <> " bytes) - MC6 should show an editor session") }
+
+  SetTestCh v -> H.modify_ _ { testCh = fromMaybe 1 (Int.fromString v) }
+  SetTestCC v -> H.modify_ _ { testCC = fromMaybe 1 (Int.fromString v) }
+
+  -- | Send one CC wherever Pedal MIDI points, with no pedal semantics attached.
+  -- |
+  -- | The MC6's response to incoming MIDI is whatever you configure it to be,
+  -- | so a hardcoded 'bank up' would be a guess. This sends an arbitrary
+  -- | channel/CC/value instead: set the MC6 to react to something, send it,
+  -- | and you have a end-to-end test that does not depend on a pedal being
+  -- | patched, powered or in the right mode.
+  SendTestCC val -> do
+    st <- H.get
+    case st.connections.pedalOutput of
+      Nothing ->
+        H.modify_ _ { midiTest = Just "no Pedal MIDI output selected" }
+      Just output -> case makeChannel st.testCh, makeCC st.testCC of
+        Just ch, Just ccNum -> do
+          liftEffect $ MIDI.sendCC output ch ccNum (unsafeMidiValue val)
+          H.modify_ _ { midiTest = Just
+            ("sent CC " <> show st.testCC <> " val " <> show val
+              <> " ch " <> show st.testCh) }
+        _, _ ->
+          H.modify_ _ { midiTest = Just "channel must be 1-16, CC 0-127" }
 
   SelectTwisterInput portId -> do
     st <- H.get

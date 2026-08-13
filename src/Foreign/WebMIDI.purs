@@ -18,6 +18,8 @@ module Foreign.WebMIDI
 
 import Prelude
 
+import Data.Array as Array
+
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Data.Midi (CC, Channel, MidiValue, ProgramNumber, unCC, unChannel, unMidiValue, unProgramNumber)
@@ -68,11 +70,20 @@ requestMIDIAccess = makeAff \cb -> do
     (\err -> cb (Left err))
   pure nonCanceler
 
+-- | Ports, with duplicates removed.
+-- |
+-- | The Web MIDI shim on iOS reports the same port several times over — six
+-- | entries for two real Bluetooth ports, all identically named, so the picker
+-- | becomes a lottery with no way to tell the winner from the losers. Identity
+-- | is the id, so dedupe on that and keep first sighting.
 getOutputs :: MIDIAccess -> Effect (Array MidiPort)
-getOutputs = getOutputsImpl
+getOutputs access = dedupeById <$> getOutputsImpl access
 
 getInputs :: MIDIAccess -> Effect (Array MidiPort)
-getInputs = getInputsImpl
+getInputs access = dedupeById <$> getInputsImpl access
+
+dedupeById :: Array MidiPort -> Array MidiPort
+dedupeById = Array.nubByEq \a b -> a.id == b.id
 
 openOutput :: MIDIAccess -> String -> Effect (Maybe MIDIOutput)
 openOutput = openOutputImpl Just Nothing

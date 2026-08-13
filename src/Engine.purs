@@ -94,6 +94,9 @@ type AppState =
   -- Folder backup (Chrome File System Access API → Infovore path)
   -- Result of the last manual MIDI test, shown on the MIDI page.
   , midiTest :: Maybe String
+  -- Manual CC test on the MIDI page: channel and CC to poke at the rig.
+  , testCh :: Int
+  , testCC :: Int
   , backupFolderName :: Maybe String
   , backupLastSaveAt :: Maybe String
   , backupLastError :: Maybe String
@@ -162,6 +165,8 @@ initAppState =
   , controlBanks: [exampleControlBank]
   , activeControlBankIdx: Just 0
   , midiTest: Nothing
+  , testCh: 3
+  , testCC: 1
   , backupFolderName: Nothing
   , backupLastSaveAt: Nothing
   , backupLastError: Nothing
