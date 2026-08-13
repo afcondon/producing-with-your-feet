@@ -97,6 +97,8 @@ type AppState =
   -- Manual CC test on the MIDI page: channel and CC to poke at the rig.
   , testCh :: Int
   , testCC :: Int
+  -- First MC6 bank the generated diagnostic banks are written to.
+  , mc6DiagBankNum :: Int
   , backupFolderName :: Maybe String
   , backupLastSaveAt :: Maybe String
   , backupLastError :: Maybe String
@@ -167,6 +169,7 @@ initAppState =
   , midiTest: Nothing
   , testCh: 3
   , testCC: 1
+  , mc6DiagBankNum: 30
   , backupFolderName: Nothing
   , backupLastSaveAt: Nothing
   , backupLastError: Nothing
