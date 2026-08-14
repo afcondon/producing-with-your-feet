@@ -1,4 +1,4 @@
-//! pwyf-looper — the looper engine for producing-with-your-feet.
+//! itajara — the looper engine for producing-with-your-feet.
 //!
 //! See `docs/DESIGN-LOOPER.md` for what this is going to be. Today it is the
 //! metrology: §10 of that document lists three latencies that have to be
@@ -15,20 +15,20 @@ mod measure;
 use std::process::ExitCode;
 
 const USAGE: &str = "\
-pwyf-looper — looper engine for producing-with-your-feet
+itajara — looper engine for producing-with-your-feet
 
 USAGE
-  pwyf-looper devices
+  itajara devices
       List the audio devices CoreAudio can see, with channel counts and the
       sample rates each will accept.
 
-  pwyf-looper levels --device <name> [--seconds <n>]
+  itajara levels --device <name> [--seconds <n>]
       Live peak meter on every input channel, with a peak hold. Play into
       one jack at a time to find out which host channel it arrives on —
       an interface with more USB channels than physical jacks does not
       tell you this, and guessing wrong records silence.
 
-  pwyf-looper loop --device <name> [options]
+  itajara loop --device <name> [options]
       The looper. Records, overdubs as layers, and undoes them, on the
       alignment `align` verifies. Commands on stdin:
 
@@ -66,7 +66,7 @@ USAGE
       --selftest <s>    record one cycle of the engine's own click through a
                         loopback cable and check where it landed
 
-  pwyf-looper align --device <name> [options]
+  itajara align --device <name> [options]
       The self-test. Plays a click at loop position zero, records it back
       through a patch cable, and reports which position it landed at. Zero
       means the arithmetic that places recorded audio in the loop is right,
@@ -80,7 +80,7 @@ USAGE
       --cycles <n>      how many times round                   (default 4)
       --out-ch / --in-ch / --amp / --buffer / --rate  as elsewhere
 
-  pwyf-looper map --device <name> [options]
+  itajara map --device <name> [options]
       Click every output in turn, listening on every input. With one cable
       patched from an output jack to an input jack, exactly one pair should
       answer — which names the host channel behind BOTH jacks in one run.
@@ -91,7 +91,7 @@ USAGE
       More than one pair answering means internal routing inside the
       interface, where a click crosses no converter.
 
-  pwyf-looper sweep --device <name> [options]
+  itajara sweep --device <name> [options]
       The calibration. Measures at several buffer sizes and separates the
       two things a single reading confuses: a real converter delay, and a
       bookkeeping error in the timestamps. Only one of them moves with the
@@ -103,7 +103,7 @@ USAGE
 
       Same options as `measure`, minus --buffer, which it varies itself.
 
-  pwyf-looper measure --device <name> [options]
+  itajara measure --device <name> [options]
       Measure output→input round-trip latency by clicking and listening on
       every input at once. Needs a signal path from an output back to an
       input: a cable for the interface-only figure, or out → pedalboard →

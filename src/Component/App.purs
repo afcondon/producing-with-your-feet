@@ -315,7 +315,7 @@ renderFolderBackup state =
 
 -- | The looper tab.
 -- |
--- | The engine is `looper/` in this repo — a Rust daemon on cpal holding the
+-- | The engine is `itajara/` in this repo — a Rust daemon on cpal holding the
 -- | Audio4c directly. This page holds nothing: it renders the snapshot the
 -- | daemon pushes, and sends command strings back. Every decision about what a
 -- | command means lives in one place, at the other end of the socket.
@@ -341,7 +341,7 @@ renderLooperView state =
       [ HH.text $
           if st.connected then "Connected to the daemon."
           else if st.everConnected then "Lost the daemon — retrying."
-          else "No daemon. Start it with:  pwyf-looper loop --device AUDIO4c --ws"
+          else "No daemon. Start it with:  itajara loop --device AUDIO4c --ws"
       ]
 
   -- The one button, and it is the fundamental looper gesture: the first press

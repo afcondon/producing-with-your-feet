@@ -57,7 +57,7 @@ pub fn find(needle: &str) -> Result<Candidate, Box<dyn Error>> {
 
     match hits.len() {
         0 => Err(format!(
-            "no audio device matching {:?}. Run `pwyf-looper devices` to see what is here.",
+            "no audio device matching {:?}. Run `itajara devices` to see what is here.",
             needle
         )
         .into()),
@@ -74,7 +74,7 @@ pub fn find(needle: &str) -> Result<Candidate, Box<dyn Error>> {
     }
 }
 
-/// `pwyf-looper devices` — what CoreAudio is offering, with the detail that
+/// `itajara devices` — what CoreAudio is offering, with the detail that
 /// decides whether a rig is wired the way you think it is.
 pub fn list() {
     let host = cpal::default_host();

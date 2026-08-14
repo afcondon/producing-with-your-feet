@@ -252,7 +252,7 @@ the interface lands late by the full round trip, and **the error compounds on
 every overdub** if uncompensated. This is the one that ruins a looper.
 
 > **Measured, 2026-08-14.** Audio4c, output 1 patched to input 1, 48 kHz,
-> `pwyf-looper sweep`. Two results, and they are of different quality.
+> `itajara sweep`. Two results, and they are of different quality.
 >
 > **The form is exact and reproducible.** A single reading confuses two things,
 > so the sweep varies the buffer to separate them:
@@ -332,7 +332,7 @@ alignment, not an unknown of the hardware. It is the only part of a looper that
 can be verified rather than judged by ear — and building it first immediately
 earned its keep, because it found the following.
 
-### The two clocks — `pwyf-looper align`, 2026-08-14
+### The two clocks — `itajara align`, 2026-08-14
 
 **The interface's sample clock is not the host clock.** On this rig they differ
 by about **15.6 ppm — 0.75 samples every second**. Measured as a dead-straight
@@ -490,7 +490,7 @@ Stages 1–3 are the project. Everything after is upside.
   is not optional. The self-test in §10 is the same mechanism, so this costs
   little beyond what is already wanted.
 - **The pedalboard path — deferred, see below.**
-- **The Audio4c channel map**, measured 2026-08-14 with `pwyf-looper map`:
+- **The Audio4c channel map**, measured 2026-08-14 with `itajara map`:
 
   | input jack | host channel | click level | transit |
   |---|---|---|---|
@@ -535,9 +535,9 @@ The whole procedure, so picking it up costs nothing:
    1**, **R → input jack 2**. Everything on the board **bypassed**.
 2. **Check levels first.** The Audio4c's output is line level, roughly 20 dB
    hotter than the instrument level the pedals expect, so start quiet:
-   `pwyf-looper levels --device AUDIO4c --seconds 20`, playing guitar through
+   `itajara levels --device AUDIO4c --seconds 20`, playing guitar through
    the board to see where the peaks sit.
-3. `pwyf-looper sweep --device AUDIO4c --amp 0.05`, raising `--amp` only if
+3. `itajara sweep --device AUDIO4c --amp 0.05`, raising `--amp` only if
    nothing answers.
 
 **Reading it.** A residual at ≈252 means the board adds nothing to the dry path

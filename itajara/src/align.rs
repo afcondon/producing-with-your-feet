@@ -63,7 +63,7 @@ pub struct Opts {
     pub device: String,
     pub out_ch: usize,
     pub in_ch: usize,
-    /// The interface's own transit, in samples, from `pwyf-looper sweep`. It is
+    /// The interface's own transit, in samples, from `itajara sweep`. It is
     /// session state rather than a constant — see DESIGN-LOOPER §10 — so it is a
     /// flag rather than something baked in.
     pub residual: f64,

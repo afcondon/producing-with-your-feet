@@ -8,7 +8,7 @@ node_modules/
 static/app.js
 static/bundle.js
 server/dist/
-looper/target/
+itajara/target/
 
 # Stray duplicate of static/preset-backup-2026-04-14/, which is tracked.
 /preset-backup-2026-04-14/
