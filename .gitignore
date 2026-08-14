@@ -8,3 +8,9 @@ node_modules/
 static/app.js
 static/bundle.js
 server/dist/
+
+# Stray duplicate of static/preset-backup-2026-04-14/, which is tracked.
+/preset-backup-2026-04-14/
+
+# Print renderings of the .md files beside them; 4.6MB of derived binary.
+docs/*.pdf
