@@ -1,4 +1,4 @@
-//! Round-trip latency measurement.
+//! Round-trip latency measurement, and the routing map that comes with it.
 //!
 //! This exists before any looping code because of one fact: audio recorded
 //! through an interface lands late by the full output→input round trip, and on
@@ -18,6 +18,14 @@
 //! interval rather than a difference of two callback-scheduling accidents.
 //! Wall-clock timing at callback entry would be off by a buffer or more.
 //!
+//! **Every input channel is listened to, not just the one expected to answer.**
+//! Two reasons, and the second is the important one. An interface with more USB
+//! channels than jacks does not say which is which, so hearing the click name
+//! its own channel is the cheapest possible routing map. And if the interface
+//! has any internal monitoring path, a channel can hear the click with no cable
+//! attached at all — which would otherwise yield a confident, precise, entirely
+//! fictional latency. Listening everywhere makes that visible instead.
+//!
 //! Two paths are worth measuring and they are different numbers:
 //!
 //!   - **interface only** — a cable from an output back to an input. This is
@@ -30,23 +38,25 @@ use cpal::traits::{DeviceTrait, StreamTrait};
 use std::error::Error;
 use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const PHASE_SETTLE: u8 = 0;
 const PHASE_NOISE: u8 = 1;
 const PHASE_ARMED: u8 = 2;
 const PHASE_LISTENING: u8 = 3;
-const PHASE_HEARD: u8 = 4;
 
 /// Long enough to carry through a converter, short enough that the leading edge
 /// is still the leading edge. A single-sample impulse is too quiet to clear the
 /// noise floor on a line input with anything patched in front of it.
 const BURST_FRAMES: usize = 16;
 
+/// How long to keep listening after each click. Every channel gets the whole
+/// window rather than the first one to answer stopping the others.
+const LISTEN_MS: u64 = 400;
+
 pub struct Opts {
     pub device: String,
     pub out_ch: usize,
-    pub in_ch: usize,
     pub repeats: usize,
     pub amplitude: f32,
     pub sample_rate: u32,
@@ -57,7 +67,6 @@ impl Default for Opts {
         Opts {
             device: String::new(),
             out_ch: 0,
-            in_ch: 0,
             repeats: 8,
             amplitude: 0.5,
             sample_rate: 48_000,
@@ -71,8 +80,9 @@ pub enum Width {
     /// Fewest channels that still reach the one we need — open the plain stereo
     /// pair rather than a sixteen-channel config we will not use.
     Narrowest,
-    /// Every channel the device has. Metering wants this: the point is to find
-    /// out which channel the signal is on, so hiding any of them defeats it.
+    /// Every channel the device has. Metering and routing discovery want this:
+    /// the point is to find out which channel the signal is on, so hiding any
+    /// of them defeats it.
     Widest,
 }
 
@@ -137,18 +147,19 @@ pub fn choose_output(
     choose(device.supported_output_configs().ok()?, min_index, target, width)
 }
 
+/// What one input channel had to say across the whole run.
+struct ChannelResult {
+    latencies_ms: Vec<f64>,
+    peak: f32,
+}
+
 pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
     let candidate = crate::devices::find(&opts.device)?;
     let device = candidate.device;
     println!("Device: {}", candidate.name);
 
-    let in_cfg = choose_input(&device, opts.in_ch, opts.sample_rate, Width::Narrowest)
-        .ok_or_else(|| {
-            format!(
-                "{} has no f32 input config with more than {} channels",
-                candidate.name, opts.in_ch
-            )
-        })?;
+    let in_cfg = choose_input(&device, 0, opts.sample_rate, Width::Widest)
+        .ok_or_else(|| format!("{} has no f32 input config", candidate.name))?;
     let out_cfg = choose_output(&device, opts.out_ch, opts.sample_rate, Width::Narrowest)
         .ok_or_else(|| {
             format!(
@@ -170,21 +181,24 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
     let in_channels = in_cfg.channels as usize;
     let out_channels = out_cfg.channels as usize;
     println!(
-        "Streams: {} Hz   in {} ch (listening on {})   out {} ch (clicking on {})",
-        sr, in_channels, opts.in_ch, out_channels, opts.out_ch
+        "Streams: {} Hz   listening on all {} inputs   clicking on output {} of {}",
+        sr, in_channels, opts.out_ch, out_channels
     );
 
     let phase = Arc::new(AtomicU8::new(PHASE_SETTLE));
-    // f32 bits in an atomic. Positive IEEE-754 floats order the same as their
-    // bit patterns as integers, so fetch_max on the bits is a genuine max.
-    let noise = Arc::new(AtomicU32::new(0));
-    let threshold = Arc::new(AtomicU32::new(1.0f32.to_bits()));
+    // f32 bits in atomics. Positive IEEE-754 floats order the same as their bit
+    // patterns as integers, so fetch_max on the bits is a genuine max.
+    let noise: Arc<Vec<AtomicU32>> = Arc::new((0..in_channels).map(|_| AtomicU32::new(0)).collect());
+    let thresholds: Arc<Vec<AtomicU32>> =
+        Arc::new((0..in_channels).map(|_| AtomicU32::new(1.0f32.to_bits())).collect());
+    let peaks: Arc<Vec<AtomicU32>> = Arc::new((0..in_channels).map(|_| AtomicU32::new(0)).collect());
     // Locking in an audio callback is not something the engine will do. Here the
-    // critical section is one pointer store, run a handful of times in a
+    // critical sections are one pointer store each, run a handful of times in a
     // measurement that lasts seconds, and the alternative is a lock-free queue
     // that would obscure what this file is for.
     let fired: Arc<Mutex<Option<cpal::StreamInstant>>> = Arc::new(Mutex::new(None));
-    let heard: Arc<Mutex<Option<cpal::StreamInstant>>> = Arc::new(Mutex::new(None));
+    let heard: Arc<Vec<Mutex<Option<cpal::StreamInstant>>>> =
+        Arc::new((0..in_channels).map(|_| Mutex::new(None)).collect());
 
     let err = |e| eprintln!("stream error: {}", e);
 
@@ -221,35 +235,49 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
     let in_stream = {
         let phase = phase.clone();
         let noise = noise.clone();
-        let threshold = threshold.clone();
+        let thresholds = thresholds.clone();
+        let peaks = peaks.clone();
         let heard = heard.clone();
-        let ch = opts.in_ch;
         device.build_input_stream(
             &in_cfg,
             move |data: &[f32], info: &cpal::InputCallbackInfo| {
                 let frames = data.len() / in_channels;
                 match phase.load(Ordering::Acquire) {
                     PHASE_NOISE => {
-                        let mut peak = 0f32;
-                        for f in 0..frames {
-                            peak = peak.max(data[f * in_channels + ch].abs());
+                        for ch in 0..in_channels {
+                            let mut peak = 0f32;
+                            for f in 0..frames {
+                                peak = peak.max(data[f * in_channels + ch].abs());
+                            }
+                            noise[ch].fetch_max(peak.to_bits(), Ordering::AcqRel);
                         }
-                        noise.fetch_max(peak.to_bits(), Ordering::AcqRel);
                     }
                     PHASE_LISTENING => {
-                        let thr = f32::from_bits(threshold.load(Ordering::Acquire));
-                        for f in 0..frames {
-                            if data[f * in_channels + ch].abs() > thr {
-                                // Frame f of this buffer, not frame 0 — this is
-                                // where the sample accuracy comes from.
-                                let at = info.timestamp().capture.add(Duration::from_nanos(
-                                    f as u64 * 1_000_000_000 / sr as u64,
-                                ));
-                                if let Ok(mut g) = heard.lock() {
-                                    *g = at;
+                        for ch in 0..in_channels {
+                            let thr = f32::from_bits(thresholds[ch].load(Ordering::Acquire));
+                            let mut peak = 0f32;
+                            let mut onset: Option<usize> = None;
+                            for f in 0..frames {
+                                let v = data[f * in_channels + ch].abs();
+                                peak = peak.max(v);
+                                if onset.is_none() && v > thr {
+                                    onset = Some(f);
                                 }
-                                phase.store(PHASE_HEARD, Ordering::Release);
-                                break;
+                            }
+                            peaks[ch].fetch_max(peak.to_bits(), Ordering::AcqRel);
+
+                            if let Some(f) = onset {
+                                if let Ok(mut g) = heard[ch].lock() {
+                                    // Only the first crossing in the window counts;
+                                    // later buffers are the tail, or a reflection.
+                                    if g.is_none() {
+                                        // Frame f of this buffer, not frame 0 — this
+                                        // is where the sample accuracy comes from.
+                                        *g = info.timestamp().capture.add(Duration::from_nanos(
+                                            f as u64 * 1_000_000_000 / sr as u64,
+                                        ));
+                                    }
+                                }
                             }
                         }
                     }
@@ -271,119 +299,172 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
     std::thread::sleep(Duration::from_millis(500));
     phase.store(PHASE_SETTLE, Ordering::Release);
 
-    let floor = f32::from_bits(noise.load(Ordering::Acquire));
-    // Eight times the noise floor, with an absolute minimum so a silent input
-    // does not give us a threshold of zero and a "detection" on the first
-    // dithered sample.
-    let thr = (floor * 8.0).max(0.01);
-    threshold.store(thr.to_bits(), Ordering::Release);
-    println!(
-        "Noise floor {:.5} ({:.1} dBFS)   threshold {:.5}\n",
-        floor,
-        20.0 * floor.max(1e-9).log10(),
-        thr
-    );
-    if floor > 0.05 {
+    println!("\nNoise floor per input, and the threshold set from it:");
+    for ch in 0..in_channels {
+        let floor = f32::from_bits(noise[ch].load(Ordering::Acquire));
+        // Eight times the noise floor, with an absolute minimum so a silent
+        // input does not give a threshold of zero and "detect" the first
+        // dithered sample.
+        let thr = (floor * 8.0).max(0.01);
+        thresholds[ch].store(thr.to_bits(), Ordering::Release);
         println!(
-            "  !!  That is a noisy input. If something is playing into it, the \
-             measurement\n      will trigger on the wrong thing.\n"
+            "  ch {:>2}  floor {:>8.1} dBFS   threshold {:>8.1} dBFS{}",
+            ch,
+            dbfs(floor),
+            dbfs(thr),
+            if floor > 0.05 { "   <- noisy; may trigger on the wrong thing" } else { "" }
         );
     }
 
-    let mut results: Vec<f64> = Vec::new();
+    let mut results: Vec<ChannelResult> =
+        (0..in_channels).map(|_| ChannelResult { latencies_ms: Vec::new(), peak: 0.0 }).collect();
+
+    println!("\nClicking {} times:", opts.repeats);
     for i in 0..opts.repeats {
         *fired.lock().unwrap() = None;
-        *heard.lock().unwrap() = None;
+        for ch in 0..in_channels {
+            *heard[ch].lock().unwrap() = None;
+            peaks[ch].store(0, Ordering::Release);
+        }
+
         phase.store(PHASE_ARMED, Ordering::Release);
+        std::thread::sleep(Duration::from_millis(LISTEN_MS));
+        phase.store(PHASE_SETTLE, Ordering::Release);
 
-        let started = Instant::now();
-        while phase.load(Ordering::Acquire) != PHASE_HEARD {
-            if started.elapsed() > Duration::from_millis(1500) {
-                break;
+        let f = fired.lock().unwrap().clone();
+        let Some(f) = f else {
+            println!("  {:>2}.  the click never went out", i + 1);
+            continue;
+        };
+
+        let mut answered: Vec<String> = Vec::new();
+        for ch in 0..in_channels {
+            results[ch].peak = results[ch]
+                .peak
+                .max(f32::from_bits(peaks[ch].load(Ordering::Acquire)));
+            let h = heard[ch].lock().unwrap().clone();
+            if let Some(h) = h {
+                let secs = signed_secs(&f, &h);
+                results[ch].latencies_ms.push(secs * 1000.0);
+                answered.push(format!("ch{} {:.2}ms", ch, secs * 1000.0));
             }
-            std::thread::sleep(Duration::from_millis(1));
         }
 
-        if phase.load(Ordering::Acquire) != PHASE_HEARD {
-            println!("  {:>2}.  no click came back", i + 1);
-            phase.store(PHASE_SETTLE, Ordering::Release);
+        if answered.is_empty() {
+            println!("  {:>2}.  silence on every input", i + 1);
         } else {
-            let f = fired.lock().unwrap().clone();
-            let h = heard.lock().unwrap().clone();
-            phase.store(PHASE_SETTLE, Ordering::Release);
-            match (f, h) {
-                // Signed, deliberately. A negative interval is not nonsense: it
-                // means the input saw the click sooner than CoreAudio's reported
-                // playback instant, which is exactly what a virtual loopback
-                // device does — it copies the buffer in software, so the output
-                // latency it advertises is never actually spent. Real converters
-                // with a real path between them give positive numbers.
-                (Some(f), Some(h)) => {
-                    let secs = match h.duration_since(&f) {
-                        Some(d) => d.as_secs_f64(),
-                        None => -f.duration_since(&h).map(|d| d.as_secs_f64()).unwrap_or(0.0),
-                    };
-                    let ms = secs * 1000.0;
-                    println!(
-                        "  {:>2}.  {:>8.3} ms   {:>6.0} samples",
-                        i + 1,
-                        ms,
-                        secs * sr as f64
-                    );
-                    results.push(ms);
-                }
-                _ => println!("  {:>2}.  lost a timestamp", i + 1),
-            }
+            println!("  {:>2}.  {}", i + 1, answered.join("   "));
         }
+
         // Let any tail decay so the next click is not detected against a ring.
-        std::thread::sleep(Duration::from_millis(250));
+        std::thread::sleep(Duration::from_millis(200));
     }
 
     drop(in_stream);
     drop(out_stream);
 
-    report(&mut results, sr)
+    report(&mut results, sr, opts.repeats)
 }
 
-fn report(results: &mut Vec<f64>, sr: u32) -> Result<(), Box<dyn Error>> {
-    if results.is_empty() {
-        return Err("nothing came back at all.\n\
+fn dbfs(x: f32) -> f64 {
+    20.0 * (x.max(1e-9) as f64).log10()
+}
+
+/// Signed, deliberately. A negative interval is not nonsense: it means the input
+/// saw the click sooner than CoreAudio's reported playback instant, which is
+/// exactly what a virtual loopback device does — it copies the buffer in
+/// software, so the output latency it advertises is never actually spent. Real
+/// converters with a real path between them give positive numbers.
+fn signed_secs(fired: &cpal::StreamInstant, heard: &cpal::StreamInstant) -> f64 {
+    match heard.duration_since(fired) {
+        Some(d) => d.as_secs_f64(),
+        None => -fired.duration_since(heard).map(|d| d.as_secs_f64()).unwrap_or(0.0),
+    }
+}
+
+fn median(sorted: &[f64]) -> f64 {
+    let n = sorted.len();
+    if n % 2 == 0 {
+        (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0
+    } else {
+        sorted[n / 2]
+    }
+}
+
+fn report(results: &mut [ChannelResult], sr: u32, repeats: usize) -> Result<(), Box<dyn Error>> {
+    let responders: Vec<usize> = (0..results.len())
+        .filter(|&ch| !results[ch].latencies_ms.is_empty())
+        .collect();
+
+    if responders.is_empty() {
+        return Err("nothing came back on any input.\n\
              \n\
              The usual causes, in order of likelihood:\n\
-               - no signal path from the output back to the input. For an \
-             interface-only\n\
-                 measurement that means a physical cable; the loopback is not \
-             implied.\n\
-               - wrong channel. Try --out-ch / --in-ch; they are zero-based.\n\
+               - no signal path from the output back to an input. The loopback is\n\
+                 not implied; for an interface-only figure that means a cable.\n\
+               - wrong output channel. Try --out-ch; it is zero-based.\n\
                - output muted, or its level at zero, in the interface's own mixer.\n\
                - amplitude too low for the input's gain staging. Try --amp 0.9."
             .into());
     }
 
-    results.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let n = results.len();
-    let median = if n % 2 == 0 {
-        (results[n / 2 - 1] + results[n / 2]) / 2.0
-    } else {
-        results[n / 2]
-    };
-    let lo = results[0];
-    let hi = results[n - 1];
+    println!("\n  channel   heard   median latency        samples      peak");
+    for &ch in &responders {
+        results[ch]
+            .latencies_ms
+            .sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let m = median(&results[ch].latencies_ms);
+        let n = results[ch].latencies_ms.len();
+        let lo = results[ch].latencies_ms[0];
+        let hi = results[ch].latencies_ms[n - 1];
+        println!(
+            "  ch {:>2}    {:>2}/{:<2}   {:>8.3} ms         {:>7.0}   {:>7.1} dBFS{}",
+            ch,
+            n,
+            repeats,
+            m,
+            m / 1000.0 * sr as f64,
+            dbfs(results[ch].peak),
+            if hi - lo > 1.0 { "   (unstable)" } else { "" }
+        );
+    }
 
-    println!("\n  {} of {} clicks returned", n, n);
+    // The routing map is the first thing to read off this. One responder is the
+    // ordinary case and names the channel that cable arrives on.
+    if responders.len() > 1 {
+        println!(
+            "\n  ! !  {} inputs heard the same click. If only one cable is patched,\n       \
+             the others are an internal monitoring path inside the interface —\n       \
+             and a latency measured down one of those is fiction, because no\n       \
+             converter was crossed.",
+            responders.len()
+        );
+    }
+
+    // Then the number itself, from the strongest responder.
+    let best = *responders
+        .iter()
+        .max_by(|&&a, &&b| results[a].peak.partial_cmp(&results[b].peak).unwrap())
+        .unwrap();
+    let lats = &results[best].latencies_ms;
+    let m = median(lats);
+    let spread = lats[lats.len() - 1] - lats[0];
+
     println!(
-        "  median  {:.3} ms   {:.0} samples at {} Hz",
-        median,
-        median / 1000.0 * sr as f64,
+        "\n  Strongest responder: ch {}  —  {:.3} ms, {:.0} samples at {} Hz",
+        best,
+        m,
+        m / 1000.0 * sr as f64,
         sr
     );
-    println!("  spread  {:.3} – {:.3} ms  ({:.3} ms)", lo, hi, hi - lo);
+    println!("  spread {:.3} ms over {} clicks", spread, lats.len());
 
-    if median < 0.0 {
+    if lats.len() < repeats {
         println!(
-            "\n  Negative, so this is a virtual loopback rather than a signal path\n  \
-             through converters. It proves the measurement works; it is not a\n  \
-             latency you can compensate anything with."
+            "\n  Only {} of {} clicks were heard. An intermittent path is worse than\n  \
+             a slow one — check the cable before trusting the median.",
+            lats.len(),
+            repeats
         );
     }
 
@@ -391,11 +472,17 @@ fn report(results: &mut Vec<f64>, sr: u32) -> Result<(), Box<dyn Error>> {
     // used as a constant; a wide one means something is resampling, or the
     // buffer size is being renegotiated, and compensating by the median would
     // be compensating by a number that was never true.
-    if hi - lo > 1.0 {
+    if spread > 1.0 {
         println!(
             "\n  ! !  {:.1} ms of spread is too much to compensate with a constant.\n       \
              Check that nothing is resampling and that the buffer size is fixed.",
-            hi - lo
+            spread
+        );
+    } else if m < 0.0 {
+        println!(
+            "\n  Negative, so this is a virtual loopback rather than a signal path\n  \
+             through converters. It proves the measurement works; it is not a\n  \
+             latency you can compensate anything with."
         );
     } else {
         println!("\n  Tight enough to use as a constant.");

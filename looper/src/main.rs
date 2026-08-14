@@ -26,14 +26,17 @@ USAGE
       tell you this, and guessing wrong records silence.
 
   pwyf-looper measure --device <name> [options]
-      Measure output→input round-trip latency by clicking and listening.
-      Needs a signal path from an output back to an input: a cable for the
-      interface-only figure, or out → pedalboard → in for the figure that
-      applies to anything recorded wet.
+      Measure output→input round-trip latency by clicking and listening on
+      every input at once. Needs a signal path from an output back to an
+      input: a cable for the interface-only figure, or out → pedalboard →
+      in for the figure that applies to anything recorded wet.
+
+      Because it listens everywhere, one run also says which input channel
+      that cable arrives on — and exposes any internal monitoring path,
+      where a channel hears the click having crossed no converter at all.
 
       --device <name>   substring of the device name, case-insensitive
       --out-ch <n>      output channel to click on   (default 0, zero-based)
-      --in-ch <n>       input channel to listen on   (default 0, zero-based)
       --repeats <n>     how many clicks               (default 8)
       --amp <0..1>      click amplitude               (default 0.5)
       --rate <hz>       preferred sample rate         (default 48000)
@@ -125,7 +128,6 @@ fn parse_measure(args: &[String]) -> Result<measure::Opts, String> {
         match flag {
             "--device" => opts.device = value()?,
             "--out-ch" => opts.out_ch = value()?.parse().map_err(|_| "--out-ch wants an integer")?,
-            "--in-ch" => opts.in_ch = value()?.parse().map_err(|_| "--in-ch wants an integer")?,
             "--repeats" => {
                 opts.repeats = value()?.parse().map_err(|_| "--repeats wants an integer")?
             }
