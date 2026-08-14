@@ -251,6 +251,36 @@ Three separate numbers, none of which should be guessed:
 the interface lands late by the full round trip, and **the error compounds on
 every overdub** if uncompensated. This is the one that ruins a looper.
 
+> **Measured, 2026-08-14 — 252 samples, 5.25 ms.** Audio4c, output 1 patched
+> to input 1, at 48 kHz. `pwyf-looper sweep`.
+>
+> The measurement had to separate two things that a single reading confuses. The
+> raw figure from cpal's timestamps varies with buffer size — `measured = 252 −
+> 2.00 × buffer`, exact at 64, 128, 256, 512 and 1024 frames — because the
+> timestamps over-account by one buffer on each side. That part is bookkeeping,
+> and it cancels once the buffer size is known, which the engine always knows
+> because it chooses it.
+>
+> The residual does not move when the buffer does, and buffer-independence is
+> what makes it physics rather than accounting. **252 samples is the interface's
+> own converter round trip**, and it is the constant recordings are compensated
+> by.
+>
+> Two consequences for the engine. Raw timestamp arithmetic needs
+> `true_offset = measured + 2 × buffer_frames` applied before it means anything.
+> And a negative raw reading is normal, not a fault — any path shorter than two
+> buffers reads below zero.
+>
+> Still to measure on this path: **out → pedalboard → in**, which is the figure
+> that applies to anything recorded wet, and will be larger by whatever the
+> pedals' converters add.
+
+**The self-test this affords.** Because the correction is exact, the engine has
+a check it can run on itself: record a loopback click against a playing loop and
+it must land on the sample it was emitted on. Any drift is a bug in the
+alignment, not an unknown of the hardware. Worth building early — it is the only
+part of a looper that can be verified rather than judged by ear.
+
 **Pitch-detection latency.** Roughly 10–20 ms up high, worse on the low E.
 Notes have timestamps, so unlike audio this is fully fixable after the fact:
 shift the capture backwards by the measured offset and it lands where it was
@@ -359,4 +389,13 @@ Stages 1–3 are the project. Everything after is upside.
   the synth audio back to the Mac host simultaneously? Two-host routing is the
   unit's purpose, so this should be configuration — but prove it early rather
   than discover a limitation late.
-- **Measure the audio round trip** before writing any overdub code. §10.
+- ~~**Measure the audio round trip** before writing any overdub code.~~ Done
+  2026-08-14: 252 samples on the Audio4c. §10.
+- **The Audio4c channel map.** Channels 0–3 are the four analog inputs, each a
+  live preamp with its own noise floor around −76 dBFS. Channels 4–7 read as
+  hard digital zero with no iPad attached, which is the second-host path — and
+  therefore where the synth audio of §6 will arrive. No Auracle configuration
+  was needed for capture; only that inter-host routing will need it.
+- **No internal monitoring path.** With nothing patched, a click on output 1 is
+  heard on no input at all. That matters because an interface that routes output
+  back internally would yield a confident, precise, entirely fictional latency.
