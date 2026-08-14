@@ -489,6 +489,21 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
     }
 
     control_loop(&sh, sr);
+
+    // stdin closing is not a reason to stop.
+    //
+    // Run headless — from a launcher, or with output redirected — and
+    // `lines()` returns immediately at EOF. Exiting there would take the audio
+    // engine and the socket down with it the instant the daemon stopped being
+    // attached to a terminal, which is exactly when it is meant to be working.
+    // With a socket open there is still a client to serve, so park instead.
+    if opts.ws_port.is_some() {
+        println!("(console closed; still serving the socket — Ctrl-C or kill to stop)");
+        loop {
+            std::thread::sleep(Duration::from_secs(3600));
+        }
+    }
+
     drop(in_stream);
     drop(out_stream);
     Ok(())

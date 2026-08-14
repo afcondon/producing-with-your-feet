@@ -46,6 +46,7 @@ import Engine.Storage as Storage
 import Engine.Twister as Twister
 import Foreign.FileIO as FileIO
 import Foreign.FolderBackup as FolderBackup
+import Foreign.LooperSocket as LooperSocket
 import Foreign.Remote as Remote
 import Foreign.WebMIDI as MIDI
 import Halogen as H
@@ -102,6 +103,8 @@ data Action
   | BackupReconnectAction
   | BackupSaveNowAction
   | BackupDisconnectAction
+  | LooperPoll
+  | LooperCommand String
 
 type Slots =
   ( header :: Header.Slot Unit
@@ -308,103 +311,111 @@ renderFolderBackup state =
           [ HH.text ("error: " <> err) ]
     ]
 
--- | MIDI connections view — port selection and signal flow
+
+
 -- | The looper tab.
 -- |
--- | The engine is `looper/` in this repo — a Rust daemon on cpal, holding the
--- | Audio4c directly, driven from stdin today. It is not wired to this app yet:
--- | the daemon has no socket to talk over, and until it does there is no live
--- | state to render.
+-- | The engine is `looper/` in this repo — a Rust daemon on cpal holding the
+-- | Audio4c directly. This page holds nothing: it renders the snapshot the
+-- | daemon pushes, and sends command strings back. Every decision about what a
+-- | command means lives in one place, at the other end of the socket.
 -- |
--- | So this page is scaffolding rather than a stub. It puts the engine's actual
--- | vocabulary — its transport states, its gestures, its measured constants —
--- | in front of the person who has to decide what the interface should be, on
--- | the grounds that reacting to something concrete beats designing against a
--- | blank page. See docs/DESIGN-LOOPER.md §12 for the two views wanted.
+-- | Deliberately unfinished. The interface this wants is in DESIGN-LOOPER §12 —
+-- | concentric rings sharing a phase pointer, and a column per layer — and the
+-- | thesis is that the display should say what the *next press* will do, not
+-- | merely what happened. What is here is proof the wire works, and one button.
 renderLooperView :: forall m. MonadAff m => AppState -> H.ComponentHTML Action Slots m
-renderLooperView _ =
-  HH.div [ HP.class_ (H.ClassName "docs-view") ]
+renderLooperView state =
+  HH.div [ HP.class_ (H.ClassName "looper-view") ]
     [ HH.h2_ [ HH.text "Looper" ]
-    , HH.p [ HP.class_ (H.ClassName "docs-note") ]
-        [ HH.text "The engine runs as a separate daemon and is not connected to this \
-                  \page yet — it takes commands on stdin, and needs a socket before \
-                  \anything here can be live. What follows is what it does, so the \
-                  \interface can be designed against something real." ]
-
-    , HH.div [ HP.class_ (H.ClassName "docs-section") ]
-        [ HH.h3_ [ HH.text "Gestures" ]
-        , HH.p [ HP.class_ (H.ClassName "docs-note") ]
-            [ HH.text "The first recording defines the cycle. Everything after is an \
-                      \integer multiple of it." ]
-        , HH.table [ HP.class_ (H.ClassName "docs-table") ]
-            [ HH.thead_
-                [ HH.tr_
-                    [ HH.th_ [ HH.text "Key" ]
-                    , HH.th_ [ HH.text "Does" ]
-                    , HH.th_ [ HH.text "Worth knowing" ]
-                    ]
-                ]
-            , HH.tbody_ (map gestureRow gestures)
-            ]
-        ]
-
-    , HH.div [ HP.class_ (H.ClassName "docs-section") ]
-        [ HH.h3_ [ HH.text "Transport states" ]
-        , HH.table [ HP.class_ (H.ClassName "docs-table") ]
-            [ HH.thead_
-                [ HH.tr_ [ HH.th_ [ HH.text "State" ], HH.th_ [ HH.text "Meaning" ] ] ]
-            , HH.tbody_ (map stateRow states)
-            ]
-        ]
-
-    , HH.div [ HP.class_ (H.ClassName "docs-section") ]
-        [ HH.h3_ [ HH.text "What the interface has to show" ]
-        , HH.p_
-            [ HH.text "The defect in every looper, the EHX 720 included, is that one \
-                      \switch means several things depending on state you cannot see. \
-                      \So the job is not a transport — it is showing what the next \
-                      \press will do, and when it will take effect." ]
-        , HH.p_
-            [ HH.text "Two views are wanted and neither is sufficient alone: concentric \
-                      \rings sharing one phase pointer, which makes the multiplier \
-                      \relationship structural rather than a number; and a column per \
-                      \layer, Repeater-style, which answers what have I got." ]
-        ]
+    , connectionLine
+    , case state.looper of
+        Nothing -> HH.text ""
+        Just lp -> HH.div_ [ transport lp, readout lp ]
     ]
   where
-  gestures =
-    [ { key: "r", does: "Record, or overdub, or finish the one in progress"
-      , note: "The first pass sets the cycle; later ones are overdubs of exactly that length" }
-    , { key: "x", does: "Multiply — grow the loop by whole cycles"
-      , note: "Starts at the beginning of the cycle you are in, not when you pressed" }
-    , { key: "t", does: "Take the recent past as a loop or a layer"
-      , note: "The pre-roll is always recording, so the good bit can be claimed afterwards" }
-    , { key: "u", does: "Undo the last layer", note: "Free, because layers are never mixed down" }
-    , { key: "c", does: "Clear everything", note: "" }
-    , { key: "k", does: "Click on or off", note: "Sounds at loop position zero" }
-    , { key: "l", does: "Input and output peaks", note: "Answers is it hearing me before a take is wasted" }
-    ]
+  st = state.looperStatus
 
-  states =
-    [ { name: "idle", meaning: "Nothing recorded. The pre-roll is still filling." }
-    , { name: "recording first", meaning: "Linear. Its length becomes the cycle." }
-    , { name: "overdubbing", meaning: "Modular, into a layer exactly one cycle long." }
-    , { name: "multiplying", meaning: "Recording across cycles; the loop grows to fit when it ends." }
-    , { name: "playing", meaning: "Layers summing, nothing being written." }
-    ]
-
-  gestureRow g =
-    HH.tr_
-      [ HH.td [ HP.class_ (H.ClassName "docs-cc") ] [ HH.text g.key ]
-      , HH.td_ [ HH.text g.does ]
-      , HH.td_ [ HH.text g.note ]
+  connectionLine =
+    HH.p [ HP.class_ (H.ClassName ("looper-conn" <> if st.connected then " ok" else " down")) ]
+      [ HH.text $
+          if st.connected then "Connected to the daemon."
+          else if st.everConnected then "Lost the daemon — retrying."
+          else "No daemon. Start it with:  pwyf-looper loop --device AUDIO4c --ws"
       ]
 
-  stateRow st =
-    HH.tr_
-      [ HH.td [ HP.class_ (H.ClassName "docs-cc") ] [ HH.text st.name ]
-      , HH.td_ [ HH.text st.meaning ]
+  -- The one button, and it is the fundamental looper gesture: the first press
+  -- sets the cycle, every later one overdubs. What it will do next depends on
+  -- state you cannot otherwise see, so it says so on its face.
+  transport lp =
+    HH.div [ HP.class_ (H.ClassName "looper-transport") ]
+      [ HH.button
+          [ HP.class_ (H.ClassName ("looper-btn" <> if lp.recording then " recording" else ""))
+          , HP.disabled (not st.connected)
+          , HE.onClick \_ -> LooperCommand "r"
+          ]
+          [ HH.text (nextPress lp) ]
+      , HH.button
+          [ HP.class_ (H.ClassName "looper-btn small")
+          , HP.disabled (not st.connected || lp.layers == 0)
+          , HE.onClick \_ -> LooperCommand "u"
+          ]
+          [ HH.text "Undo" ]
+      , HH.button
+          [ HP.class_ (H.ClassName "looper-btn small")
+          , HP.disabled (not st.connected)
+          , HE.onClick \_ -> LooperCommand "k"
+          ]
+          [ HH.text (if lp.click then "Click off" else "Click on") ]
+      , HH.span [ HP.class_ (H.ClassName "looper-hint") ]
+          [ HH.text ("MC6 CC " <> show state.looperToggleCC <> " does the same.") ]
       ]
+
+  -- | What the next press does, which is the thing every looper hides.
+  nextPress lp = case lp.state of
+    "recordingFirst" -> "Close the loop"
+    "overdubbing" -> "Finish overdub"
+    "multiplying" -> "End multiply"
+    "armed" -> "Starting…"
+    _ -> if lp.loopFrames == 0 then "Record" else "Overdub"
+
+  readout lp =
+    HH.div [ HP.class_ (H.ClassName "looper-readout") ]
+      [ phaseBar lp
+      , HH.table [ HP.class_ (H.ClassName "docs-table") ]
+          [ HH.tbody_
+              [ row "State" lp.state
+              , row "Layers" (show lp.layers <> " of " <> show lp.maxLayers)
+              , row "Loop"
+                  ( if lp.loopFrames == 0 then "not set"
+                    else fmt2 lp.loopSecs <> " s  (" <> show lp.loopFrames <> " frames)"
+                  )
+              , row "Input" (fmt1 lp.inDb <> " dBFS")
+              , row "Output" (fmt1 lp.outDb <> " dBFS")
+              , row "Alignment"
+                  ( if lp.calibrated then "locked, K " <> show lp.k
+                    else "waiting for the first input buffer"
+                  )
+              ]
+          ]
+      ]
+
+  -- Where we are in the cycle. Crude next to the concentric rings §12 wants,
+  -- but it is the one thing a looper must never leave you guessing about.
+  phaseBar lp =
+    HH.div [ HP.class_ (H.ClassName "looper-phase") ]
+      [ HH.div
+          [ HP.class_ (H.ClassName "looper-phase-fill")
+          , HP.style ("width:" <> show (max 0.0 (min 100.0 (lp.phase * 100.0))) <> "%")
+          ]
+          []
+      ]
+
+  row label value =
+    HH.tr_ [ HH.td [ HP.class_ (H.ClassName "docs-cc") ] [ HH.text label ], HH.td_ [ HH.text value ] ]
+
+  fmt1 n = show (Int.toNumber (Int.round (n * 10.0)) / 10.0)
+  fmt2 n = show (Int.toNumber (Int.round (n * 100.0)) / 100.0)
 
 
 renderConnectView :: forall m. MonadAff m => AppState -> H.ComponentHTML Action Slots m
@@ -721,6 +732,11 @@ handleAction = case _ of
         -- this can only fail. Forking lets startup finish and MIDI turn up late
         -- or never.
         void $ H.fork $ handleAction (InitializeMIDI rig.midiRouting)
+        -- The looper daemon is a separate process that comes and goes; the
+        -- socket reconnects itself, so this is fire-and-forget. The poll loop
+        -- is forked for the same reason MIDI is: it never returns.
+        liftEffect $ LooperSocket.connect LooperSocket.defaultUrl
+        void $ H.fork looperPollLoop
         -- Try to silently reconnect the folder-backup handle (IndexedDB). If
         -- the browser needs a fresh gesture, this surfaces Nothing and the
         -- user will see a "Reconnect" affordance in the Files view.
@@ -1137,11 +1153,53 @@ handleAction = case _ of
 
   MC6MidiReceived bytes -> do
     liftEffect $ Console.log $ "MC6 relay: " <> show bytes
+    st <- H.get
     case bytes of
-      -- Channel 1 CC with value 127 = board recall trigger
+      -- Channel 1 CC with value 127 = a footswitch press.
       [status, ccNum, 127] | status == 0xB0 ->
-        handleBoardRecallFromMC6 ccNum
+        -- One switch drives the looper; the rest recall boards. Deciding that
+        -- here, rather than in the daemon, is what keeps a single process
+        -- talking to the MC6 and a single place deciding what a press means.
+        if ccNum == st.looperToggleCC
+          then handleAction (LooperCommand "r")
+          else handleBoardRecallFromMC6 ccNum
       _ -> pure unit
+
+  -- | Pull the newest snapshot the socket is holding.
+  -- |
+  -- | The daemon pushes thirty times a second; this reads at ten, because a
+  -- | position readout does not need more and Halogen re-rendering at thirty
+  -- | would make the whole app feel heavy for the sake of one number.
+  LooperPoll -> do
+    st' <- liftEffect LooperSocket.status
+    snap <- liftEffect LooperSocket.latest
+    H.modify_ _ { looper = snap, looperStatus = st' }
+
+  -- | One command to the daemon, from a button or a footswitch alike.
+  -- |
+  -- | The daemon has no MIDI of its own by design, so this app is the only
+  -- | process talking to the MC6 and the only one deciding what a press means.
+  LooperCommand cmd -> do
+    ok <- liftEffect $ LooperSocket.send cmd
+    unless ok $
+      liftEffect $ Console.log $ "looper: not connected, dropped " <> show cmd
+
+
+-- | Read the socket ten times a second, forever.
+-- |
+-- | The daemon pushes thirty times a second and the FFI keeps only the newest,
+-- | so this cannot fall behind — it just decides how often Halogen re-renders.
+-- | Ten is enough for a position bar to look continuous and cheap enough that
+-- | the rest of the app does not notice.
+-- |
+-- | Forked from Initialize, which is the same lesson as MIDI: anything that
+-- | never returns must not sit in the action queue, or every later click waits
+-- | behind it.
+looperPollLoop :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
+looperPollLoop = do
+  H.liftAff (delay (Milliseconds 100.0))
+  handleAction LooperPoll
+  looperPollLoop
 
 -- Grid output handler (shared by HandleGrid)
 handleGridOutput :: forall o m. MonadAff m => GridView.Output -> H.HalogenM AppState Action Slots o m Unit

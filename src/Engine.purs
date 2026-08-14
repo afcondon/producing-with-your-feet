@@ -24,6 +24,7 @@ import Data.MC6.Types (MC6NativeBank)
 import Data.Map (Map)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
+import Foreign.LooperSocket (LooperState, SocketStatus)
 import Data.Midi (CC, MidiValue)
 import Data.Pedal (PedalDef, PedalId)
 import Data.Preset (BoardPreset, PedalPreset, PresetId)
@@ -85,6 +86,12 @@ type AppState =
   , activeControlBankIdx :: Maybe Int
   -- Folder backup (Chrome File System Access API → Infovore path)
   -- Result of the last manual MIDI test, shown on the MIDI page.
+  -- Looper daemon (looper/ in this repo), over a socket. The app holds only
+  -- what the daemon last reported; it never models the engine itself.
+  , looper :: Maybe LooperState
+  , looperStatus :: SocketStatus
+  -- CC on the MC6 channel that the footswitch relay maps to a record toggle.
+  , looperToggleCC :: Int
   , midiTest :: Maybe String
   -- Manual CC test on the MIDI page: channel and CC to poke at the rig.
   , testCh :: Int
@@ -149,6 +156,9 @@ initAppState =
   , mc6Assignments: []
   , controlBanks: [exampleControlBank]
   , activeControlBankIdx: Just 0
+  , looper: Nothing
+  , looperStatus: { connected: false, everConnected: false, lastError: "", url: "" }
+  , looperToggleCC: 20
   , midiTest: Nothing
   , testCh: 3
   , testCC: 1

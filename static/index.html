@@ -1610,6 +1610,113 @@ body {
   min-width: 160px;
 }
 
+/* --- Looper --- */
+
+.looper-view {
+  padding: 24px 32px;
+  max-width: 720px;
+}
+
+.looper-view h2 {
+  font-size: 16px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+  margin: 0 0 20px;
+}
+
+/* Connection state is the first thing to read: every control below is a lie
+   if the daemon is not there, so it is stated before any of them. */
+.looper-conn {
+  font-size: 13px;
+  margin: 0 0 20px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  border-left: 3px solid transparent;
+}
+
+.looper-conn.ok {
+  color: var(--fg-muted);
+  border-left-color: #4a9a5e;
+  background: rgba(74, 154, 94, 0.06);
+}
+
+.looper-conn.down {
+  color: #9a4a4a;
+  border-left-color: #9a4a4a;
+  background: rgba(154, 74, 74, 0.06);
+  font-family: 'SF Mono', 'Menlo', monospace;
+  font-size: 12px;
+}
+
+.looper-transport {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.looper-btn {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 12px 22px;
+  min-width: 150px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-panel, #fff);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.looper-btn:hover:not(:disabled) { background: var(--bg-hover, #f0f0f0); }
+.looper-btn:disabled { opacity: 0.35; cursor: default; }
+
+.looper-btn.small {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 400;
+  padding: 12px 16px;
+}
+
+/* Recording is the one state that must be unmistakable across a room, with a
+   guitar on, without reading anything.
+   The :hover selector above outranks a plain .recording — one class plus two
+   pseudo-classes against two classes — so hovering masked the recording state,
+   which is precisely the moment the pointer is resting on the button you just
+   pressed. Naming the hover case explicitly is the fix; raising specificity by
+   accident would not have stayed fixed. */
+.looper-btn.recording,
+.looper-btn.recording:hover:not(:disabled) {
+  background: #c0392b;
+  border-color: #a5301f;
+  color: #fff;
+}
+
+.looper-hint {
+  font-size: 12px;
+  color: var(--fg-muted);
+  margin-left: auto;
+}
+
+/* Where we are in the cycle. Crude beside the concentric rings the design
+   wants, but it is the one thing a looper must never leave you guessing. */
+.looper-phase {
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 18px;
+}
+
+.looper-phase-fill {
+  height: 100%;
+  background: var(--accent, #3a6ea5);
+  transition: width 0.1s linear;
+}
+
 /* --- MC6 Panel --- */
 
 .mc6-panel {
