@@ -31,9 +31,14 @@ USAGE
       The looper. Records, overdubs as layers, and undoes them, on the
       alignment `align` verifies. Commands on stdin:
 
-        r  record / overdub toggle     u  undo last layer
-        c  clear everything            k  click on/off
-        p  status                      q  quit
+        r  record / overdub toggle     t [secs]  take from the past
+        u  undo last layer             c  clear everything
+        k  click on/off                p  status        q  quit
+
+      `t` is the one a pedal cannot do: you played something good and did
+      not hit record, so hit it afterwards. With no loop yet it takes the
+      last [secs] as the loop; with one running it claims the last complete
+      cycle as a new layer.
 
       The first recording defines the cycle; every later one is an overdub
       of exactly that length, summed into its own layer.
@@ -41,6 +46,9 @@ USAGE
       --residual <n>    from `sweep`, for this configuration  (default 252)
       --max-secs <s>    longest loop, and so the arena size   (default 30)
       --click           metronome at loop position zero
+      --ring-secs <s>   how much of the past stays claimable      (default 60)
+      --preroll-ms <n>  how far before the tap the first loop actually
+                        starts, pulled from the pre-roll           (default 0)
       --selftest <s>    record one cycle of the engine's own click through a
                         loopback cable and check where it landed
 
@@ -224,6 +232,8 @@ fn parse_loop(args: &[String]) -> Result<engine::Opts, String> {
             "--max-secs" => opts.max_secs = value.parse().map_err(|_| "--max-secs wants a number")?,
             "--rate" => opts.sample_rate = value.parse().map_err(|_| "--rate wants an integer")?,
             "--buffer" => opts.buffer = Some(value.parse().map_err(|_| "--buffer wants an integer")?),
+            "--ring-secs" => opts.ring_secs = value.parse().map_err(|_| "--ring-secs wants a number")?,
+            "--preroll-ms" => opts.preroll_ms = value.parse().map_err(|_| "--preroll-ms wants a number")?,
             "--selftest" => {
                 opts.selftest = Some(value.parse().map_err(|_| "--selftest wants a length in seconds")?)
             }

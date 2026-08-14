@@ -63,6 +63,11 @@ pub struct Opts {
     pub buffer: Option<u32>,
     pub click: bool,
     pub selftest: Option<f64>,
+    pub ring_secs: f64,
+    /// How far before the press the first recording actually begins, pulled
+    /// from the ring. A tap is always a little late; this makes that harmless
+    /// instead of clipping the attack off the front of the loop.
+    pub preroll_ms: f64,
 }
 
 impl Default for Opts {
@@ -77,6 +82,8 @@ impl Default for Opts {
             buffer: None,
             click: false,
             selftest: None,
+            ring_secs: 60.0,
+            preroll_ms: 0.0,
         }
     }
 }
@@ -85,6 +92,15 @@ impl Default for Opts {
 struct Shared {
     arena: Vec<AtomicU32>,
     max_frames: usize,
+    /// The pre-roll. The input callback writes every frame it ever receives here
+    /// whether anything is recording or not, indexed by input frame modulo its
+    /// length — so the last `ring_secs` of playing are always retrievable.
+    ///
+    /// This is the thing a pedal cannot do. Sixty seconds is 11 MB; a 720 has
+    /// no such memory to spare and so must be told to record *before* the good
+    /// bit happens. Here the good bit can be claimed afterwards.
+    ring: Vec<AtomicU32>,
+    ring_len: usize,
     loop_len: AtomicUsize,
     n_layers: AtomicUsize,
     /// The output frame at which loop position zero sits.
@@ -104,6 +120,7 @@ struct Shared {
     /// the right length even though the input trails the output.
     reached: AtomicUsize,
     overflowed: AtomicBool,
+    preroll: AtomicUsize,
 }
 
 /// `AtomicU8` under a name that makes the intent obvious at the use sites.
@@ -138,6 +155,22 @@ impl Shared {
         let cur = f32::from_bits(c.load(Ordering::Relaxed));
         c.store((cur + v).to_bits(), Ordering::Relaxed)
     }
+    /// The captured sample for an input frame, if the ring still holds it.
+    fn ring_at(&self, in_frame: i64) -> Option<f32> {
+        if in_frame < 0 {
+            return None;
+        }
+        let newest = self.in_frames.load(Ordering::Acquire) as i64;
+        // Leave a buffer's grace at the trailing edge: the input callback is
+        // still writing, and a frame about to be overwritten is not a frame.
+        let oldest = newest - self.ring_len as i64 + self.buffer_frames.load(Ordering::Relaxed) as i64;
+        if in_frame < oldest || in_frame >= newest {
+            return None;
+        }
+        let i = (in_frame as usize) % self.ring_len;
+        Some(f32::from_bits(self.ring[i].load(Ordering::Relaxed)))
+    }
+
     fn zero_layer(&self, layer: usize) {
         for i in 0..self.max_frames {
             self.cell(layer, i).store(0, Ordering::Relaxed);
@@ -163,6 +196,7 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
     let in_channels = in_cfg.channels as usize;
     let out_channels = out_cfg.channels as usize;
     let max_frames = (opts.max_secs * sr_f).round() as usize;
+    let ring_len = (opts.ring_secs * sr_f).round() as usize;
 
     println!("Device: {}", candidate.name);
     println!(
@@ -170,15 +204,19 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
         opts.in_ch, opts.out_ch, sr
     );
     println!(
-        "Arena: {} layers x {:.0} s = {} MB\n",
+        "Arena: {} layers x {:.0} s = {} MB.   Pre-roll: {:.0} s = {} MB.\n",
         MAX_LAYERS,
         opts.max_secs,
-        MAX_LAYERS * max_frames * 4 / 1_048_576
+        MAX_LAYERS * max_frames * 4 / 1_048_576,
+        opts.ring_secs,
+        ring_len * 4 / 1_048_576
     );
 
     let sh = Arc::new(Shared {
         arena: (0..MAX_LAYERS * max_frames).map(|_| AtomicU32::new(0)).collect(),
         max_frames,
+        ring: (0..ring_len).map(|_| AtomicU32::new(0)).collect(),
+        ring_len,
         loop_len: AtomicUsize::new(0),
         n_layers: AtomicUsize::new(0),
         origin: AtomicI64::new(0),
@@ -193,6 +231,9 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
         click: AtomicBool::new(opts.click || opts.selftest.is_some()),
         reached: AtomicUsize::new(0),
         overflowed: AtomicBool::new(false),
+        preroll: AtomicUsize::new(
+            (opts.preroll_ms / 1000.0 * sr_f).round().max(0.0) as usize,
+        ),
     });
 
     let err = |e| eprintln!("stream error: {}", e);
@@ -223,11 +264,17 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
                 // is a loop boundary that is audibly wrong.
                 match sh.request.take() {
                     ARMED => {
-                        sh.origin.store(base as i64, Ordering::Release);
                         sh.reached.store(0, Ordering::Release);
                         let n = sh.n_layers.load(Ordering::Acquire);
                         if n < MAX_LAYERS {
                             if sh.loop_len.load(Ordering::Acquire) == 0 {
+                                // Only the first recording lays down the grid.
+                                // Re-stamping origin on every arm would drag the
+                                // whole loop to position zero the instant you
+                                // hit record — playback reads origin too. The
+                                // self-test cannot catch that, because both
+                                // sides move together.
+                                sh.origin.store(base as i64, Ordering::Release);
                                 sh.state.set(FIRST);
                             } else {
                                 sh.state.set(OVERDUB);
@@ -291,6 +338,13 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
                     let c0 = signed_secs(p0, &info.timestamp().capture) * sr_f;
                     sh.k.store((c0 - base as f64 - offset).round() as i64, Ordering::Release);
                     sh.k_set.store(true, Ordering::Release);
+                }
+
+                // Always, regardless of transport state. This is what makes
+                // the past claimable.
+                for f in 0..frames {
+                    let i = (base + f) % sh.ring_len;
+                    sh.ring[i].store(data[f * in_channels + ch].to_bits(), Ordering::Relaxed);
                 }
 
                 let state = sh.state.get();
@@ -373,10 +427,44 @@ fn commit(sh: &Shared, sr: u32) {
     std::thread::sleep(Duration::from_millis(60));
 
     if state == FIRST {
-        let len = sh.reached.load(Ordering::Acquire);
+        let mut len = sh.reached.load(Ordering::Acquire);
         if len == 0 {
             println!("  nothing recorded.");
             return;
+        }
+        // Pre-roll: a tap is always a little late, so back-date the loop's start
+        // and fill the front from the ring. The attack that would have been
+        // clipped off is already captured; it just has to be claimed.
+        let pre = sh.preroll.load(Ordering::Acquire);
+        let layer = sh.n_layers.load(Ordering::Acquire);
+        let origin = sh.origin.load(Ordering::Acquire);
+        let new_origin = origin - pre as i64;
+        if pre > 0 && len + pre > sh.max_frames {
+            // Shifting anyway would run off the end of this layer's slice and
+            // into the next one's, which is silent corruption rather than an
+            // error. Refuse instead.
+            println!(
+                "  pre-roll skipped: the loop plus pre-roll would exceed --max-secs."
+            );
+        } else if pre > 0 && new_origin >= 0 {
+            // Shift what was recorded up by `pre`, backwards so the move does
+            // not eat its own tail, then fill the vacated front from the ring.
+            for pos in (0..len).rev() {
+                let v = sh.read(layer, pos);
+                sh.write(layer, pos + pre, v);
+            }
+            for pos in 0..pre {
+                sh.write(layer, pos, 0.0);
+            }
+            let got = fill_from_ring(sh, layer, new_origin, pre, false);
+            sh.origin.store(new_origin, Ordering::Release);
+            len += pre;
+            println!(
+                "  pre-roll: {:.0} ms recovered from before the tap ({} of {} frames).",
+                pre as f64 / sr as f64 * 1000.0,
+                got,
+                pre
+            );
         }
         sh.loop_len.store(len, Ordering::Release);
         println!(
@@ -390,9 +478,106 @@ fn commit(sh: &Shared, sr: u32) {
     println!("  committed. {} layer{} playing.", n, if n == 1 { "" } else { "s" });
 }
 
+/// Fill a stretch of a layer from the pre-roll, addressing it in *output* frames
+/// so it lands on the same grid live recording uses.
+///
+/// Returns how many frames were actually available. A short answer is not an
+/// error — it means the request reached back further than the ring holds, and
+/// the caller should say so rather than silently hand over a loop with a
+/// truncated front.
+fn fill_from_ring(sh: &Shared, layer: usize, from_out: i64, len: usize, additive: bool) -> usize {
+    let k = sh.k.load(Ordering::Acquire);
+    let mut got = 0;
+    for pos in 0..len {
+        let Some(v) = sh.ring_at(from_out + pos as i64 - k) else {
+            continue;
+        };
+        if additive {
+            sh.add(layer, pos, v);
+        } else {
+            sh.write(layer, pos, v);
+        }
+        got += 1;
+    }
+    got
+}
+
+/// Claim the recent past as a loop or a layer.
+///
+/// The feature no pedal can offer, and the one most likely to change how the
+/// thing gets used: you played something good and did not hit record, so hit it
+/// afterwards. With no loop yet, `secs` of the past becomes the loop and sets
+/// the cycle. With a loop running, the last complete cycle becomes a new layer,
+/// landing on the existing grid because the fill is addressed in output frames.
+fn take(sh: &Shared, sr: u32, secs: f64) {
+    if !sh.k_set.load(Ordering::Acquire) {
+        println!("  no input has arrived yet.");
+        return;
+    }
+    let layer = sh.n_layers.load(Ordering::Acquire);
+    if layer >= MAX_LAYERS {
+        println!("  {} layers is the ceiling; undo one first.", MAX_LAYERS);
+        return;
+    }
+
+    let loop_len = sh.loop_len.load(Ordering::Acquire);
+    let cur = sh.out_frames.load(Ordering::Acquire) as i64;
+
+    let (from_out, len, what) = if loop_len == 0 {
+        let len = ((secs * sr as f64).round() as usize).min(sh.max_frames);
+        (cur - len as i64, len, "loop")
+    } else {
+        // The last cycle that has actually finished. Anything else would be a
+        // partial pass presented as a whole one.
+        let origin = sh.origin.load(Ordering::Acquire);
+        let done = (cur - origin).div_euclid(loop_len as i64);
+        if done < 1 {
+            println!("  not one complete cycle has gone by yet.");
+            return;
+        }
+        (origin + (done - 1) * loop_len as i64, loop_len, "layer")
+    };
+
+    if from_out < 0 {
+        println!("  that reaches back before the engine started.");
+        return;
+    }
+
+    sh.zero_layer(layer);
+    let got = fill_from_ring(sh, layer, from_out, len, false);
+    if got == 0 {
+        println!("  the pre-roll does not reach back that far.");
+        return;
+    }
+    if got < len {
+        println!(
+            "  only {:.2} s of the {:.2} s asked for was still in the pre-roll.",
+            got as f64 / sr as f64,
+            len as f64 / sr as f64
+        );
+    }
+
+    if loop_len == 0 {
+        sh.loop_len.store(len, Ordering::Release);
+        sh.origin.store(from_out, Ordering::Release);
+        sh.state.set(PLAYING);
+        println!(
+            "  took the last {:.3} s as the {}: {} frames, {:.1} bpm if that is one bar of 4/4",
+            len as f64 / sr as f64,
+            what,
+            len,
+            240.0 / (len as f64 / sr as f64)
+        );
+    } else {
+        println!("  took the last complete cycle as a new {}.", what);
+    }
+    let n = sh.n_layers.fetch_add(1, Ordering::AcqRel) + 1;
+    println!("  {} layer{} playing.", n, if n == 1 { "" } else { "s" });
+}
+
 fn control_loop(sh: &Shared, sr: u32) {
-    println!("Commands:  r = record/overdub toggle   u = undo   c = clear");
-    println!("           k = click on/off   p = status   q = quit\n");
+    println!("Commands:  r = record/overdub toggle   t [secs] = take from the past");
+    println!("           u = undo   c = clear   k = click on/off   p = status   q = quit\n");
 
     let stdin = std::io::stdin();
     for line in stdin.lock().lines() {
@@ -409,6 +594,10 @@ fn control_loop(sh: &Shared, sr: u32) {
                     }
                 }
             },
+            l if l.starts_with('t') => {
+                let secs = l[1..].trim().parse::<f64>().unwrap_or(8.0);
+                take(sh, sr, secs);
+            }
             "u" => {
                 let n = sh.n_layers.load(Ordering::Acquire);
                 if n == 0 {
@@ -505,8 +694,39 @@ fn selftest(sh: &Shared, sr: u32, secs: f64) -> Result<(), Box<dyn Error>> {
         20.0 * (p1.max(1e-9) as f64).log10()
     );
 
+    // Third: claim a cycle that was never recorded. Both existing layers carry
+    // the click, so playback has one at position zero; a retroactive take of
+    // the last complete cycle must land it there too. This is the pre-roll path
+    // rather than the live-record path, and it uses different code to reach the
+    // same grid — so it deserves its own check.
+    println!("\nRetroactive take: claiming the last complete cycle from the pre-roll.");
+    std::thread::sleep(Duration::from_secs_f64(secs * 1.5));
+    take(sh, sr, 0.0);
+    std::thread::sleep(Duration::from_millis(100));
+
+    let e2 = match onset_of(sh, 2, len) {
+        Some((e, p)) => {
+            println!(
+                "  layer 2: taken from the past, click at {:+} samples ({:+.3} ms), peak {:.1} dBFS",
+                e,
+                e as f64 / sr as f64 * 1000.0,
+                20.0 * (p.max(1e-9) as f64).log10()
+            );
+            e
+        }
+        None => return Err("the retroactive take captured nothing".into()),
+    };
+
     let slip = e1 - e0;
     println!("\n  Layer-to-layer slip: {:+} samples.", slip);
+    if e2.abs() > 2 {
+        return Err(format!(
+            "live recording aligns but the retroactive take is {} samples out — the \
+             pre-roll is being addressed on a different grid than the live path",
+            e2.abs()
+        )
+        .into());
+    }
 
     if e0.abs() <= 2 && slip.abs() <= 2 {
         println!(
