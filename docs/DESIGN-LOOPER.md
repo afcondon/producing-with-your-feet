@@ -251,29 +251,50 @@ Three separate numbers, none of which should be guessed:
 the interface lands late by the full round trip, and **the error compounds on
 every overdub** if uncompensated. This is the one that ruins a looper.
 
-> **Measured, 2026-08-14 — 252 samples, 5.25 ms.** Audio4c, output 1 patched
-> to input 1, at 48 kHz. `pwyf-looper sweep`.
+> **Measured, 2026-08-14.** Audio4c, output 1 patched to input 1, 48 kHz,
+> `pwyf-looper sweep`. Two results, and they are of different quality.
 >
-> The measurement had to separate two things that a single reading confuses. The
-> raw figure from cpal's timestamps varies with buffer size — `measured = 252 −
-> 2.00 × buffer`, exact at 64, 128, 256, 512 and 1024 frames — because the
-> timestamps over-account by one buffer on each side. That part is bookkeeping,
-> and it cancels once the buffer size is known, which the engine always knows
-> because it chooses it.
+> **The form is exact and reproducible.** A single reading confuses two things,
+> so the sweep varies the buffer to separate them:
 >
-> The residual does not move when the buffer does, and buffer-independence is
-> what makes it physics rather than accounting. **252 samples is the interface's
-> own converter round trip**, and it is the constant recordings are compensated
-> by.
+> ```
+> measured = residual − 2.00 × buffer_frames
+> ```
 >
-> Two consequences for the engine. Raw timestamp arithmetic needs
-> `true_offset = measured + 2 × buffer_frames` applied before it means anything.
-> And a negative raw reading is normal, not a fault — any path shorter than two
+> exact at 64, 128, 256, 512 and 1024 frames, with zero variance at each. The
+> slope is two buffers — one on each side — because cpal's timestamps
+> over-account for the output pipeline and the input pipeline alike. That part
+> is bookkeeping, it is always exactly 2, and it cancels once the buffer size is
+> known, which the engine always knows because it chooses it.
+>
+> **The residual is not a universal constant.** It read 252 samples, then 301 in
+> a later run — the whole curve shifted by 49 samples while the slope stayed at
+> exactly 2.00 and the residual stayed perfectly buffer-independent. Within a
+> device configuration it is stable to the sample and reproducible across dozens
+> of fresh stream sessions; across some change it stepped once and stayed. Other
+> audio clients were running (Ableton, SuperCollider), and CoreAudio can
+> renegotiate a device's hardware buffer and safety offset when a client opens
+> it, which would do exactly this. Not proven.
+>
+> **So the number is session state, not a stored constant.** The engine must
+> measure it for the configuration it is actually running in, and treat a stored
+> value as a hint to be verified rather than a fact. A calibration that has gone
+> stale is worse than none, because it is silently wrong in the one direction
+> nothing in the sound reveals.
+>
+> Two other consequences. Raw timestamp arithmetic needs
+> `true_offset = measured + 2 × buffer_frames` before it means anything. And a
+> negative raw reading is normal rather than a fault — any path shorter than two
 > buffers reads below zero.
 >
-> Still to measure on this path: **out → pedalboard → in**, which is the figure
-> that applies to anything recorded wet, and will be larger by whatever the
-> pedals' converters add.
+> Still to measure: **out → pedalboard → in**, the figure for anything recorded
+> wet. Note that this one cannot be a single number either, for a reason of its
+> own: every digital pedal converts A/D → DSP → D/A, they are in series, and a
+> pedal in true bypass adds nothing where one in buffered bypass adds its full
+> conversion. **The wet-path latency is a function of which pedals are engaged**
+> — which makes it another thing the belief model of `DESIGN-v2` §2 has to
+> carry, and another reason a layer should record the board state it was made
+> through.
 
 **The self-test this affords.** Because the correction is exact, the engine has
 a check it can run on itself: record a loopback click against a playing loop and
@@ -390,7 +411,11 @@ Stages 1–3 are the project. Everything after is upside.
   unit's purpose, so this should be configuration — but prove it early rather
   than discover a limitation late.
 - ~~**Measure the audio round trip** before writing any overdub code.~~ Done
-  2026-08-14: 252 samples on the Audio4c. §10.
+  2026-08-14 — and it taught us the number is session state rather than a
+  constant, which is the more useful result. §10.
+- **Calibrate at startup, or verify what is stored.** Follows from the above and
+  is not optional. The self-test in §10 is the same mechanism, so this costs
+  little beyond what is already wanted.
 - **The Audio4c channel map.** Channels 0–3 are the four analog inputs, each a
   live preamp with its own noise floor around −76 dBFS. Channels 4–7 read as
   hard digital zero with no iPad attached, which is the second-host path — and

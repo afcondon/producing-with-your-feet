@@ -25,6 +25,17 @@ USAGE
       an interface with more USB channels than physical jacks does not
       tell you this, and guessing wrong records silence.
 
+  pwyf-looper map --device <name> [options]
+      Click every output in turn, listening on every input. With one cable
+      patched from an output jack to an input jack, exactly one pair should
+      answer — which names the host channel behind BOTH jacks in one run.
+
+      Move the cable to the next pair of jacks and run it again. Four runs
+      map a four-in/four-out interface completely.
+
+      More than one pair answering means internal routing inside the
+      interface, where a click crosses no converter.
+
   pwyf-looper sweep --device <name> [options]
       The calibration. Measures at several buffer sizes and separates the
       two things a single reading confuses: a real converter delay, and a
@@ -71,6 +82,19 @@ fn main() -> ExitCode {
         }
         "levels" => match parse_levels(&args[1..]) {
             Ok(opts) => match levels::run(opts) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("\n{}", e);
+                    ExitCode::FAILURE
+                }
+            },
+            Err(e) => {
+                eprintln!("{}\n\n{}", e, USAGE);
+                ExitCode::FAILURE
+            }
+        },
+        "map" => match parse_measure(&args[1..]) {
+            Ok(opts) => match measure::map(opts) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
                     eprintln!("\n{}", e);

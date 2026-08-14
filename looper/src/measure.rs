@@ -433,6 +433,99 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
     report(&mut p.channels, p.sr, opts.repeats)
 }
 
+/// Click every output in turn and see which input answers.
+///
+/// With one cable patched from an output jack to an input jack, exactly one
+/// (output channel, input channel) pair responds — which names both ends from a
+/// single run. That is the whole point: the host channel behind an output jack
+/// is otherwise as unknowable as the one behind an input jack, and an interface
+/// with more channels than jacks tells you neither.
+///
+/// Anything that answers on more than one pair is an internal routing path, and
+/// worth knowing about before it corrupts a measurement.
+pub fn map(opts: Opts) -> Result<(), Box<dyn Error>> {
+    let candidate = crate::devices::find(&opts.device)?;
+    let out_cfg = choose_output(&candidate.device, 0, opts.sample_rate, Width::Widest)
+        .ok_or_else(|| format!("{} has no f32 output config", candidate.name))?;
+    let out_channels = out_cfg.channels as usize;
+    drop(out_cfg);
+
+    println!("Device: {}\n", candidate.name);
+    println!(
+        "Clicking each of the {} outputs in turn, listening on every input.\n\
+         With one cable patched, one pair should answer — and that names the host\n\
+         channel behind both jacks at once.\n",
+        out_channels
+    );
+
+    let mut found: Vec<(usize, usize, f64, f32)> = Vec::new();
+
+    println!("  out ch    heard on");
+    for out_ch in 0..out_channels {
+        let mut o = opts.clone();
+        o.out_ch = out_ch;
+        o.repeats = 2;
+
+        let p = match probe(&o, false) {
+            Ok(p) => p,
+            Err(e) => {
+                println!("  {:>6}    failed: {}", out_ch, e);
+                continue;
+            }
+        };
+
+        let mut answers: Vec<String> = Vec::new();
+        for (in_ch, c) in p.channels.iter().enumerate() {
+            if c.latencies_ms.is_empty() {
+                continue;
+            }
+            let mut lats = c.latencies_ms.clone();
+            lats.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let m = median(&lats);
+            let samples = m / 1000.0 * p.sr as f64
+                // Undo the two-buffer over-account so this table shows real
+                // transit rather than a figure dominated by buffer size.
+                + 2.0 * p.buffer as f64;
+            answers.push(format!(
+                "ch {} ({:+.0} sm, {:.1} dBFS)",
+                in_ch,
+                samples,
+                dbfs(c.peak)
+            ));
+            found.push((out_ch, in_ch, samples, c.peak));
+        }
+
+        println!(
+            "  {:>6}    {}",
+            out_ch,
+            if answers.is_empty() { "—".to_string() } else { answers.join("   ") }
+        );
+    }
+
+    match found.len() {
+        0 => println!(
+            "\n  Nothing answered anywhere. Either no cable is patched, or its output\n  \
+             end is in a jack this device does not drive from any host channel."
+        ),
+        1 => {
+            let (o, i, s, _) = found[0];
+            println!(
+                "\n  One pair: output channel {} -> input channel {}, {:.0} samples of\n  \
+                 real transit. Whichever jacks that cable is in, those are their host\n  \
+                 channels.",
+                o, i, s
+            );
+        }
+        n => println!(
+            "\n  {} pairs answered. If only one cable is patched, the rest are internal\n  \
+             routing inside the interface — and a latency measured across one of those\n  \
+             crossed no converter, so it is not a latency at all.",
+            n
+        ),
+    }
+    Ok(())
+}
+
 const SWEEP_BUFFERS: [u32; 5] = [64, 128, 256, 512, 1024];
 
 /// Measure at several buffer sizes and separate the two things mixed together
