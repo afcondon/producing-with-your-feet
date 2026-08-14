@@ -434,11 +434,31 @@ Stages 1–3 are the project. Everything after is upside.
 - **Calibrate at startup, or verify what is stored.** Follows from the above and
   is not optional. The self-test in §10 is the same mechanism, so this costs
   little beyond what is already wanted.
-- **The Audio4c channel map.** Channels 0–3 are the four analog inputs, each a
-  live preamp with its own noise floor around −76 dBFS. Channels 4–7 read as
-  hard digital zero with no iPad attached, which is the second-host path — and
-  therefore where the synth audio of §6 will arrive. No Auracle configuration
-  was needed for capture; only that inter-host routing will need it.
+- **The Audio4c channel map**, measured 2026-08-14 with `pwyf-looper map`:
+
+  | input jack | host channel | click level | transit |
+  |---|---|---|---|
+  | 1 | 0 | −25.2 dBFS | 252 samples |
+  | 2 | 1 | −25.2 dBFS | 252 samples |
+  | 3 | 2 | −27.1 dBFS | 252 samples |
+  | 4 | 3 | −27.1 dBFS | 252 samples |
+
+  Identity mapping, no surprises. The useful part is the last column: **all four
+  converters are in lockstep to the sample**, so one calibration constant covers
+  every input and no per-channel compensation is needed. Exactly one pair
+  answered on each run, which re-confirms there is no internal routing.
+
+  The ~1.9 dB level difference splits exactly along the pairs — 1/2 together,
+  3/4 together — which points at Auracle's stereo gain sliders rather than
+  anything per-jack. Gain is set by hand and is not the engine's business; it is
+  noted only so a later reading of these levels is not mistaken for a fault.
+
+  Channels 4–7 read as hard digital zero with no iPad attached: the second-host
+  path, and where the synth audio of §6 will arrive. Output jack 1 is host
+  channel 0; outputs 2–4 are untested but presumably identity by symmetry.
+
+  No Auracle configuration was needed for capture; only the inter-host routing
+  will need it.
 - **No internal monitoring path.** With nothing patched, a click on output 1 is
   heard on no input at all. That matters because an interface that routes output
   back internally would yield a confident, precise, entirely fictional latency.
