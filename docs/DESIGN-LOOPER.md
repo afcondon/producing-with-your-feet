@@ -316,9 +316,53 @@ every overdub** if uncompensated. This is the one that ruins a looper.
 
 **The self-test this affords.** Because the correction is exact, the engine has
 a check it can run on itself: record a loopback click against a playing loop and
-it must land on the sample it was emitted on. Any drift is a bug in the
-alignment, not an unknown of the hardware. Worth building early — it is the only
-part of a looper that can be verified rather than judged by ear.
+it must land on the sample it was emitted on. Any error is a bug in the
+alignment, not an unknown of the hardware. It is the only part of a looper that
+can be verified rather than judged by ear — and building it first immediately
+earned its keep, because it found the following.
+
+### The two clocks — `pwyf-looper align`, 2026-08-14
+
+**The interface's sample clock is not the host clock.** On this rig they differ
+by about **15.6 ppm — 0.75 samples every second**. Measured as a dead-straight
+line:
+
+| elapsed | host clock vs device frames |
+|---|---|
+| 4 s | −3 samples |
+| 12 s | −9 samples |
+| 24 s | −18 samples |
+| 48 s | −36 samples |
+
+The first implementation converted each input buffer's capture timestamp into a
+loop position using the host clock, and its alignment error tracked that column
+exactly. A three-minute loop would have ended up 135 samples out; an hour's
+session, 2700. Nothing about it announces itself — it is precisely the failure
+mode described at the top of §10, arriving by a route that had not occurred to
+me.
+
+**The rule that follows: no host-clock arithmetic survives past startup.** Both
+streams are driven by the same device clock, so their frame counters advance in
+lockstep forever and differ only by a constant:
+
+```
+out_frame = in_frame + K
+
+K = (C0 − P0) × rate − in_frames_so_far − offset_samples
+offset_samples = residual − 2 × buffer
+```
+
+`K` is computed once, at the first input callback, and is the only place the
+host clock is consulted at all. After that it is integer addition, and it cannot
+drift.
+
+**Verified:** alignment error `+0` samples at 4 s, 24 s and 48 s, while the host
+drift over the same runs grew to −37. The engine now measures that drift and
+ignores it, which is the correct relationship to have with it.
+
+This generalises past the looper. Anything correlating captured audio with
+played audio — the MIDI provenance of §6, the re-render alignment, any future
+conformance test — must pair frame counters rather than timestamps.
 
 **Pitch-detection latency.** Roughly 10–20 ms up high, worse on the low E.
 Notes have timestamps, so unlike audio this is fully fixable after the fact:

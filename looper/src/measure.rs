@@ -693,7 +693,7 @@ fn dbfs(x: f32) -> f64 {
 /// exactly what a virtual loopback device does — it copies the buffer in
 /// software, so the output latency it advertises is never actually spent. Real
 /// converters with a real path between them give positive numbers.
-fn signed_secs(fired: &cpal::StreamInstant, heard: &cpal::StreamInstant) -> f64 {
+pub fn signed_secs(fired: &cpal::StreamInstant, heard: &cpal::StreamInstant) -> f64 {
     match heard.duration_since(fired) {
         Some(d) => d.as_secs_f64(),
         None => -fired.duration_since(heard).map(|d| d.as_secs_f64()).unwrap_or(0.0),

@@ -5,6 +5,7 @@
 //! measured rather than guessed, and §15 says to measure the audio round trip
 //! before writing any overdub code. This is that.
 
+mod align;
 mod devices;
 mod levels;
 mod measure;
@@ -24,6 +25,20 @@ USAGE
       one jack at a time to find out which host channel it arrives on —
       an interface with more USB channels than physical jacks does not
       tell you this, and guessing wrong records silence.
+
+  pwyf-looper align --device <name> [options]
+      The self-test. Plays a click at loop position zero, records it back
+      through a patch cable, and reports which position it landed at. Zero
+      means the arithmetic that places recorded audio in the loop is right,
+      and overdubs will stack without accumulating drift.
+
+      This is the only part of a looper that can be verified rather than
+      judged by ear. Run it whenever the audio configuration changes.
+
+      --residual <n>    the interface's transit, from `sweep`  (default 252)
+      --loop-secs <s>   loop length to test against            (default 2.0)
+      --cycles <n>      how many times round                   (default 4)
+      --out-ch / --in-ch / --amp / --buffer / --rate  as elsewhere
 
   pwyf-looper map --device <name> [options]
       Click every output in turn, listening on every input. With one cable
@@ -93,6 +108,19 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        "align" => match parse_align(&args[1..]) {
+            Ok(opts) => match align::run(opts) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("\n{}", e);
+                    ExitCode::FAILURE
+                }
+            },
+            Err(e) => {
+                eprintln!("{}\n\n{}", e, USAGE);
+                ExitCode::FAILURE
+            }
+        },
         "map" => match parse_measure(&args[1..]) {
             Ok(opts) => match measure::map(opts) {
                 Ok(()) => ExitCode::SUCCESS,
@@ -141,6 +169,44 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+fn parse_align(args: &[String]) -> Result<align::Opts, String> {
+    let mut opts = align::Opts::default();
+    let mut i = 0;
+    while i < args.len() {
+        let flag = args[i].as_str();
+        let value = args
+            .get(i + 1)
+            .cloned()
+            .ok_or_else(|| format!("{} needs a value", flag))?;
+        match flag {
+            "--device" => opts.device = value,
+            "--out-ch" => opts.out_ch = value.parse().map_err(|_| "--out-ch wants an integer")?,
+            "--in-ch" => opts.in_ch = value.parse().map_err(|_| "--in-ch wants an integer")?,
+            "--residual" => {
+                opts.residual = value.parse().map_err(|_| "--residual wants a number")?
+            }
+            "--loop-secs" => {
+                opts.loop_secs = value.parse().map_err(|_| "--loop-secs wants a number")?
+            }
+            "--cycles" => opts.cycles = value.parse().map_err(|_| "--cycles wants an integer")?,
+            "--amp" => opts.amplitude = value.parse().map_err(|_| "--amp wants a number")?,
+            "--rate" => opts.sample_rate = value.parse().map_err(|_| "--rate wants an integer")?,
+            "--buffer" => {
+                opts.buffer = Some(value.parse().map_err(|_| "--buffer wants an integer")?)
+            }
+            other => return Err(format!("unknown option {:?}", other)),
+        }
+        i += 2;
+    }
+    if opts.device.is_empty() {
+        return Err("align needs --device".into());
+    }
+    if opts.loop_secs <= 0.0 {
+        return Err("--loop-secs must be positive".into());
+    }
+    Ok(opts)
 }
 
 fn parse_levels(args: &[String]) -> Result<levels::Opts, String> {
