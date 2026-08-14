@@ -6,6 +6,7 @@
 //! before writing any overdub code. This is that.
 
 mod devices;
+mod levels;
 mod measure;
 
 use std::process::ExitCode;
@@ -17,6 +18,12 @@ USAGE
   pwyf-looper devices
       List the audio devices CoreAudio can see, with channel counts and the
       sample rates each will accept.
+
+  pwyf-looper levels --device <name> [--seconds <n>]
+      Live peak meter on every input channel, with a peak hold. Play into
+      one jack at a time to find out which host channel it arrives on —
+      an interface with more USB channels than physical jacks does not
+      tell you this, and guessing wrong records silence.
 
   pwyf-looper measure --device <name> [options]
       Measure output→input round-trip latency by clicking and listening.
@@ -43,6 +50,19 @@ fn main() -> ExitCode {
             devices::list();
             ExitCode::SUCCESS
         }
+        "levels" => match parse_levels(&args[1..]) {
+            Ok(opts) => match levels::run(opts) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("\n{}", e);
+                    ExitCode::FAILURE
+                }
+            },
+            Err(e) => {
+                eprintln!("{}\n\n{}", e, USAGE);
+                ExitCode::FAILURE
+            }
+        },
         "measure" => match parse_measure(&args[1..]) {
             Ok(opts) => match measure::run(opts) {
                 Ok(()) => ExitCode::SUCCESS,
@@ -65,6 +85,31 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+fn parse_levels(args: &[String]) -> Result<levels::Opts, String> {
+    let mut opts = levels::Opts::default();
+    let mut i = 0;
+    while i < args.len() {
+        let flag = args[i].as_str();
+        let value = args
+            .get(i + 1)
+            .cloned()
+            .ok_or_else(|| format!("{} needs a value", flag))?;
+        match flag {
+            "--device" => opts.device = value,
+            "--seconds" => {
+                opts.seconds = value.parse().map_err(|_| "--seconds wants an integer")?
+            }
+            "--rate" => opts.sample_rate = value.parse().map_err(|_| "--rate wants an integer")?,
+            other => return Err(format!("unknown option {:?}", other)),
+        }
+        i += 2;
+    }
+    if opts.device.is_empty() {
+        return Err("levels needs --device".into());
+    }
+    Ok(opts)
 }
 
 fn parse_measure(args: &[String]) -> Result<measure::Opts, String> {

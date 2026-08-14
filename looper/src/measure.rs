@@ -65,46 +65,76 @@ impl Default for Opts {
     }
 }
 
-/// Pick an f32 config with at least `channels` channels, at the target rate if
-/// the device will do it.
-fn choose<I>(configs: I, channels: usize, target: u32) -> Option<cpal::StreamConfig>
+/// How to break ties once a config is wide enough and hits the target rate.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Width {
+    /// Fewest channels that still reach the one we need — open the plain stereo
+    /// pair rather than a sixteen-channel config we will not use.
+    Narrowest,
+    /// Every channel the device has. Metering wants this: the point is to find
+    /// out which channel the signal is on, so hiding any of them defeats it.
+    Widest,
+}
+
+/// Pick an f32 config with more than `min_index` channels, at the target rate
+/// if the device will do it.
+fn choose<I>(configs: I, min_index: usize, target: u32, width: Width) -> Option<cpal::StreamConfig>
 where
     I: Iterator<Item = cpal::SupportedStreamConfigRange>,
 {
+    let takes = |c: &cpal::SupportedStreamConfigRange| {
+        c.min_sample_rate().0 <= target && target <= c.max_sample_rate().0
+    };
+
     let mut best: Option<cpal::SupportedStreamConfigRange> = None;
     for c in configs {
         if c.sample_format() != cpal::SampleFormat::F32 {
             continue;
         }
-        if (c.channels() as usize) <= channels {
+        if (c.channels() as usize) <= min_index {
             continue;
         }
-        let takes_target =
-            c.min_sample_rate().0 <= target && target <= c.max_sample_rate().0;
         let better = match &best {
             None => true,
             Some(b) => {
-                let b_target =
-                    b.min_sample_rate().0 <= target && target <= b.max_sample_rate().0;
-                // Prefer one that can hit the target rate; then fewest channels,
-                // so we open the plain stereo pair rather than a 16-channel
-                // config we do not need.
-                (takes_target && !b_target)
-                    || (takes_target == b_target && c.channels() < b.channels())
+                // Reaching the target rate outranks any channel-count preference:
+                // a measurement across a resampler is not a measurement.
+                if takes(&c) != takes(b) {
+                    takes(&c)
+                } else if width == Width::Narrowest {
+                    c.channels() < b.channels()
+                } else {
+                    c.channels() > b.channels()
+                }
             }
         };
         if better {
             best = Some(c);
         }
     }
+
     best.map(|c| {
-        let rate = if c.min_sample_rate().0 <= target && target <= c.max_sample_rate().0 {
-            cpal::SampleRate(target)
-        } else {
-            c.max_sample_rate()
-        };
+        let rate = if takes(&c) { cpal::SampleRate(target) } else { c.max_sample_rate() };
         c.with_sample_rate(rate).into()
     })
+}
+
+pub fn choose_input(
+    device: &cpal::Device,
+    min_index: usize,
+    target: u32,
+    width: Width,
+) -> Option<cpal::StreamConfig> {
+    choose(device.supported_input_configs().ok()?, min_index, target, width)
+}
+
+pub fn choose_output(
+    device: &cpal::Device,
+    min_index: usize,
+    target: u32,
+    width: Width,
+) -> Option<cpal::StreamConfig> {
+    choose(device.supported_output_configs().ok()?, min_index, target, width)
 }
 
 pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
@@ -112,28 +142,20 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
     let device = candidate.device;
     println!("Device: {}", candidate.name);
 
-    let in_cfg = choose(
-        device.supported_input_configs()?,
-        opts.in_ch,
-        opts.sample_rate,
-    )
-    .ok_or_else(|| {
-        format!(
-            "{} has no f32 input config with more than {} channels",
-            candidate.name, opts.in_ch
-        )
-    })?;
-    let out_cfg = choose(
-        device.supported_output_configs()?,
-        opts.out_ch,
-        opts.sample_rate,
-    )
-    .ok_or_else(|| {
-        format!(
-            "{} has no f32 output config with more than {} channels",
-            candidate.name, opts.out_ch
-        )
-    })?;
+    let in_cfg = choose_input(&device, opts.in_ch, opts.sample_rate, Width::Narrowest)
+        .ok_or_else(|| {
+            format!(
+                "{} has no f32 input config with more than {} channels",
+                candidate.name, opts.in_ch
+            )
+        })?;
+    let out_cfg = choose_output(&device, opts.out_ch, opts.sample_rate, Width::Narrowest)
+        .ok_or_else(|| {
+            format!(
+                "{} has no f32 output config with more than {} channels",
+                candidate.name, opts.out_ch
+            )
+        })?;
 
     if in_cfg.sample_rate != out_cfg.sample_rate {
         return Err(format!(
