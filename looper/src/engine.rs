@@ -68,6 +68,15 @@ pub struct Opts {
     /// from the ring. A tap is always a little late; this makes that harmless
     /// instead of clipping the attack off the front of the loop.
     pub preroll_ms: f64,
+    /// Send the mix to `out_ch` and `out_ch + 1` rather than one channel. On by
+    /// default: monitors are a pair, and a loop in one ear is not a loop you can
+    /// judge.
+    pub dual: bool,
+    /// Pass the live input through to the output. Off by default because the
+    /// interface's own direct monitoring is strictly better — it costs no
+    /// latency, where this costs the round trip plus a buffer. Useful on
+    /// headphones with nothing else in the room.
+    pub monitor: bool,
 }
 
 impl Default for Opts {
@@ -84,6 +93,8 @@ impl Default for Opts {
             selftest: None,
             ring_secs: 60.0,
             preroll_ms: 0.0,
+            dual: true,
+            monitor: false,
         }
     }
 }
@@ -121,6 +132,9 @@ struct Shared {
     reached: AtomicUsize,
     overflowed: AtomicBool,
     preroll: AtomicUsize,
+    monitor: AtomicBool,
+    out_peak: AtomicU32,
+    in_peak: AtomicU32,
 }
 
 /// `AtomicU8` under a name that makes the intent obvious at the use sites.
@@ -234,6 +248,9 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
         preroll: AtomicUsize::new(
             (opts.preroll_ms / 1000.0 * sr_f).round().max(0.0) as usize,
         ),
+        monitor: AtomicBool::new(opts.monitor),
+        out_peak: AtomicU32::new(0),
+        in_peak: AtomicU32::new(0),
     });
 
     let err = |e| eprintln!("stream error: {}", e);
@@ -241,6 +258,7 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
     let out_stream = {
         let sh = sh.clone();
         let ch = opts.out_ch;
+        let dual = opts.dual;
         device.build_output_stream(
             &out_cfg,
             move |data: &mut [f32], info: &cpal::OutputCallbackInfo| {
@@ -290,6 +308,14 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
                 let n = sh.n_layers.load(Ordering::Acquire);
                 let origin = sh.origin.load(Ordering::Acquire);
 
+                // Monitoring reads the freshest frames the pre-roll holds. One
+                // buffer behind the converters, so the interface's own direct
+                // monitoring beats it — this is for headphones with nothing
+                // else in the room.
+                let monitor = sh.monitor.load(Ordering::Relaxed);
+                let mon_from = sh.in_frames.load(Ordering::Acquire) as i64 - frames as i64;
+
+                let mut peak = 0.0f32;
                 for f in 0..frames {
                     let out_frame = (base + f) as i64;
                     let mut v = 0.0f32;
@@ -303,9 +329,19 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
                             v += 0.4;
                         }
                     }
+                    if monitor {
+                        if let Some(m) = sh.ring_at(mon_from + f as i64) {
+                            v += m;
+                        }
+                    }
 
+                    peak = peak.max(v.abs());
                     data[f * out_channels + ch] = v;
+                    if dual && ch + 1 < out_channels {
+                        data[f * out_channels + ch + 1] = v;
+                    }
                 }
+                sh.out_peak.fetch_max(peak.to_bits(), Ordering::Relaxed);
                 sh.out_frames.store(base + frames, Ordering::Release);
             },
             err,
@@ -342,10 +378,14 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
 
                 // Always, regardless of transport state. This is what makes
                 // the past claimable.
+                let mut peak = 0.0f32;
                 for f in 0..frames {
+                    let v = data[f * in_channels + ch];
+                    peak = peak.max(v.abs());
                     let i = (base + f) % sh.ring_len;
-                    sh.ring[i].store(data[f * in_channels + ch].to_bits(), Ordering::Relaxed);
+                    sh.ring[i].store(v.to_bits(), Ordering::Relaxed);
                 }
+                sh.in_peak.fetch_max(peak.to_bits(), Ordering::Relaxed);
 
                 let state = sh.state.get();
                 if state != FIRST && state != OVERDUB {
@@ -474,8 +514,66 @@ fn commit(sh: &Shared, sr: u32) {
             240.0 / (len as f64 / sr as f64)
         );
     }
-    let n = sh.n_layers.fetch_add(1, Ordering::AcqRel) + 1;
-    println!("  committed. {} layer{} playing.", n, if n == 1 { "" } else { "s" });
+    let layer = sh.n_layers.fetch_add(1, Ordering::AcqRel);
+    let len = sh.loop_len.load(Ordering::Acquire);
+    if len > 0 {
+        draw_layer(sh, layer, len, sr);
+    }
+    println!(
+        "  committed. {} layer{} playing.",
+        layer + 1,
+        if layer == 0 { "" } else { "s" }
+    );
+}
+
+/// What a layer actually contains, drawn.
+///
+/// "How do I know what has been recorded?" is a fair question to ask of a
+/// machine whose entire state is invisible, and it is the question this whole
+/// project exists to answer better than a single LED does. Hearing it is the
+/// real answer; this is the one available the instant a pass ends, and it
+/// distinguishes silence from quiet, a full loop from a half-empty one, and a
+/// clipped take from a clean one at a glance.
+fn draw_layer(sh: &Shared, layer: usize, len: usize, sr: u32) {
+    const COLS: usize = 56;
+    const RAMP: [char; 8] = [' ', '.', ':', '-', '=', '+', '*', '#'];
+
+    let mut peak = 0.0f32;
+    let mut sum = 0.0f64;
+    let mut bins = [0.0f32; COLS];
+    for i in 0..len {
+        let v = sh.read(layer, i).abs();
+        peak = peak.max(v);
+        sum += (v * v) as f64;
+        let b = i * COLS / len;
+        bins[b] = bins[b].max(v);
+    }
+    let rms = (sum / len.max(1) as f64).sqrt() as f32;
+
+    if peak < 1e-6 {
+        println!("  layer {}: silent.", layer);
+        return;
+    }
+
+    let bar: String = bins
+        .iter()
+        .map(|&v| {
+            // Against the layer's own peak, so a quiet take still shows its
+            // shape rather than a flat line.
+            let f = (v / peak).clamp(0.0, 1.0);
+            RAMP[((f.sqrt() * 7.0).round() as usize).min(7)]
+        })
+        .collect();
+
+    println!("  |{}|", bar);
+    println!(
+        "  layer {}   {:.2} s   peak {:.1} dBFS   rms {:.1} dBFS{}",
+        layer,
+        len as f64 / sr as f64,
+        20.0 * (peak.max(1e-9) as f64).log10(),
+        20.0 * (rms.max(1e-9) as f64).log10(),
+        if peak >= 0.999 { "   CLIPPED" } else { "" }
+    );
 }
 
 /// Fill a stretch of a layer from the pre-roll, addressing it in *output* frames
@@ -571,13 +669,19 @@ fn take(sh: &Shared, sr: u32, secs: f64) {
     } else {
         println!("  took the last complete cycle as a new {}.", what);
     }
-    let n = sh.n_layers.fetch_add(1, Ordering::AcqRel) + 1;
-    println!("  {} layer{} playing.", n, if n == 1 { "" } else { "s" });
+    let taken = sh.n_layers.fetch_add(1, Ordering::AcqRel);
+    draw_layer(sh, taken, sh.loop_len.load(Ordering::Acquire), sr);
+    println!(
+        "  {} layer{} playing.",
+        taken + 1,
+        if taken == 0 { "" } else { "s" }
+    );
 }
 
 fn control_loop(sh: &Shared, sr: u32) {
     println!("Commands:  r = record/overdub toggle   t [secs] = take from the past");
-    println!("           u = undo   c = clear   k = click on/off   p = status   q = quit\n");
+    println!("           u = undo   c = clear   k = click   m = input monitoring");
+    println!("           l = levels   p = status + waveforms   q = quit\n");
 
     let stdin = std::io::stdin();
     for line in stdin.lock().lines() {
@@ -622,8 +726,38 @@ fn control_loop(sh: &Shared, sr: u32) {
                 sh.click.store(on, Ordering::Relaxed);
                 println!("  click {}.", if on { "on" } else { "off" });
             }
+            "m" => {
+                let on = !sh.monitor.load(Ordering::Relaxed);
+                sh.monitor.store(on, Ordering::Relaxed);
+                println!(
+                    "  input monitoring {}.{}",
+                    if on { "on" } else { "off" },
+                    if on {
+                        "  (the interface's own direct monitoring is lower latency)"
+                    } else {
+                        ""
+                    }
+                );
+            }
+            "l" => {
+                let inp = f32::from_bits(sh.in_peak.swap(0, Ordering::Relaxed));
+                let out = f32::from_bits(sh.out_peak.swap(0, Ordering::Relaxed));
+                println!(
+                    "  in {:>7.1} dBFS   out {:>7.1} dBFS   (peak since last check)",
+                    20.0 * (inp.max(1e-9) as f64).log10(),
+                    20.0 * (out.max(1e-9) as f64).log10()
+                );
+                if inp < 1e-6 {
+                    println!("    nothing at all is arriving on input {}.", "the chosen channel");
+                }
+            }
             "p" => {
                 let len = sh.loop_len.load(Ordering::Acquire);
+                for l in 0..sh.n_layers.load(Ordering::Acquire) {
+                    if len > 0 {
+                        draw_layer(sh, l, len, sr);
+                    }
+                }
                 println!(
                     "  {} layers, loop {} frames ({:.3} s), state {}, K {:+}{}",
                     sh.n_layers.load(Ordering::Acquire),

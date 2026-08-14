@@ -46,6 +46,10 @@ USAGE
       --residual <n>    from `sweep`, for this configuration  (default 252)
       --max-secs <s>    longest loop, and so the arena size   (default 30)
       --click           metronome at loop position zero
+      --monitor         pass live input to the output. Off by default: the
+                        interface's own direct monitoring costs no latency
+                        where this costs the round trip plus a buffer
+      --mono-out        send the mix to one channel instead of a pair
       --ring-secs <s>   how much of the past stays claimable      (default 60)
       --preroll-ms <n>  how far before the tap the first loop actually
                         starts, pulled from the pre-roll           (default 0)
@@ -217,6 +221,16 @@ fn parse_loop(args: &[String]) -> Result<engine::Opts, String> {
         let flag = args[i].as_str();
         if flag == "--click" {
             opts.click = true;
+            i += 1;
+            continue;
+        }
+        if flag == "--monitor" {
+            opts.monitor = true;
+            i += 1;
+            continue;
+        }
+        if flag == "--mono-out" {
+            opts.dual = false;
             i += 1;
             continue;
         }
