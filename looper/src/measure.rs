@@ -54,12 +54,19 @@ const BURST_FRAMES: usize = 16;
 /// window rather than the first one to answer stopping the others.
 const LISTEN_MS: u64 = 400;
 
+#[derive(Clone)]
 pub struct Opts {
     pub device: String,
     pub out_ch: usize,
     pub repeats: usize,
     pub amplitude: f32,
     pub sample_rate: u32,
+    /// Ask CoreAudio for a specific callback size. The reason this is a knob is
+    /// diagnostic: if the measured offset moves with buffer size, it is an
+    /// artifact of how buffering is accounted for and the calibration has to be
+    /// stored per buffer size. If it stays put, it is a property of the
+    /// interface and one constant will do.
+    pub buffer: Option<u32>,
 }
 
 impl Default for Opts {
@@ -70,6 +77,7 @@ impl Default for Opts {
             repeats: 8,
             amplitude: 0.5,
             sample_rate: 48_000,
+            buffer: None,
         }
     }
 }
@@ -153,20 +161,35 @@ struct ChannelResult {
     peak: f32,
 }
 
-pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
+/// One complete click-and-listen run at one buffer size.
+struct Probe {
+    channels: Vec<ChannelResult>,
+    sr: u32,
+    /// What CoreAudio actually gave, which is not always what was asked for.
+    buffer: u32,
+}
+
+fn probe(opts: &Opts, verbose: bool) -> Result<Probe, Box<dyn Error>> {
     let candidate = crate::devices::find(&opts.device)?;
     let device = candidate.device;
-    println!("Device: {}", candidate.name);
+    if verbose {
+        println!("Device: {}", candidate.name);
+    }
 
-    let in_cfg = choose_input(&device, 0, opts.sample_rate, Width::Widest)
+    let mut in_cfg = choose_input(&device, 0, opts.sample_rate, Width::Widest)
         .ok_or_else(|| format!("{} has no f32 input config", candidate.name))?;
-    let out_cfg = choose_output(&device, opts.out_ch, opts.sample_rate, Width::Narrowest)
+    let mut out_cfg = choose_output(&device, opts.out_ch, opts.sample_rate, Width::Narrowest)
         .ok_or_else(|| {
             format!(
                 "{} has no f32 output config with more than {} channels",
                 candidate.name, opts.out_ch
             )
         })?;
+
+    if let Some(n) = opts.buffer {
+        in_cfg.buffer_size = cpal::BufferSize::Fixed(n);
+        out_cfg.buffer_size = cpal::BufferSize::Fixed(n);
+    }
 
     if in_cfg.sample_rate != out_cfg.sample_rate {
         return Err(format!(
@@ -180,10 +203,12 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
     let sr = in_cfg.sample_rate.0;
     let in_channels = in_cfg.channels as usize;
     let out_channels = out_cfg.channels as usize;
-    println!(
-        "Streams: {} Hz   listening on all {} inputs   clicking on output {} of {}",
-        sr, in_channels, opts.out_ch, out_channels
-    );
+    if verbose {
+        println!(
+            "Streams: {} Hz   listening on all {} inputs   clicking on output {} of {}",
+            sr, in_channels, opts.out_ch, out_channels
+        );
+    }
 
     let phase = Arc::new(AtomicU8::new(PHASE_SETTLE));
     // f32 bits in atomics. Positive IEEE-754 floats order the same as their bit
@@ -199,12 +224,16 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
     let fired: Arc<Mutex<Option<cpal::StreamInstant>>> = Arc::new(Mutex::new(None));
     let heard: Arc<Vec<Mutex<Option<cpal::StreamInstant>>>> =
         Arc::new((0..in_channels).map(|_| Mutex::new(None)).collect());
+    // What CoreAudio actually gave us, which is not always what was asked for.
+    let seen_in = Arc::new(AtomicU32::new(0));
+    let seen_out = Arc::new(AtomicU32::new(0));
 
     let err = |e| eprintln!("stream error: {}", e);
 
     let out_stream = {
         let phase = phase.clone();
         let fired = fired.clone();
+        let seen_out = seen_out.clone();
         let ch = opts.out_ch;
         let amp = opts.amplitude;
         device.build_output_stream(
@@ -213,6 +242,7 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
                 for s in data.iter_mut() {
                     *s = 0.0;
                 }
+                seen_out.store((data.len() / out_channels) as u32, Ordering::Relaxed);
                 if phase.load(Ordering::Acquire) != PHASE_ARMED {
                     return;
                 }
@@ -238,10 +268,12 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
         let thresholds = thresholds.clone();
         let peaks = peaks.clone();
         let heard = heard.clone();
+        let seen_in = seen_in.clone();
         device.build_input_stream(
             &in_cfg,
             move |data: &[f32], info: &cpal::InputCallbackInfo| {
                 let frames = data.len() / in_channels;
+                seen_in.store(frames as u32, Ordering::Relaxed);
                 match phase.load(Ordering::Acquire) {
                     PHASE_NOISE => {
                         for ch in 0..in_channels {
@@ -299,7 +331,29 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
     std::thread::sleep(Duration::from_millis(500));
     phase.store(PHASE_SETTLE, Ordering::Release);
 
-    println!("\nNoise floor per input, and the threshold set from it:");
+    let got_in = seen_in.load(Ordering::Relaxed);
+    let got_out = seen_out.load(Ordering::Relaxed);
+    if got_in != got_out {
+        return Err(format!(
+            "input callbacks are {} frames and output {} — the model that relates \
+             the two timestamp streams assumes they match",
+            got_in, got_out
+        )
+        .into());
+    }
+    if verbose {
+        match opts.buffer {
+            Some(asked) if asked != got_in => println!(
+                "Buffer: asked for {} frames, got {} — CoreAudio declined",
+                asked, got_in
+            ),
+            _ => println!("Buffer: {} frames per callback", got_in),
+        }
+    }
+
+    if verbose {
+        println!("\nNoise floor per input, and the threshold set from it:");
+    }
     for ch in 0..in_channels {
         let floor = f32::from_bits(noise[ch].load(Ordering::Acquire));
         // Eight times the noise floor, with an absolute minimum so a silent
@@ -307,19 +361,23 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
         // dithered sample.
         let thr = (floor * 8.0).max(0.01);
         thresholds[ch].store(thr.to_bits(), Ordering::Release);
-        println!(
-            "  ch {:>2}  floor {:>8.1} dBFS   threshold {:>8.1} dBFS{}",
-            ch,
-            dbfs(floor),
-            dbfs(thr),
-            if floor > 0.05 { "   <- noisy; may trigger on the wrong thing" } else { "" }
-        );
+        if verbose {
+            println!(
+                "  ch {:>2}  floor {:>8.1} dBFS   threshold {:>8.1} dBFS{}",
+                ch,
+                dbfs(floor),
+                dbfs(thr),
+                if floor > 0.05 { "   <- noisy; may trigger on the wrong thing" } else { "" }
+            );
+        }
     }
 
     let mut results: Vec<ChannelResult> =
         (0..in_channels).map(|_| ChannelResult { latencies_ms: Vec::new(), peak: 0.0 }).collect();
 
-    println!("\nClicking {} times:", opts.repeats);
+    if verbose {
+        println!("\nClicking {} times:", opts.repeats);
+    }
     for i in 0..opts.repeats {
         *fired.lock().unwrap() = None;
         for ch in 0..in_channels {
@@ -333,7 +391,9 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
 
         let f = fired.lock().unwrap().clone();
         let Some(f) = f else {
-            println!("  {:>2}.  the click never went out", i + 1);
+            if verbose {
+                println!("  {:>2}.  the click never went out", i + 1);
+            }
             continue;
         };
 
@@ -350,10 +410,12 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
             }
         }
 
-        if answered.is_empty() {
-            println!("  {:>2}.  silence on every input", i + 1);
-        } else {
-            println!("  {:>2}.  {}", i + 1, answered.join("   "));
+        if verbose {
+            if answered.is_empty() {
+                println!("  {:>2}.  silence on every input", i + 1);
+            } else {
+                println!("  {:>2}.  {}", i + 1, answered.join("   "));
+            }
         }
 
         // Let any tail decay so the next click is not detected against a ring.
@@ -363,7 +425,170 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
     drop(in_stream);
     drop(out_stream);
 
-    report(&mut results, sr, opts.repeats)
+    Ok(Probe { channels: results, sr, buffer: got_in })
+}
+
+pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
+    let mut p = probe(&opts, true)?;
+    report(&mut p.channels, p.sr, opts.repeats)
+}
+
+const SWEEP_BUFFERS: [u32; 5] = [64, 128, 256, 512, 1024];
+
+/// Measure at several buffer sizes and separate the two things mixed together
+/// in a single reading.
+///
+/// A single measurement cannot tell a real converter delay from a bookkeeping
+/// error in the timestamps, because both are just a number of samples. Varying
+/// the buffer size separates them, because only one of them moves: whatever is
+/// proportional to buffer size is accounting, and whatever survives is physics.
+///
+/// The residual is the number the engine wants. The slope is the correction the
+/// engine must apply to raw timestamp arithmetic — and since the engine chooses
+/// its own buffer size, it can apply it exactly.
+pub fn sweep(opts: Opts) -> Result<(), Box<dyn Error>> {
+    let candidate = crate::devices::find(&opts.device)?;
+    println!("Device: {}\n", candidate.name);
+    println!(
+        "Measuring at several buffer sizes. A single reading cannot tell a real\n\
+         converter delay from a bookkeeping error in the timestamps; varying the\n\
+         buffer separates them, because only one of them moves.\n"
+    );
+
+    // (buffer frames, measured samples, channel, spread ms)
+    let mut points: Vec<(f64, f64, usize, f64)> = Vec::new();
+    let mut sr = opts.sample_rate;
+
+    println!("  buffer     ch    measured     spread");
+    for &b in SWEEP_BUFFERS.iter() {
+        let mut o = opts.clone();
+        o.buffer = Some(b);
+
+        let p = match probe(&o, false) {
+            Ok(p) => p,
+            Err(e) => {
+                println!("  {:>6}     —    failed: {}", b, e);
+                continue;
+            }
+        };
+        sr = p.sr;
+
+        let best = p
+            .channels
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| !c.latencies_ms.is_empty())
+            .max_by(|(_, a), (_, c)| a.peak.partial_cmp(&c.peak).unwrap());
+
+        let Some((ch, res)) = best else {
+            println!("  {:>6}     —    silence on every input", b);
+            continue;
+        };
+
+        let mut lats = res.latencies_ms.clone();
+        lats.sort_by(|a, c| a.partial_cmp(c).unwrap());
+        let m_ms = median(&lats);
+        let spread = lats[lats.len() - 1] - lats[0];
+        let samples = m_ms / 1000.0 * p.sr as f64;
+
+        println!(
+            "  {:>6}  {:>4}  {:>+8.0} sm   {:>6.3} ms{}",
+            p.buffer,
+            ch,
+            samples,
+            spread,
+            if spread > 0.5 { "   <- unstable" } else { "" }
+        );
+        points.push((p.buffer as f64, samples, ch, spread));
+    }
+
+    if points.len() < 2 {
+        return Err("need at least two buffer sizes to separate accounting from \
+                    physics; check the cable and try `measure` on its own first"
+            .into());
+    }
+
+    // Slope from consecutive pairs. With exact data these agree to the sample,
+    // and disagreement is itself the finding — it would mean the relationship is
+    // not linear and no single constant describes the interface.
+    let mut slopes: Vec<f64> = Vec::new();
+    for w in points.windows(2) {
+        let (b0, m0, _, _) = w[0];
+        let (b1, m1, _, _) = w[1];
+        if (b1 - b0).abs() > f64::EPSILON {
+            slopes.push((m1 - m0) / (b1 - b0));
+        }
+    }
+    slopes.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let slope = median(&slopes);
+    let slope_spread = slopes[slopes.len() - 1] - slopes[0];
+
+    let residuals: Vec<f64> = points.iter().map(|&(b, m, _, _)| m - slope * b).collect();
+    let mut sorted = residuals.clone();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let residual = median(&sorted);
+    let residual_spread = sorted[sorted.len() - 1] - sorted[0];
+
+    println!("\n  implied constant at each size, once the slope is removed:");
+    for (i, &(b, _, _, _)) in points.iter().enumerate() {
+        println!("    buffer {:>5}   {:>+8.1} samples", b as u32, residuals[i]);
+    }
+
+    println!(
+        "\n  Model:  measured = {:.0} {} {:.2} x buffer",
+        residual,
+        if slope < 0.0 { "-" } else { "+" },
+        slope.abs()
+    );
+
+    if slope_spread.abs() > 0.05 {
+        println!(
+            "\n  ! !  The slope is not consistent across sizes ({:.2} of variation).\n       \
+             The relationship is not linear, so no single constant describes this\n       \
+             interface and the calibration has to be stored per buffer size.",
+            slope_spread
+        );
+        return Ok(());
+    }
+
+    if residual_spread.abs() > 8.0 {
+        println!(
+            "\n  ! !  The residual varies by {:.0} samples across buffer sizes, so it\n       \
+             is not buffer-independent after all. Treat it as per-buffer-size.",
+            residual_spread
+        );
+        return Ok(());
+    }
+
+    let buffers = -slope;
+    println!(
+        "\n  The slope is {:.2} buffers per buffer. {}",
+        buffers,
+        if (buffers - 2.0).abs() < 0.05 {
+            "That is exactly one buffer on each\n  side — the timestamps over-account for the \
+             output pipeline and the input\n  pipeline alike. It is bookkeeping, not delay, and \
+             it cancels once the\n  buffer size is known."
+        } else {
+            "That is not the two buffers a symmetric\n  over-account would give, so read it with \
+             some suspicion."
+        }
+    );
+
+    println!(
+        "\n  Buffer-independent residual: {:.0} samples, {:.2} ms at {} Hz.\n  \
+         That is the interface's own converter round trip — it does not move when\n  \
+         the buffer does, which is what makes it physics rather than accounting,\n  \
+         and it is the number recordings have to be compensated by.",
+        residual,
+        residual / sr as f64 * 1000.0,
+        sr
+    );
+
+    println!(
+        "\n  For the engine:  true_offset_samples = measured_samples + {:.0} x buffer_frames",
+        buffers
+    );
+    Ok(())
 }
 
 fn dbfs(x: f32) -> f64 {
@@ -479,10 +704,15 @@ fn report(results: &mut [ChannelResult], sr: u32, repeats: usize) -> Result<(), 
             spread
         );
     } else if m < 0.0 {
+        // Negative used to be reported here as evidence of a virtual loopback.
+        // That was wrong: the sweep showed the timestamps over-account by one
+        // buffer on each side, so any path shorter than two buffers reads below
+        // zero, cable and converters and all.
         println!(
-            "\n  Negative, so this is a virtual loopback rather than a signal path\n  \
-             through converters. It proves the measurement works; it is not a\n  \
-             latency you can compensate anything with."
+            "\n  Negative, which is expected rather than alarming: the timestamps\n  \
+             over-account by about one buffer on each side, so a path shorter than\n  \
+             two buffers reads below zero. Run `sweep` to separate that bookkeeping\n  \
+             from the interface's own round trip."
         );
     } else {
         println!("\n  Tight enough to use as a constant.");

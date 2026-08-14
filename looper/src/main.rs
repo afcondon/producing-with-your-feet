@@ -25,6 +25,18 @@ USAGE
       an interface with more USB channels than physical jacks does not
       tell you this, and guessing wrong records silence.
 
+  pwyf-looper sweep --device <name> [options]
+      The calibration. Measures at several buffer sizes and separates the
+      two things a single reading confuses: a real converter delay, and a
+      bookkeeping error in the timestamps. Only one of them moves with the
+      buffer, so varying it tells them apart.
+
+      Reports the buffer-independent residual — the interface's own round
+      trip, the number recordings are compensated by — and the slope, which
+      is the correction to apply to raw timestamp arithmetic.
+
+      Same options as `measure`, minus --buffer, which it varies itself.
+
   pwyf-looper measure --device <name> [options]
       Measure output→input round-trip latency by clicking and listening on
       every input at once. Needs a signal path from an output back to an
@@ -40,6 +52,10 @@ USAGE
       --repeats <n>     how many clicks               (default 8)
       --amp <0..1>      click amplitude               (default 0.5)
       --rate <hz>       preferred sample rate         (default 48000)
+      --buffer <n>      ask for a fixed callback size (default: device's own)
+                        Diagnostic: if the measured offset moves with this,
+                        it is buffer accounting rather than a property of
+                        the interface, and must be stored per buffer size.
 
   This emits a short, loud click. Take headphones off and turn amps down.
 ";
@@ -55,6 +71,19 @@ fn main() -> ExitCode {
         }
         "levels" => match parse_levels(&args[1..]) {
             Ok(opts) => match levels::run(opts) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("\n{}", e);
+                    ExitCode::FAILURE
+                }
+            },
+            Err(e) => {
+                eprintln!("{}\n\n{}", e, USAGE);
+                ExitCode::FAILURE
+            }
+        },
+        "sweep" => match parse_measure(&args[1..]) {
+            Ok(opts) => match measure::sweep(opts) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
                     eprintln!("\n{}", e);
@@ -132,6 +161,10 @@ fn parse_measure(args: &[String]) -> Result<measure::Opts, String> {
                 opts.repeats = value()?.parse().map_err(|_| "--repeats wants an integer")?
             }
             "--amp" => opts.amplitude = value()?.parse().map_err(|_| "--amp wants a number")?,
+            "--buffer" => {
+                opts.buffer =
+                    Some(value()?.parse().map_err(|_| "--buffer wants an integer")?)
+            }
             "--rate" => {
                 opts.sample_rate = value()?.parse().map_err(|_| "--rate wants an integer")?
             }
