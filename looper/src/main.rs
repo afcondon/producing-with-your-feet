@@ -7,6 +7,7 @@
 
 mod align;
 mod devices;
+mod engine;
 mod levels;
 mod measure;
 
@@ -25,6 +26,23 @@ USAGE
       one jack at a time to find out which host channel it arrives on —
       an interface with more USB channels than physical jacks does not
       tell you this, and guessing wrong records silence.
+
+  pwyf-looper loop --device <name> [options]
+      The looper. Records, overdubs as layers, and undoes them, on the
+      alignment `align` verifies. Commands on stdin:
+
+        r  record / overdub toggle     u  undo last layer
+        c  clear everything            k  click on/off
+        p  status                      q  quit
+
+      The first recording defines the cycle; every later one is an overdub
+      of exactly that length, summed into its own layer.
+
+      --residual <n>    from `sweep`, for this configuration  (default 252)
+      --max-secs <s>    longest loop, and so the arena size   (default 30)
+      --click           metronome at loop position zero
+      --selftest <s>    record one cycle of the engine's own click through a
+                        loopback cable and check where it landed
 
   pwyf-looper align --device <name> [options]
       The self-test. Plays a click at loop position zero, records it back
@@ -108,6 +126,19 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        "loop" => match parse_loop(&args[1..]) {
+            Ok(opts) => match engine::run(opts) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("\n{}", e);
+                    ExitCode::FAILURE
+                }
+            },
+            Err(e) => {
+                eprintln!("{}\n\n{}", e, USAGE);
+                ExitCode::FAILURE
+            }
+        },
         "align" => match parse_align(&args[1..]) {
             Ok(opts) => match align::run(opts) {
                 Ok(()) => ExitCode::SUCCESS,
@@ -169,6 +200,44 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+fn parse_loop(args: &[String]) -> Result<engine::Opts, String> {
+    let mut opts = engine::Opts::default();
+    let mut i = 0;
+    while i < args.len() {
+        let flag = args[i].as_str();
+        if flag == "--click" {
+            opts.click = true;
+            i += 1;
+            continue;
+        }
+        let value = args
+            .get(i + 1)
+            .cloned()
+            .ok_or_else(|| format!("{} needs a value", flag))?;
+        match flag {
+            "--device" => opts.device = value,
+            "--in-ch" => opts.in_ch = value.parse().map_err(|_| "--in-ch wants an integer")?,
+            "--out-ch" => opts.out_ch = value.parse().map_err(|_| "--out-ch wants an integer")?,
+            "--residual" => opts.residual = value.parse().map_err(|_| "--residual wants a number")?,
+            "--max-secs" => opts.max_secs = value.parse().map_err(|_| "--max-secs wants a number")?,
+            "--rate" => opts.sample_rate = value.parse().map_err(|_| "--rate wants an integer")?,
+            "--buffer" => opts.buffer = Some(value.parse().map_err(|_| "--buffer wants an integer")?),
+            "--selftest" => {
+                opts.selftest = Some(value.parse().map_err(|_| "--selftest wants a length in seconds")?)
+            }
+            other => return Err(format!("unknown option {:?}", other)),
+        }
+        i += 2;
+    }
+    if opts.device.is_empty() {
+        return Err("loop needs --device".into());
+    }
+    if opts.max_secs <= 0.0 {
+        return Err("--max-secs must be positive".into());
+    }
+    Ok(opts)
 }
 
 fn parse_align(args: &[String]) -> Result<align::Opts, String> {
