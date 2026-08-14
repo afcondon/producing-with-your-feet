@@ -335,8 +335,6 @@ rigConfigToJson rig = obj
       [ "pedalOutput" /\ obj [ "match" /\ str "Morningstar" ]
       , "twisterInput" /\ obj [ "match" /\ str "Midi Fighter Twister" ]
       , "twisterOutput" /\ obj [ "match" /\ str "Midi Fighter Twister" ]
-      , "loopyOutput" /\ obj [ "match" /\ str "AUDIO4c" ]
-      , "loopyChannel" /\ num 16
       , "mc6Input" /\ obj [ "match" /\ str "Morningstar" ]
       ]
   , "slotRanges" /\ arr
@@ -344,6 +342,5 @@ rigConfigToJson rig = obj
       , obj [ "brand" /\ str "Strymon", "range" /\ obj [ "start" /\ num 50, "count" /\ num 26 ] ]
       , obj [ "brand" /\ str "Chase Bliss", "range" /\ obj [ "start" /\ num 1, "count" /\ num 122 ] ]
       ]
-  , "looper" /\ str "loopers/loopypro.json"
   , "controller" /\ str "controllers/mc6-banks.json"
   ]

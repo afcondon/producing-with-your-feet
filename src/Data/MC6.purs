@@ -14,7 +14,6 @@ module Data.MC6
 import Prelude
 
 import Data.Array (replicate) as Array
-import Data.Loopy (LoopyAction)
 import Data.Midi (CC, Channel, MidiValue)
 import Data.Pedal (PedalId)
 import Data.Pedal.Engage (EngageState)
@@ -82,7 +81,6 @@ data SwitchAction
   | SendCC PedalId CC MidiValue
   | SendMomentary PedalId CC MidiValue
   | ToggleEngage PedalId EngageState
-  | LoopyCommand LoopyAction
   | StartWaveform WaveformConfig
   | StopWaveform Int
   | BankJump Int

@@ -64,7 +64,6 @@ data StorageKey
   | PresetsKey
   | BoardPresetsKey
   | CardOrderKey
-  | LoopyChannelKey
   | MC6AssignmentsKey
   | ControlBanksKey
 
@@ -75,7 +74,6 @@ keyString = case _ of
   PresetsKey -> "pedal-explorer-presets"
   BoardPresetsKey -> "pedal-explorer-board-presets"
   CardOrderKey -> "pedal-explorer-card-order"
-  LoopyChannelKey -> "pedal-explorer-loopy-channel"
   MC6AssignmentsKey -> "pedal-explorer-mc6-assignments"
   ControlBanksKey -> "pedal-explorer-control-banks"
 

@@ -32,13 +32,10 @@ decodeRig json = do
   midiRouting <- decodeMidiRouting routingJson
   slotsJson <- FO.lookup "slotRanges" obj >>= Json.toArray
   slotRanges <- traverse decodeSlotRangeEntry slotsJson
-  let looper = case lookupStr "looper" obj of
-        Just l -> l
-        Nothing -> ""
-      controller = case lookupStr "controller" obj of
+  let controller = case lookupStr "controller" obj of
         Just c -> c
         Nothing -> ""
-  Just { name, storagePrefix, pedals, midiRouting, slotRanges, looper, controller }
+  Just { name, storagePrefix, pedals, midiRouting, slotRanges, controller }
 
 decodePedalEntry :: Json -> Maybe PedalEntry
 decodePedalEntry json = do
@@ -53,14 +50,10 @@ decodeMidiRouting json = do
   pedalOutput <- FO.lookup "pedalOutput" obj >>= decodeMidiMatch
   twisterInput <- FO.lookup "twisterInput" obj >>= decodeMidiMatch
   twisterOutput <- FO.lookup "twisterOutput" obj >>= decodeMidiMatch
-  loopyOutput <- FO.lookup "loopyOutput" obj >>= decodeMidiMatch
-  let loopyChannel = case lookupNum "loopyChannel" obj of
-        Just ch -> ch
-        Nothing -> 16
-      mc6Input = case FO.lookup "mc6Input" obj >>= decodeMidiMatch of
+  let mc6Input = case FO.lookup "mc6Input" obj >>= decodeMidiMatch of
         Just m -> m
         Nothing -> { match: "Morningstar" }
-  Just { pedalOutput, twisterInput, twisterOutput, loopyOutput, loopyChannel, mc6Input }
+  Just { pedalOutput, twisterInput, twisterOutput, mc6Input }
 
 decodeMidiMatch :: Json -> Maybe MidiMatch
 decodeMidiMatch json = do

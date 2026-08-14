@@ -19,7 +19,6 @@ import Config.Registry (PedalRegistry)
 import Config.Registry as CRegistry
 import Config.Types (MidiRouting)
 import Data.Array as Array
-import Data.Loopy as Loopy
 import Data.MC6.ControlBank (ControlBank, exampleControlBank)
 import Data.MC6.Types (MC6NativeBank)
 import Data.Map (Map)
@@ -39,7 +38,7 @@ type PedalState =
 
 type EngineState = Map PedalId PedalState
 
-data View = GridView | DetailView PedalId | PedalView PedalId | OverviewView | BoardsView | ControlsView | FilesView | DocsView | ConnectView
+data View = GridView | DetailView PedalId | PedalView PedalId | OverviewView | BoardsView | ControlsView | LooperView | FilesView | ConnectView
 
 derive instance Eq View
 
@@ -51,8 +50,6 @@ type MidiConnections =
   , twisterInputId :: Maybe String
   , twisterOutput :: Maybe MIDIOutput
   , twisterOutputId :: Maybe String
-  , loopyOutput :: Maybe MIDIOutput
-  , loopyOutputId :: Maybe String
   , mc6Input :: Maybe MIDIInput
   , mc6InputId :: Maybe String
   , mc6Output :: Maybe MIDIOutput
@@ -81,11 +78,6 @@ type AppState =
   , boardPresets :: Array BoardPreset
   , registry :: PedalRegistry
   , configError :: Maybe String
-  , loopyTwisterActive :: Boolean
-  , loopySelectedLoop :: Int
-  , loopyHeldEncoder :: Maybe Int
-  , loopyLoopStates :: Array Loopy.LoopState
-  , loopyClipSettings :: Array Loopy.ClipSettings
   , mc6Banks :: Array MC6NativeBank
   , mc6BoardBankNum :: Int
   , mc6Assignments :: Array MC6Assignment
@@ -120,8 +112,6 @@ emptyRouting =
   { pedalOutput: { match: "" }
   , twisterInput: { match: "" }
   , twisterOutput: { match: "" }
-  , loopyOutput: { match: "" }
-  , loopyChannel: 1
   , mc6Input: { match: "" }
   }
 
@@ -138,8 +128,6 @@ initAppState =
       , twisterInputId: Nothing
       , twisterOutput: Nothing
       , twisterOutputId: Nothing
-      , loopyOutput: Nothing
-      , loopyOutputId: Nothing
       , mc6Input: Nothing
       , mc6InputId: Nothing
       , mc6Output: Nothing
@@ -156,11 +144,6 @@ initAppState =
   , presets: []
   , boardPresets: []
   , configError: Nothing
-  , loopyTwisterActive: false
-  , loopySelectedLoop: -1
-  , loopyHeldEncoder: Nothing
-  , loopyLoopStates: Array.replicate 8 Loopy.defaultLoopState
-  , loopyClipSettings: Array.replicate 8 Loopy.defaultClipSettings
   , mc6Banks: []
   , mc6BoardBankNum: 1
   , mc6Assignments: []

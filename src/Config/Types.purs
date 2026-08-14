@@ -14,8 +14,6 @@ type MidiRouting =
   { pedalOutput :: MidiMatch
   , twisterInput :: MidiMatch
   , twisterOutput :: MidiMatch
-  , loopyOutput :: MidiMatch
-  , loopyChannel :: Int
   , mc6Input :: MidiMatch
   }
 
@@ -32,6 +30,5 @@ type RigConfig =
   , pedals :: Array PedalEntry
   , midiRouting :: MidiRouting
   , slotRanges :: Array { brand :: String, range :: SlotRange }
-  , looper :: String
   , controller :: String
   }

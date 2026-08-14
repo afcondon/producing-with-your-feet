@@ -63,7 +63,7 @@ render state =
         [ viewButton "Overview" OverviewView
         , viewButton "Boards" BoardsView
         , viewButton "Controls" ControlsView
-        , viewButton "Docs" DocsView
+        , viewButton "Looper" LooperView
         , viewButton "MIDI" ConnectView
         , viewButton "\x21C5" FilesView
         ]
@@ -82,7 +82,7 @@ render state =
     BoardsView, BoardsView -> true
     ControlsView, ControlsView -> true
     FilesView, FilesView -> true
-    DocsView, DocsView -> true
+    LooperView, LooperView -> true
     ConnectView, ConnectView -> true
     OverviewView, OverviewView -> true
     DetailView _, DetailView _ -> true
