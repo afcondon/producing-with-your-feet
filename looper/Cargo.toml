@@ -6,6 +6,7 @@ description = "Looper engine for producing-with-your-feet: CoreAudio capture/pla
 
 [dependencies]
 cpal = "0.15"
+tungstenite = "0.24"
 
 [profile.release]
 opt-level = 3

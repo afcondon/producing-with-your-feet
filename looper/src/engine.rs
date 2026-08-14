@@ -80,6 +80,8 @@ pub struct Opts {
     /// latency, where this costs the round trip plus a buffer. Useful on
     /// headphones with nothing else in the room.
     pub monitor: bool,
+    /// TCP port for the app to connect on. None keeps the daemon console-only.
+    pub ws_port: Option<u16>,
 }
 
 impl Default for Opts {
@@ -98,12 +100,13 @@ impl Default for Opts {
             preroll_ms: 0.0,
             dual: true,
             monitor: false,
+            ws_port: None,
         }
     }
 }
 
 /// Everything both callbacks and the control thread touch.
-struct Shared {
+pub struct Shared {
     arena: Vec<AtomicU32>,
     max_frames: usize,
     /// The pre-roll. The input callback writes every frame it ever receives here
@@ -115,21 +118,21 @@ struct Shared {
     /// bit happens. Here the good bit can be claimed afterwards.
     ring: Vec<AtomicU32>,
     ring_len: usize,
-    loop_len: AtomicUsize,
-    n_layers: AtomicUsize,
+    pub loop_len: AtomicUsize,
+    pub n_layers: AtomicUsize,
     /// The output frame at which loop position zero sits.
-    origin: AtomicI64,
+    pub origin: AtomicI64,
     state: AtomicU8Wrapper,
     /// Set by the control thread, consumed by the output callback, which is the
     /// only place a transition can be stamped to an exact frame.
     request: AtomicU8Wrapper,
-    out_frames: AtomicUsize,
+    pub out_frames: AtomicUsize,
     in_frames: AtomicUsize,
-    k: AtomicI64,
-    k_set: AtomicBool,
-    p0: Mutex<Option<cpal::StreamInstant>>,
+    pub k: AtomicI64,
+    pub k_set: AtomicBool,
+    pub p0: Mutex<Option<cpal::StreamInstant>>,
     buffer_frames: AtomicU32,
-    click: AtomicBool,
+    pub click: AtomicBool,
     /// Highest position the first recording reached, so a loop can be closed at
     /// the right length even though the input trails the output.
     reached: AtomicUsize,
@@ -140,9 +143,9 @@ struct Shared {
     /// boundary the multiply started on, which is also where the *new* loop's
     /// position zero will end up.
     rec_from: AtomicI64,
-    monitor: AtomicBool,
-    out_peak: AtomicU32,
-    in_peak: AtomicU32,
+    pub monitor: AtomicBool,
+    pub out_peak: AtomicU32,
+    pub in_peak: AtomicU32,
 }
 
 /// `AtomicU8` under a name that makes the intent obvious at the use sites.
@@ -163,6 +166,23 @@ impl AtomicU8Wrapper {
 }
 
 impl Shared {
+    pub fn state_name(&self) -> &'static str {
+        match self.state.get() {
+            ARMED => "armed",
+            FIRST => "recordingFirst",
+            OVERDUB => "overdubbing",
+            MULTIPLY => "multiplying",
+            PLAYING => "playing",
+            _ => "idle",
+        }
+    }
+    pub fn is_armed(&self) -> bool {
+        self.state.get() == ARMED
+    }
+    pub fn is_recording(&self) -> bool {
+        matches!(self.state.get(), FIRST | OVERDUB | MULTIPLY)
+    }
+
     fn cell(&self, layer: usize, pos: usize) -> &AtomicU32 {
         &self.arena[layer * self.max_frames + pos]
     }
@@ -456,6 +476,10 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
     out_stream.play()?;
     in_stream.play()?;
     std::thread::sleep(Duration::from_millis(300));
+
+    if let Some(port) = opts.ws_port {
+        crate::ws::serve(sh.clone(), sr, port);
+    }
 
     if let Some(secs) = opts.selftest {
         let r = selftest(&sh, sr, secs);
@@ -822,6 +846,26 @@ fn control_loop(sh: &Shared, sr: u32) {
     let stdin = std::io::stdin();
     for line in stdin.lock().lines() {
         let Ok(line) = line else { break };
+        if line.trim() == "q" {
+            break;
+        }
+        let ack = dispatch(sh, sr, &line);
+        if !ack.is_empty() {
+            println!("  {}", ack);
+        }
+    }
+}
+
+/// One command, from wherever it came.
+///
+/// Both the console and the socket land here, so a footswitch, a browser and a
+/// terminal cannot drift into meaning different things by the same name. The
+/// detail still goes to stdout — waveforms and level readings are for the
+/// person sitting at the daemon — and what comes back is the short
+/// acknowledgement a remote caller needs. Remote clients render from the state
+/// snapshot rather than from these strings.
+pub fn dispatch(sh: &Shared, sr: u32, line: &str) -> String {
+    {
         match line.trim() {
             "x" => match sh.state.get() {
                 MULTIPLY => multiply_end(sh, sr),
@@ -924,11 +968,11 @@ fn control_loop(sh: &Shared, sr: u32) {
                     }
                 );
             }
-            "q" | "" if line.trim() == "q" => break,
             "" => {}
-            other => println!("  ? {:?}", other),
+            other => return format!("unknown command {:?}", other),
         }
     }
+    String::new()
 }
 
 /// Record one cycle of the engine's own click through a loopback cable and ask

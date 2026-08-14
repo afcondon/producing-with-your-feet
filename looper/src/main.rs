@@ -8,6 +8,7 @@
 mod align;
 mod devices;
 mod engine;
+mod ws;
 mod levels;
 mod measure;
 
@@ -57,6 +58,8 @@ USAGE
                         interface's own direct monitoring costs no latency
                         where this costs the round trip plus a buffer
       --mono-out        send the mix to one channel instead of a pair
+      --ws              serve the app on ws://127.0.0.1:3028
+      --ws-port <n>     ...on a different port
       --ring-secs <s>   how much of the past stays claimable      (default 60)
       --preroll-ms <n>  how far before the tap the first loop actually
                         starts, pulled from the pre-roll           (default 0)
@@ -231,6 +234,11 @@ fn parse_loop(args: &[String]) -> Result<engine::Opts, String> {
             i += 1;
             continue;
         }
+        if flag == "--ws" {
+            opts.ws_port = Some(3028);
+            i += 1;
+            continue;
+        }
         if flag == "--monitor" {
             opts.monitor = true;
             i += 1;
@@ -253,6 +261,9 @@ fn parse_loop(args: &[String]) -> Result<engine::Opts, String> {
             "--max-secs" => opts.max_secs = value.parse().map_err(|_| "--max-secs wants a number")?,
             "--rate" => opts.sample_rate = value.parse().map_err(|_| "--rate wants an integer")?,
             "--buffer" => opts.buffer = Some(value.parse().map_err(|_| "--buffer wants an integer")?),
+            "--ws-port" => {
+                opts.ws_port = Some(value.parse().map_err(|_| "--ws-port wants a port number")?)
+            }
             "--ring-secs" => opts.ring_secs = value.parse().map_err(|_| "--ring-secs wants a number")?,
             "--preroll-ms" => opts.preroll_ms = value.parse().map_err(|_| "--preroll-ms wants a number")?,
             "--selftest" => {
