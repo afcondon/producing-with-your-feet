@@ -52,6 +52,9 @@ const FIRST: u8 = 2;
 const OVERDUB: u8 = 3;
 /// Playing, not recording.
 const PLAYING: u8 = 4;
+/// Recording across several cycles, to make the loop an integer multiple longer
+/// with what is already there repeating underneath. The EDP's `Multiply`.
+const MULTIPLY: u8 = 5;
 
 pub struct Opts {
     pub device: String,
@@ -132,6 +135,11 @@ struct Shared {
     reached: AtomicUsize,
     overflowed: AtomicBool,
     preroll: AtomicUsize,
+    /// Output frame at which the layer being recorded has its position zero.
+    /// Equal to `origin` for a first recording; for a multiply it is the cycle
+    /// boundary the multiply started on, which is also where the *new* loop's
+    /// position zero will end up.
+    rec_from: AtomicI64,
     monitor: AtomicBool,
     out_peak: AtomicU32,
     in_peak: AtomicU32,
@@ -248,6 +256,7 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
         preroll: AtomicUsize::new(
             (opts.preroll_ms / 1000.0 * sr_f).round().max(0.0) as usize,
         ),
+        rec_from: AtomicI64::new(0),
         monitor: AtomicBool::new(opts.monitor),
         out_peak: AtomicU32::new(0),
         in_peak: AtomicU32::new(0),
@@ -293,8 +302,14 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
                                 // self-test cannot catch that, because both
                                 // sides move together.
                                 sh.origin.store(base as i64, Ordering::Release);
+                                sh.rec_from.store(base as i64, Ordering::Release);
                                 sh.state.set(FIRST);
                             } else {
+                                // An overdub is modular against the existing
+                                // grid, so it records from the same reference
+                                // the loop plays from.
+                                sh.rec_from
+                                    .store(sh.origin.load(Ordering::Acquire), Ordering::Release);
                                 sh.state.set(OVERDUB);
                             }
                         }
@@ -388,13 +403,13 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
                 sh.in_peak.fetch_max(peak.to_bits(), Ordering::Relaxed);
 
                 let state = sh.state.get();
-                if state != FIRST && state != OVERDUB {
+                if state != FIRST && state != OVERDUB && state != MULTIPLY {
                     sh.in_frames.store(base + frames, Ordering::Release);
                     return;
                 }
 
                 let k = sh.k.load(Ordering::Acquire);
-                let origin = sh.origin.load(Ordering::Acquire);
+                let origin = sh.rec_from.load(Ordering::Acquire);
                 let loop_len = sh.loop_len.load(Ordering::Acquire);
                 let layer = sh.n_layers.load(Ordering::Acquire);
                 if layer >= MAX_LAYERS {
@@ -410,7 +425,7 @@ pub fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
                     }
                     let v = data[f * in_channels + ch];
 
-                    if state == FIRST {
+                    if state == FIRST || state == MULTIPLY {
                         // Linear. Its length becomes the cycle, so it must not
                         // wrap — and it stops rather than overwriting.
                         let pos = rel as usize;
@@ -678,8 +693,129 @@ fn take(sh: &Shared, sr: u32, secs: f64) {
     );
 }
 
+/// Begin a multiply: keep the loop playing and start recording across it.
+///
+/// The EDP's gesture, and the one this whole thing was asked for — two bars
+/// down, a couple of taps, and you are recording eight with the two repeating
+/// underneath.
+///
+/// **It starts at the beginning of the cycle you are in, not when you pressed.**
+/// The pre-roll holds that cycle already, so the part you have played of it is
+/// recovered rather than lost, and the multiply lands on the grid instead of
+/// wherever your foot happened to be. Pressing late is free.
+fn multiply_start(sh: &Shared, sr: u32) {
+    let loop_len = sh.loop_len.load(Ordering::Acquire);
+    if loop_len == 0 {
+        println!("  nothing to multiply — record a loop first.");
+        return;
+    }
+    if sh.n_layers.load(Ordering::Acquire) >= MAX_LAYERS {
+        println!("  {} layers is the ceiling; undo one first.", MAX_LAYERS);
+        return;
+    }
+
+    let origin = sh.origin.load(Ordering::Acquire);
+    let cur = sh.out_frames.load(Ordering::Acquire) as i64;
+    let cyc = (cur - origin).div_euclid(loop_len as i64);
+    let from = origin + cyc * loop_len as i64;
+
+    let layer = sh.n_layers.load(Ordering::Acquire);
+    sh.zero_layer(layer);
+    sh.rec_from.store(from, Ordering::Release);
+    sh.reached.store(0, Ordering::Release);
+    sh.state.set(MULTIPLY);
+
+    // The part of this cycle already played is in the pre-roll; claim it, so
+    // the multiply really does begin on the boundary.
+    let behind = (cur - from) as usize;
+    if behind > 0 {
+        let got = fill_from_ring(sh, layer, from, behind, false);
+        sh.reached.fetch_max(got, Ordering::Relaxed);
+        println!(
+            "  multiplying from the start of this cycle — {:.2} s of it recovered \
+             from the pre-roll.",
+            got as f64 / sr as f64
+        );
+    } else {
+        println!("  multiplying from this cycle's start.");
+    }
+    println!("  play across as many cycles as you want, then x again.");
+}
+
+/// End a multiply: round to whole cycles and grow the loop to fit.
+///
+/// Rounding rather than truncating, because at nine tenths of the way through
+/// the fourth cycle you meant four. Which means sometimes waiting for the
+/// boundary to arrive rather than cutting the loop short at the press.
+fn multiply_end(sh: &Shared, sr: u32) {
+    let loop_len = sh.loop_len.load(Ordering::Acquire);
+    let from = sh.rec_from.load(Ordering::Acquire);
+    let cur = sh.out_frames.load(Ordering::Acquire) as i64;
+    let elapsed = (cur - from).max(0) as f64;
+
+    let n = ((elapsed / loop_len as f64).round() as usize).max(1);
+    let new_len = n * loop_len;
+    if new_len > sh.max_frames {
+        println!(
+            "  {} cycles would be {:.1} s, past the --max-secs ceiling of {:.1} s. \
+             Stopping at the old length.",
+            n,
+            new_len as f64 / sr as f64,
+            sh.max_frames as f64 / sr as f64
+        );
+        sh.state.set(PLAYING);
+        return;
+    }
+
+    // If the rounding went up, the last cycle has not finished yet. Wait for it
+    // rather than hand back a loop that is short by however late the press was.
+    let target = from + new_len as i64;
+    if target > cur {
+        println!(
+            "  rounding up to {} cycles; waiting {:.2} s for the boundary.",
+            n,
+            (target - cur) as f64 / sr as f64
+        );
+        while (sh.out_frames.load(Ordering::Acquire) as i64) < target {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+    // And let the input drain past it, since it trails by K.
+    sh.state.set(PLAYING);
+    std::thread::sleep(Duration::from_millis(60));
+
+    // Everything that was playing has to fill the new, longer cycle — that is
+    // what "with the original repeating underneath" means. The multiply began
+    // on a cycle boundary, so each existing layer simply repeats from its own
+    // position zero.
+    let layers = sh.n_layers.load(Ordering::Acquire);
+    for l in 0..layers {
+        for c in 1..n {
+            for pos in 0..loop_len {
+                let v = sh.read(l, pos);
+                sh.write(l, c * loop_len + pos, v);
+            }
+        }
+    }
+
+    // The new loop's position zero is where the multiply began.
+    sh.origin.store(from, Ordering::Release);
+    sh.loop_len.store(new_len, Ordering::Release);
+
+    println!(
+        "  x{}: loop is now {:.3} s ({} cycles of {:.3} s).",
+        n,
+        new_len as f64 / sr as f64,
+        n,
+        loop_len as f64 / sr as f64
+    );
+    let layer = sh.n_layers.fetch_add(1, Ordering::AcqRel);
+    draw_layer(sh, layer, new_len, sr);
+    println!("  committed. {} layers playing.", layer + 1);
+}
+
 fn control_loop(sh: &Shared, sr: u32) {
-    println!("Commands:  r = record/overdub toggle   t [secs] = take from the past");
+    println!("Commands:  r = record/overdub toggle   x = multiply   t [secs] = take");
     println!("           u = undo   c = clear   k = click   m = input monitoring");
     println!("           l = levels   p = status + waveforms   q = quit\n");
 
@@ -687,12 +823,22 @@ fn control_loop(sh: &Shared, sr: u32) {
     for line in stdin.lock().lines() {
         let Ok(line) = line else { break };
         match line.trim() {
+            "x" => match sh.state.get() {
+                MULTIPLY => multiply_end(sh, sr),
+                FIRST | OVERDUB => println!("  finish this recording first."),
+                _ => multiply_start(sh, sr),
+            },
             "r" => match sh.state.get() {
+                MULTIPLY => multiply_end(sh, sr),
                 FIRST | OVERDUB => commit(sh, sr),
                 _ => {
-                    if sh.n_layers.load(Ordering::Acquire) >= MAX_LAYERS {
+                    let layer = sh.n_layers.load(Ordering::Acquire);
+                    if layer >= MAX_LAYERS {
                         println!("  {} layers is the ceiling; undo one first.", MAX_LAYERS);
                     } else {
+                        // An overdub sums into its layer, so anything left there
+                        // from an undone take would bleed into the new one.
+                        sh.zero_layer(layer);
                         sh.request.set(ARMED);
                         println!("  recording...");
                     }
@@ -766,6 +912,7 @@ fn control_loop(sh: &Shared, sr: u32) {
                     match sh.state.get() {
                         FIRST => "recording first",
                         OVERDUB => "overdubbing",
+                        MULTIPLY => "multiplying",
                         PLAYING => "playing",
                         _ => "idle",
                     },
@@ -850,6 +997,58 @@ fn selftest(sh: &Shared, sr: u32, secs: f64) -> Result<(), Box<dyn Error>> {
         }
         None => return Err("the retroactive take captured nothing".into()),
     };
+
+    // Fourth: grow the loop while it plays. The claim being tested is not the
+    // arithmetic but the bookkeeping — that everything already recorded repeats
+    // into the new length, which is what "with the original playing underneath"
+    // means and is the whole point of the gesture.
+    println!("\nMultiply: growing the loop while it plays.");
+    multiply_start(sh, sr);
+    std::thread::sleep(Duration::from_secs_f64(secs * 2.2));
+    multiply_end(sh, sr);
+    std::thread::sleep(Duration::from_millis(100));
+
+    let new_len = sh.loop_len.load(Ordering::Acquire);
+    if new_len % len != 0 {
+        return Err(format!(
+            "the multiplied loop is {} frames, not a whole multiple of {}",
+            new_len, len
+        )
+        .into());
+    }
+    let n = new_len / len;
+
+    // Layer 0 carried the click at position zero. After a multiply it should
+    // carry it at every cycle boundary, because it was repeated to fill.
+    let mut missing = Vec::new();
+    for c in 0..n {
+        let mut best = 0f32;
+        for d in 0..64usize {
+            best = best.max(sh.read(0, (c * len + d) % new_len).abs());
+            if c * len + len > d {
+                let back = (c * len + new_len - d - 1) % new_len;
+                best = best.max(sh.read(0, back).abs());
+            }
+        }
+        if best < 0.01 {
+            missing.push(c);
+        }
+    }
+    println!(
+        "  loop is now x{} ({:.2} s), and layer 0 repeats at {} of {} cycle boundaries.",
+        n,
+        new_len as f64 / sr as f64,
+        n - missing.len(),
+        n
+    );
+    if !missing.is_empty() {
+        return Err(format!(
+            "the original does not repeat underneath — it is missing at cycle(s) {:?}. \
+             A multiply that drops what it was multiplying is worse than no multiply",
+            missing
+        )
+        .into());
+    }
 
     let slip = e1 - e0;
     println!("\n  Layer-to-layer slip: {:+} samples.", slip);

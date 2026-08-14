@@ -31,7 +31,8 @@ USAGE
       The looper. Records, overdubs as layers, and undoes them, on the
       alignment `align` verifies. Commands on stdin:
 
-        r  record / overdub toggle     t [secs]  take from the past
+        r  record / overdub toggle     x  multiply
+        t [secs]  take from the past
         u  undo last layer             c  clear everything
         k  click on/off                p  status        q  quit
 
@@ -42,6 +43,12 @@ USAGE
 
       The first recording defines the cycle; every later one is an overdub
       of exactly that length, summed into its own layer.
+
+      `x` multiplies: keep playing across as many cycles as you like, press
+      it again, and the loop becomes that many cycles long with everything
+      already there repeating underneath. Two bars into eight, in two taps.
+      It starts at the beginning of the cycle you are in, not when you
+      pressed, so pressing late costs nothing.
 
       --residual <n>    from `sweep`, for this configuration  (default 252)
       --max-secs <s>    longest loop, and so the arena size   (default 30)
