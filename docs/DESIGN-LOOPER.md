@@ -305,14 +305,25 @@ every overdub** if uncompensated. This is the one that ruins a looper.
 > negative raw reading is normal rather than a fault — any path shorter than two
 > buffers reads below zero.
 >
-> Still to measure: **out → pedalboard → in**, the figure for anything recorded
-> wet. Note that this one cannot be a single number either, for a reason of its
-> own: every digital pedal converts A/D → DSP → D/A, they are in series, and a
-> pedal in true bypass adds nothing where one in buffered bypass adds its full
-> conversion. **The wet-path latency is a function of which pedals are engaged**
-> — which makes it another thing the belief model of `DESIGN-v2` §2 has to
-> carry, and another reason a layer should record the board state it was made
-> through.
+> **The pedalboard path matters much less than first thought.** Two reasons,
+> and the second is the general one.
+>
+> The pedals on this board have analogue dry-through, so the transient a click
+> triggers on is not converted at all. Only wet content is delayed, and wet
+> content being delayed is the effect rather than an error.
+>
+> More importantly, **constant pedal latency cancels**. Suppose a pedal adds
+> 3 ms. Layer one: you play, it arrives 3 ms late, it is recorded 3 ms late.
+> Layer two: you hear layer one, you play along, and your note is *also* 3 ms
+> late. Both layers carry the same offset, so they agree with each other. It
+> neither compounds nor misaligns; it shifts everything uniformly, which is
+> inaudible.
+>
+> The residue is small and specific: a pedal with no analogue dry path (an amp
+> modeller, say) engaged for one layer and bypassed for another puts those two
+> layers a few milliseconds apart. Worth knowing as a number; not worth
+> compensating, and arguably part of the sound. So it does **not** need to enter
+> the belief model, which is what an earlier draft of this section claimed.
 
 **The self-test this affords.** Because the correction is exact, the engine has
 a check it can run on itself: record a loopback click against a playing loop and
