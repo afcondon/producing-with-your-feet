@@ -267,20 +267,38 @@ every overdub** if uncompensated. This is the one that ruins a looper.
 > is bookkeeping, it is always exactly 2, and it cancels once the buffer size is
 > known, which the engine always knows because it chooses it.
 >
-> **The residual is not a universal constant.** It read 252 samples, then 301 in
-> a later run — the whole curve shifted by 49 samples while the slope stayed at
-> exactly 2.00 and the residual stayed perfectly buffer-independent. Within a
-> device configuration it is stable to the sample and reproducible across dozens
-> of fresh stream sessions; across some change it stepped once and stayed. Other
-> audio clients were running (Ableton, SuperCollider), and CoreAudio can
-> renegotiate a device's hardware buffer and safety offset when a client opens
-> it, which would do exactly this. Not proven.
+> **The residual depends on what else has the device open.** Confirmed by A/B on
+> the day:
+>
+> | other clients | residual |
+> |---|---|
+> | Ableton running | 301 samples |
+> | Ableton quit | **252 samples** |
+>
+> The whole curve shifts by 49 samples (~1.02 ms) while the slope stays at
+> exactly 2.00 and the residual stays perfectly buffer-independent. Within a
+> given configuration it is stable to the sample across dozens of fresh stream
+> sessions; it steps rather than drifts. SuperCollider was running throughout
+> both readings and is not a factor — only Ableton moved it. The mechanism is
+> CoreAudio renegotiating the device's hardware buffer and safety offset when a
+> client opens it.
 >
 > **So the number is session state, not a stored constant.** The engine must
 > measure it for the configuration it is actually running in, and treat a stored
 > value as a hint to be verified rather than a fact. A calibration that has gone
 > stale is worse than none, because it is silently wrong in the one direction
 > nothing in the sound reveals.
+>
+> Two operational consequences follow, and neither is optional:
+>
+> - **Calibrate with the rig as it will actually be**, not in a clean room.
+>   Ableton open is the normal condition for recording, so a figure measured
+>   without it is the wrong figure — the clean-room number is the misleading one
+>   here.
+> - **Watch for the change rather than assume it.** CoreAudio publishes device
+>   property-change notifications; a daemon that holds the device can hear
+>   another client arrive and mark its calibration suspect instead of carrying
+>   on with a number that quietly stopped being true.
 >
 > Two other consequences. Raw timestamp arithmetic needs
 > `true_offset = measured + 2 × buffer_frames` before it means anything. And a
