@@ -489,6 +489,7 @@ Stages 1–3 are the project. Everything after is upside.
 - **Calibrate at startup, or verify what is stored.** Follows from the above and
   is not optional. The self-test in §10 is the same mechanism, so this costs
   little beyond what is already wanted.
+- **The pedalboard path — deferred, see below.**
 - **The Audio4c channel map**, measured 2026-08-14 with `pwyf-looper map`:
 
   | input jack | host channel | click level | transit |
@@ -517,3 +518,38 @@ Stages 1–3 are the project. Everything after is upside.
 - **No internal monitoring path.** With nothing patched, a click on output 1 is
   heard on no input at all. That matters because an interface that routes output
   back internally would yield a confident, precise, entirely fictional latency.
+
+---
+
+## 16. Deferred: the pedalboard path
+
+**Parked 2026-08-14, deliberately.** Per §10 the board's contribution largely
+cancels, so this run confirms an assumption rather than supplying a number
+anything depends on. Nothing downstream is blocked on it, and the alignment
+self-test already proved the part that is. Revisit once there is a looper to
+record through — the answer is more interesting when it can be heard.
+
+The whole procedure, so picking it up costs nothing:
+
+1. Patch AUDIO4c **output 1** → pedalboard in; pedalboard out **L → input jack
+   1**, **R → input jack 2**. Everything on the board **bypassed**.
+2. **Check levels first.** The Audio4c's output is line level, roughly 20 dB
+   hotter than the instrument level the pedals expect, so start quiet:
+   `pwyf-looper levels --device AUDIO4c --seconds 20`, playing guitar through
+   the board to see where the peaks sit.
+3. `pwyf-looper sweep --device AUDIO4c --amp 0.05`, raising `--amp` only if
+   nothing answers.
+
+**Reading it.** A residual at ≈252 means the board adds nothing to the dry path
+and the question is closed. Meaningfully larger means something in the chain
+converts even when bypassed — a buffered bypass with an A/D in it would not be
+visible any other way, and that is the one genuine discovery available here.
+
+**Optional second run.** Repeat with an amp modeller engaged, which by
+definition has no analogue dry path. The difference is that pedal's conversion
+latency, and the worst case for changing board state part-way through a stack of
+layers. Interesting; not actionable.
+
+**What would un-defer this.** Layers that audibly disagree when recorded through
+different board states, or any plan to compensate per-layer rather than
+uniformly.
