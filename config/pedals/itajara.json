@@ -1,0 +1,215 @@
+{
+  "meta": {
+    "id": "itajara",
+    "name": "Itajara",
+    "shortName": "Ij",
+    "brand": "Hylograph",
+    "defaultChannel": 13,
+    "color": "#3a7d6c",
+    "saveInstructions": "Loops live in the daemon, not in the pedal. Nothing to hold down."
+  },
+  "engage": {
+    "type": "single",
+    "cc": 7
+  },
+  "baseline": {
+    "1": 0,
+    "2": 0,
+    "3": 0,
+    "4": 0,
+    "5": 0,
+    "6": 0,
+    "7": 0,
+    "8": 0,
+    "9": 0,
+    "20": 0,
+    "21": 127,
+    "22": 0,
+    "23": 0,
+    "24": 0,
+    "25": 0,
+    "40": 127,
+    "41": 127,
+    "42": 127,
+    "43": 127,
+    "44": 127,
+    "45": 127,
+    "46": 127,
+    "47": 127,
+    "48": 100,
+    "49": 100,
+    "50": 100,
+    "51": 100,
+    "52": 100,
+    "53": 100,
+    "54": 100,
+    "55": 100,
+    "60": 0,
+    "61": 0,
+    "62": 0,
+    "63": 0,
+    "64": 0,
+    "65": 64,
+    "66": 127,
+    "67": 0,
+    "68": 0,
+    "70": 0,
+    "71": 0,
+    "72": 0,
+    "73": 0,
+    "74": 0,
+    "80": 100,
+    "81": 0,
+    "82": 64,
+    "83": 0
+  },
+  "resetOrder": [],
+  "twister": null,
+  "modes": null,
+  "sections": [
+    {
+      "name": "Transport",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        { "type": "momentary", "cc": 1, "label": "Record / Overdub", "value": 127,
+          "description": "First press sets the cycle; every one after overdubs as a new layer." },
+        { "type": "momentary", "cc": 2, "label": "Multiply", "value": 127,
+          "description": "Extend the loop by whole cycles, the old one playing underneath." },
+        { "type": "momentary", "cc": 3, "label": "Undo", "value": 127,
+          "description": "Drop the top layer." },
+        { "type": "momentary", "cc": 4, "label": "Redo", "value": 127,
+          "description": "Not yet implemented — undo currently wipes the layer rather than unlinking it." },
+        { "type": "momentary", "cc": 5, "label": "Take", "value": 127,
+          "description": "Keep what you already played, from the pre-roll ring." },
+        { "type": "momentary", "cc": 6, "label": "Clear", "value": 127,
+          "description": "Wipe every layer and forget the cycle." },
+        { "type": "toggle", "cc": 7, "label": "Play", "onLabel": "Playing", "offLabel": "Stopped" },
+        { "type": "toggle", "cc": 8, "label": "Reverse — all", "onLabel": "Rev", "offLabel": "Fwd",
+          "description": "Not yet implemented in the daemon." },
+        { "type": "toggle", "cc": 9, "label": "Half speed — all", "onLabel": "Half", "offLabel": "Full",
+          "description": "Not yet implemented in the daemon." }
+      ]
+    },
+    {
+      "name": "Source & Routing",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        { "type": "segmented", "cc": 20, "label": "Record source", "options": [
+          { "label": "Board L/R", "value": 0, "description": "Jacks 1+2, stereo — the pedalboard" },
+          { "label": "In 1", "value": 16, "description": "Jack 1, mono — the dry DI" },
+          { "label": "In 2", "value": 32 },
+          { "label": "In 3", "value": 48 },
+          { "label": "In 4", "value": 64 },
+          { "label": "Pair 3/4", "value": 80, "description": "Jacks 3+4, stereo" },
+          { "label": "iPad L/R", "value": 96, "description": "Host channels 4+5 — the second-host path" },
+          { "label": "Multi", "value": 112, "description": "Board and iPad as two layers in one pass" }
+        ] },
+        { "type": "toggle", "cc": 21, "label": "Record width", "onLabel": "Stereo", "offLabel": "Mono",
+          "description": "Layers store their source's native width; pan and placement happen at playback." },
+        { "type": "segmented", "cc": 22, "label": "Monitor source", "options": [
+          { "label": "Off", "value": 0 },
+          { "label": "Board L/R", "value": 26 },
+          { "label": "In 1", "value": 52 },
+          { "label": "Pair 3/4", "value": 78 },
+          { "label": "iPad L/R", "value": 104 }
+        ] },
+        { "type": "slider", "cc": 23, "label": "Monitor level" },
+        { "type": "segmented", "cc": 24, "label": "Send destination", "options": [
+          { "label": "Off", "value": 0 },
+          { "label": "Out 1/2", "value": 32, "description": "The monitors" },
+          { "label": "Out 3/4", "value": 64, "description": "The pedalboard, for re-amping" },
+          { "label": "iPad", "value": 96, "description": "The second host, as an effects rack" }
+        ] },
+        { "type": "segmented", "cc": 25, "label": "Send source", "options": [
+          { "label": "Selected layer", "value": 0 },
+          { "label": "Loop mix", "value": 42 },
+          { "label": "Live input", "value": 84 }
+        ] }
+      ]
+    },
+    {
+      "name": "Selected layer",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        { "type": "slider", "cc": 60, "label": "Selected layer",
+          "annotations": [
+            { "position": 0, "label": "1" },
+            { "position": 64, "label": "5" },
+            { "position": 127, "label": "8" }
+          ] },
+        { "type": "momentary", "cc": 61, "label": "Layer next", "value": 127 },
+        { "type": "momentary", "cc": 62, "label": "Layer previous", "value": 127 },
+        { "type": "toggle", "cc": 63, "label": "Solo", "onLabel": "Solo", "offLabel": "—" },
+        { "type": "slider", "cc": 65, "label": "Pan",
+          "annotations": [
+            { "position": 0, "label": "L" },
+            { "position": 64, "label": "C" },
+            { "position": 127, "label": "R" }
+          ] },
+        { "type": "slider", "cc": 66, "label": "Width",
+          "annotations": [
+            { "position": 0, "label": "Mono" },
+            { "position": 127, "label": "Wide" }
+          ] },
+        { "type": "toggle", "cc": 67, "label": "Reverse", "onLabel": "Rev", "offLabel": "Fwd" },
+        { "type": "toggle", "cc": 68, "label": "Half speed", "onLabel": "Half", "offLabel": "Full" }
+      ]
+    },
+    {
+      "name": "Layers",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        { "type": "toggle", "cc": 40, "label": "Layer 1", "onLabel": "On", "offLabel": "Muted" },
+        { "type": "toggle", "cc": 41, "label": "Layer 2", "onLabel": "On", "offLabel": "Muted" },
+        { "type": "toggle", "cc": 42, "label": "Layer 3", "onLabel": "On", "offLabel": "Muted" },
+        { "type": "toggle", "cc": 43, "label": "Layer 4", "onLabel": "On", "offLabel": "Muted" },
+        { "type": "toggle", "cc": 44, "label": "Layer 5", "onLabel": "On", "offLabel": "Muted" },
+        { "type": "toggle", "cc": 45, "label": "Layer 6", "onLabel": "On", "offLabel": "Muted" },
+        { "type": "toggle", "cc": 46, "label": "Layer 7", "onLabel": "On", "offLabel": "Muted" },
+        { "type": "toggle", "cc": 47, "label": "Layer 8", "onLabel": "On", "offLabel": "Muted" },
+        { "type": "slider", "cc": 48, "label": "Layer 1 level" },
+        { "type": "slider", "cc": 49, "label": "Layer 2 level" },
+        { "type": "slider", "cc": 50, "label": "Layer 3 level" },
+        { "type": "slider", "cc": 51, "label": "Layer 4 level" },
+        { "type": "slider", "cc": 52, "label": "Layer 5 level" },
+        { "type": "slider", "cc": 53, "label": "Layer 6 level" },
+        { "type": "slider", "cc": 54, "label": "Layer 7 level" },
+        { "type": "slider", "cc": 55, "label": "Layer 8 level" }
+      ]
+    },
+    {
+      "name": "Loops",
+      "compact": true,
+      "collapsed": true,
+      "layout": "default",
+      "controls": [
+        { "type": "slider", "cc": 70, "label": "Loop select" },
+        { "type": "momentary", "cc": 71, "label": "Loop next", "value": 127 },
+        { "type": "momentary", "cc": 72, "label": "Loop previous", "value": 127 },
+        { "type": "momentary", "cc": 73, "label": "Loop save", "value": 127 },
+        { "type": "momentary", "cc": 74, "label": "Loop load", "value": 127 }
+      ]
+    },
+    {
+      "name": "Global",
+      "compact": true,
+      "collapsed": false,
+      "layout": "default",
+      "controls": [
+        { "type": "slider", "cc": 80, "label": "Loop level" },
+        { "type": "toggle", "cc": 81, "label": "Click", "onLabel": "On", "offLabel": "Off" },
+        { "type": "slider", "cc": 82, "label": "Click level" },
+        { "type": "toggle", "cc": 83, "label": "Input monitor", "onLabel": "On", "offLabel": "Off",
+          "description": "The interface's own direct monitoring is lower latency." }
+      ]
+    }
+  ]
+}

@@ -49,6 +49,10 @@
     {
       "file": "pedals/lostandfound.json",
       "channel": 6
+    },
+    {
+      "file": "pedals/itajara.json",
+      "channel": 13
     }
   ],
   "midiRouting": {

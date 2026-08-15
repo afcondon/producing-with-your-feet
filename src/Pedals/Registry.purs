@@ -16,6 +16,7 @@ import Pedals.Iridium as Iridium
 import Pedals.Riverside as Riverside
 import Pedals.Mercury7 as Mercury7
 import Pedals.Brig as Brig
+import Pedals.Itajara as Itajara
 import Pedals.LostAndFound as LostAndFound
 
 -- | All pedals in display order (matches JS tab bar order)
@@ -33,6 +34,7 @@ pedals =
   , Mercury7.pedal
   , Brig.pedal
   , LostAndFound.pedal
+  , Itajara.pedal
   ]
 
 findPedal :: PedalId -> Maybe PedalDef

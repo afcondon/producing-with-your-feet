@@ -10,6 +10,7 @@ import Prelude
 import Color (toHexString)
 import Data.Array as Array
 import Data.Const (Const)
+import Data.Looper as Looper
 import Data.Maybe (Maybe(..))
 
 import Data.Pedal (PedalId)
@@ -94,6 +95,9 @@ render state =
     PedalView activePid -> activePid == pid
     BoardsView -> state.boardsActivePedal == Just pid
     OverviewView -> state.overviewActivePedal == Just pid
+    -- The looper's pill lights on its own page, since that page *is* its
+    -- selection — there is nowhere else for it to be active.
+    LooperView -> Looper.isItajara pid
     _ -> false
 
   renderPill pid = do

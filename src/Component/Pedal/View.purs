@@ -177,9 +177,20 @@ handleAction = case _ of
     -- Initial render
     rerenderIfReady
 
+  -- Halogen calls `receive` on every parent render, whether or not this
+  -- component's input moved. Rebuilding the HATS tree unconditionally tears the
+  -- DOM out from under the pointer, so mousedown and mouseup land on different
+  -- nodes and no `click` is ever synthesised — the buttons go dead while the
+  -- knobs keep working, because knobs fire on `pointerdown`.
+  --
+  -- Harmless while the parent only re-rendered on real changes. Fatal once this
+  -- component went on the Looper page, where the daemon's level meters move the
+  -- app's state ten times a second for as long as it is connected.
   Receive input -> do
+    st <- H.get
     H.modify_ _ { input = input }
-    rerenderIfReady
+    when (st.input.engine /= input.engine || st.input.pedalId /= input.pedalId)
+      rerenderIfReady
 
   ClickBack -> H.raise BackToGrid
 

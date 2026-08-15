@@ -276,6 +276,7 @@ dualLayerKnob cx cy color colorMuted knob primaryVal primaryLabel hCC ps callbac
           , staticStr "font-weight" "600"
           , thunkedStr "textContent" (show primaryVal <> " / " <> show hiddenVal)
           , thunkedStr "fill" color
+          , staticStr "pointer-events" "none"
           ] []
       -- Primary label
       , labelText cx (cy + 35.0) "7" "600" color primaryLabel
@@ -320,12 +321,17 @@ singleLayerKnob cx cy color knob primaryVal primaryLabel _ps callbacks =
           , staticStr "font-weight" "600"
           , thunkedStr "fill" color
           , thunkedStr "textContent" (show primaryVal)
+          , staticStr "pointer-events" "none"
           ] []
       -- Label
       , labelText cx (cy + 35.0) "7" "600" color primaryLabel
       ]
 
 -- | Continuous arc with optional center detente
+-- | The value arc is pure display: it is painted over the background track,
+-- | which is what carries `onKnobDragStart`. Without `pointer-events: none`
+-- | it swallows the press, and the knob is dead precisely where the value
+-- | shows — so the more a knob is turned up, the less of it responds.
 continuousArc :: Number -> Number -> Number -> Number -> String -> String -> Int -> Maybe Int -> Tree
 continuousArc cx cy innerR outerR color opacity val center =
   let angle = valToAngle val
@@ -336,6 +342,7 @@ continuousArc cx cy innerR outerR color opacity val center =
           [ thunkedStr "d" (donutSegmentPath cx cy outerR innerR minAngle angle)
           , thunkedStr "fill" color
           , thunkedStr "opacity" opacity
+          , staticStr "pointer-events" "none"
           ] []
         else empty
     Just c ->
@@ -346,12 +353,14 @@ continuousArc cx cy innerR outerR color opacity val center =
              [ thunkedStr "d" (donutSegmentPath cx cy outerR innerR centerAngle angle)
              , thunkedStr "fill" color
              , thunkedStr "opacity" opacity
+             , staticStr "pointer-events" "none"
              ] []
          else
            elem Path
              [ thunkedStr "d" (donutSegmentPath cx cy outerR innerR angle centerAngle)
              , thunkedStr "fill" color
              , thunkedStr "opacity" opacity
+             , staticStr "pointer-events" "none"
              ] []
 
 -- | Segmented arc (N positions from SegmentDef array)
@@ -390,6 +399,9 @@ labelText x y fontSize fontWeight color text =
     , staticStr "stroke" "rgba(245,245,245,0.85)"
     , staticStr "stroke-width" "3"
     , staticStr "stroke-linejoin" "round"
+    -- Labels are never interactive, and the 3px halo stroke below reaches
+    -- further than the glyphs do — easily over a neighbouring drag target.
+    , staticStr "pointer-events" "none"
     , thunkedStr "textContent" text
     ] <> if fontWeight /= "" then [ thunkedStr "font-weight" fontWeight ] else [])
     []

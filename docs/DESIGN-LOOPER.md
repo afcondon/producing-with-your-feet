@@ -1,19 +1,37 @@
 # The looper — design notes
 
-**Status:** brainstorm written up, 2026-08-13. For reaction before anything is
-built. Companion to `DESIGN-v2.md`, which removes the LoopyPro integration this
+**Status:** revised 2026-08-15. First written 2026-08-13 as a brainstorm; stages
+1–3 of the original plan are built and working. This revision changes the
+framing in three ways that invalidate parts of the first draft:
+
+- the target is **recording**, not live performance
+- Itajara becomes **a pedal in the registry**, not a separate application
+- the AUDIO4c is **part of the instrument**, not just the way audio gets in
+
+Companion to `DESIGN-v2.md`, which removes the LoopyPro integration this
 replaces.
 
 ---
 
 ## 1. Scope
 
-The target is **not** a Loopy Pro clone. It is *a little better than an EHX 720*
-— which is a much smaller and much more achievable thing, and the reduction is
-the most useful decision made so far.
+The original target was *a little better than an EHX 720*, and that reduction
+did its job — it got a working looper built in two days. The target now moves,
+for a reason that was not stated in the first draft: **this is for recording,
+not for playing out.**
 
-The 720 is: stereo, one loop, unlimited overdubs, undo/redo, twelve minutes,
-one LED. Beating it means:
+That changes what matters. Nothing is timing-critical in the way a stage
+demands: a missed Multiply costs a retake, not a song. What matters instead is
+everything the first draft treated as upside — layers that stay separable,
+provenance, re-render, export, and the ability to reach in afterwards and change
+what you did.
+
+So the reference moves from the 720 to the **1440**, and past it. What the 1440
+adds over the 720 is *multiple stored loops rather than one*, and that — plus
+per-layer control — is the shape of the thing.
+
+The 720 is: stereo, one loop, unlimited overdubs, undo/redo, twelve minutes, one
+LED. Beating it still means everything the first draft listed:
 
 - a master cycle, so parallel loops can be locked to each other
 - multipliers — record two bars, then a few taps later be recording eight with
@@ -25,18 +43,71 @@ one LED. Beating it means:
   win is
 
 The precedent is Hedra and the Chase Bliss pedals in this app: the improvement
-did not come from adding features, it came from showing resolved musical
-meaning instead of raw control positions. A looper is a stronger candidate for
-that treatment than a pedal is, because a looper's state is *entirely* hidden.
+did not come from adding features, it came from showing resolved musical meaning
+instead of raw control positions. A looper is a stronger candidate for that
+treatment than a pedal is, because a looper's state is *entirely* hidden.
+
+**What the first draft got wrong:** it argued against a Loopy Pro clone. The
+reduction was right at the time, but the destination is closer to Loopy than
+that framing allowed — per-layer on/off, sequences of loops, a page you can
+really go to town on. The distinction that survives is *where the depth lives*:
+a simple pedal face on the board, and a dedicated page for the deep work.
 
 ---
 
-## 2. Prior art worth reading
+## 2. The load-bearing decision: Itajara is a pedal
+
+Everything else in this document is downstream of one choice.
+
+> **Itajara is an entry in the pedal registry**, with a MIDI channel, a CC map
+> and a layout — exactly like Habit or MOOD. The only thing that distinguishes
+> it is that its CCs are routed to a WebSocket rather than a MIDI port.
+
+That is a one-branch change in `SetValue`, and it buys the following for free,
+because the app already has the machinery:
+
+| Capability | Why it comes free |
+|---|---|
+| MC6 assignment to any switch, any bank, any combination | the assignment UI does not care what a CC talks to |
+| Robustness to physical reconfiguration | MC6 on the floor, FS3Xs on the floor, MC6 on the desk — all of it is just which switch sends which CC |
+| Board presets capture loop state | a board becomes "these pedals, this bypass state, **and** layer 3 muted" |
+| Twister control of loop levels | the Twister maps to CCs |
+| Any control assignable to any MC6 switch from the Controls page | that page indexes the whole registry, so Itajara joined it for free |
+
+**But not in the Overview grid.** Being a pedal in the *model* does not mean
+being a cell in the board view. The other twelve are settings you arrange and
+leave; the looper is a live surface you operate. It keeps its pill — clicking it
+opens the Looper page rather than selecting a cell — and its face renders there,
+beside the transport.
+
+That distinction is admittedly soft: MOOD, Habit and Onward are also live
+surfaces (§6). Which is an argument for **two board views eventually** — the
+loop-y things and the mod-y things — rather than for putting the looper back in
+the grid.
+
+**The routing detail that makes this work.** Every other pedal receives its CCs
+from the MC6 *directly over MIDI* — the app is not in that path. Itajara has no
+MIDI hardware, so its CCs must reach the app. Giving it a dedicated channel and
+relaying **any CC on that channel** to the socket is general, requires no table
+of gestures in `App.purs`, and means anything that can send MIDI — MC6, Twister,
+a keyboard — drives the looper without new code.
+
+Channels 2–8, 10–12, 14 and 15 are taken by the pedals; channel 1 is taken by
+the app's own MC6 board-recall relay. **Channels 9, 13 and 16 are free.** This
+document assumes **13**.
+
+This supersedes the first implementation, which special-cased four gesture CCs
+on channel 1 (`looperBaseCC`, `gestureFromCC`). That was a scaffold and should
+be removed.
+
+---
+
+## 3. Prior art worth reading
 
 **The Echoplex Digital Pro (Gibson/Oberheim, 1994–2000s).** Fifteen years of
-thought about exactly the multiplier gesture described above. `Multiply` is
-that gesture: press it during playback, play over four cycles, press again, and
-it rounds to the cycle boundary and hands back a four-times-longer loop with the
+thought about exactly the multiplier gesture described above. `Multiply` is that
+gesture: press it during playback, play over four cycles, press again, and it
+rounds to the cycle boundary and hands back a four-times-longer loop with the
 original inside. `Insert`, `Substitute`, `Replace`, `Undo` and the SUS
 (hold-for-momentary) variants complete a function set that has not really been
 improved on. Most Max for Live looping devices, and Mobius, are
@@ -57,7 +128,7 @@ choice, and on layered buffers it is cheap.
 
 ---
 
-## 3. The clock: the first loop defines the cycle
+## 4. The clock: the first loop defines the cycle
 
 The multiplier requirement implies bars, and bars imply a tempo — but a count-in
 before playing is exactly the friction the 720 does not have. The resolution:
@@ -79,7 +150,7 @@ only because the surrounding infrastructure already exists.
 
 ---
 
-## 4. Layers, never mixdown
+## 5. Layers, never mixdown — and stereo-capable, not stereo-mandatory
 
 Every overdub is a separate buffer, mixed at playback. Cheap loopers mix down
 because they have four megabytes of RAM; a Mac has no such excuse.
@@ -89,22 +160,44 @@ What this buys:
 - **unlimited undo**, free
 - muting or soloing one layer
 - half-speeding or reversing *one* layer while the rest plays forward
-- re-rendering a single layer (§6)
+- re-rendering a single layer (§8)
+- a **source per layer** (§7)
 
 It is also the principle already adopted in `Triggerfish.Clips`: **store
 everything, flatten late**. Consistency here is worth something — the same rule
 should hold across the rig.
 
+### Width is a projection, so it belongs at playback
+
+Layers are mostly stereo — ping-pong delays and the Lex's spaciousness are the
+point of the board, and flattening them would be vandalism. But **store each
+layer at its source's native width** and treat pan and width as *playback*
+properties rather than baking them in.
+
+That is not storage thrift. It is the thing a modern stereo pedalboard makes
+hard and this makes easy:
+
+> Record the dry mono guitar as a layer, place it hard left. Send that layer out
+> to the board, record the reverb return as a **separate** layer, place it hard
+> right. You have built the 1970s dry-one-side / wet-the-other production trick
+> out of a stereo pedalboard — because the placement happens in the looper
+> rather than in the signal chain.
+
+Which promotes re-amping (§7) from an occasional workaround to *the mechanism*
+for a sound that is otherwise unavailable on this rig.
+
+It also stays honest to "flatten late": width is a projection, and projections
+belong at the end.
+
 Cost: eight bars of stereo float32 at 48k and 120bpm is about 6 MB per layer.
-Irrelevant.
+See §15 for what happens when loops get long.
 
 ---
 
-## 5. Always be recording
+## 6. Always be recording
 
-Keep a rolling pre-roll ring buffer. Sixty seconds of stereo float32 is ~23 MB —
-nothing on a Mac, impossible on a pedal. Two things fall out, and the second is
-the best single idea in this document.
+Keep a rolling pre-roll ring buffer. Two things fall out, and the second was the
+best single idea in the first draft.
 
 **Backward quantisation.** A late tap can be snapped to the beat *behind* it, so
 the loop starts on the beat with the attack intact rather than clipped. This
@@ -115,9 +208,115 @@ it afterwards and take the last eight bars. No pedal can do this. It is the
 feature most likely to change how the thing gets used, and it is nearly free
 once the ring buffer exists.
 
+### The ring should capture every input, not one
+
+Now that the source matrix exists (§7), the ring buffer should hold **all eight
+input channels**, not the selected one. Then:
+
+> **Take can choose its source retroactively.** You play a pass with the board
+> and the iPad synth both live; afterwards you decide you want the synth take —
+> or both, as two layers.
+
+That is the same "decide later" move as Habit and MOOD, extended across *sources*
+instead of only across time. Sixty seconds of eight channels at float32 is about
+92 MB. Nothing.
+
+### The family this belongs to
+
+Itajara is not a new kind of device on this board. It is the fourth member of a
+family that is already there, and the resemblance is structural rather than
+poetic — all four are **always recording, and let you decide afterwards**:
+
+| | timescale | the gesture |
+|---|---|---|
+| Onward | fragments | grab and mangle what just passed |
+| MOOD | a few seconds | the micro-looper is always capturing |
+| Habit | ~30 seconds | scan back into the collector |
+| **Itajara** | minutes, layered | Take, from the pre-roll ring |
+
+Itajara's pre-roll *is* MOOD's left side, at a longer timescale. Which suggests
+an organising principle for the page: **a common time axis**, with all four laid
+out by how far back each can reach. That is a real fact about this board that no
+manufacturer's UI could show, and it is the Hedra move applied to time instead
+of pitch.
+
 ---
 
-## 6. What a layer is: provenance
+## 7. The source matrix
+
+The AUDIO4c is not just how audio arrives; it is part of the instrument. The
+daemon can see **eight input channels**:
+
+| Host channels | Source |
+|---|---|
+| 0–3 | the four physical jacks |
+| 4–7 | the second-host path — **the iPad's output, with no cabling** |
+
+Measured; see §11. The consequence worth stating plainly: **MIDI Guitar on the
+iPad driving softsynths arrives as a normal input.** No re-patching to switch
+between "record the board" and "record the synth".
+
+### Source is a per-layer property
+
+Chosen at record time, stored with the layer:
+
+- layer 1: the pedalboard, stereo
+- layer 2: the iPad synth, stereo
+- layer 3: the dry DI, mono, placed left
+
+Stacked in one loop, separable forever. That is what "never mixdown" was already
+promising; the interface gave it teeth. **"Both" becomes a third answer** to
+"which thing is looping" — two layers laid down in one pass from different
+sources.
+
+### The send, and what it makes possible
+
+A **pre-fader, pre-mute** send: the tap is a layer's raw samples, before level,
+mute and pan. Pre is not a detail — it is what makes the workflow work:
+
+1. record dry guitar → layer 3
+2. **mute layer 3** in the mix; you do not want to hear the dry
+3. send layer 3 out to the board (or the iPad), still at full level
+4. record the return as layer 4, place it where you like
+
+Post-fader would have made step 2 kill step 3.
+
+Three uses, and the second and third were not in the first draft at all:
+
+**Re-amping.** Above. The mechanism for §5's stereo trick.
+
+**The pedalboard as outboard FX for the iPad**, with no guitar involved. Send an
+iPad synth layer out through the board and record what comes back. The board
+stops being an input chain and becomes a processor the looper can address.
+
+**The pedalboard as outboard FX for the modular**, via the Instruō Larchd and
+Cuir for level interfacing. Same mechanism, different patient.
+
+Generalising: once there is a send and a source matrix, **the looper is a
+patchbay with memory**. That is a materially bigger idea than "a looper", and it
+is the one that justifies the dedicated page.
+
+### Splitting the guitar
+
+Split at the **very front** — pitch detection collapses on anything reverbed or
+pitch-shifted, so the tracking feed must be pre-pedals.
+
+```
+             ┌─▶ Audio4c in 1 ──USB──▶ iPad ──▶ MIDI Guitar ──▶ softsynths
+  guitar ────┤                            │                          │
+             │                            └──── CoreMIDI ──┐    USB audio
+             └─▶ pedalboard ──stereo──▶ Audio4c in 3/4      │         │
+                                                            ▼         ▼
+                                           Mac: looper daemon ◀───────┘
+```
+
+The iPad leg is configuration rather than cables, since inter-host routing is
+the unit's entire reason to exist. Note that **capture needed no Auracle
+configuration at all**; the send direction does. See §16.
+
+---
+
+## 8. What a layer is: provenance
 
 The intended workflow is guitar → MIDI Guitar on the iPad → softsynths on the
 iPad → audio back to the Mac. So **the primary artefact is audio**, with MIDI
@@ -129,8 +328,11 @@ layer**:
 | Field | Presence |
 |---|---|
 | audio buffer | always |
+| native width | always |
+| source (which input, §7) | always |
 | source `MidiClip` | when the layer came from MIDI-triggered synths |
 | believed board state | when the layer came through the pedals |
+| send lineage | when the layer is a re-amped return of another layer |
 
 One self-describing unit. Every layer knows how it was made.
 
@@ -154,9 +356,13 @@ Repeater never had.
 
 The constraint: the synth is on the iPad and runs in real time, so **a re-render
 costs exactly one loop length**. Eight bars is eight bars. That is acceptable —
-it just makes re-render a deliberate action with a progress state ("re-rendering,
-6.2s") rather than an instant undo, and it means several layers should be
-queueable as a batch.
+it just makes re-render a deliberate action with a progress state
+("re-rendering, 6.2s") rather than an instant undo, and it means several layers
+should be queueable as a batch.
+
+Note that **re-render and re-amp are the same machinery** pointed at different
+things: send something out, record what comes back, replace or add a layer. They
+should share an implementation.
 
 ### The board state is provenance too
 
@@ -178,7 +384,7 @@ preclude it.
 
 ---
 
-## 7. Where it runs
+## 9. Where it runs
 
 **Not in the browser.** Chrome's `getUserMedia` gives one device with ambiguous
 channel mapping and AGC to fight, multi-channel input is unreliable, and a GC
@@ -190,40 +396,20 @@ PureScript app as its UI over WebSocket.**
 
 | Owner | Responsibility |
 |---|---|
-| daemon | buffers, sample clock, latency compensation, the ring buffer, playback |
+| daemon | buffers, sample clock, latency compensation, the ring buffer, playback, the send |
 | app | UX, MC6 mapping, provenance, the store |
 
 Consequences worth having: the loop survives the browser being closed, the MC6
 can drive the daemon with the app absent, and the daemon can speak to
-`link-spike` directly for the clock-master role in §3.
+`link-spike` directly for the clock-master role in §4.
+
+**The daemon opens no MIDI port, by design.** The app is the MIDI hub, so
+exactly one process talks to the MC6 and exactly one place decides what a press
+means. §2's channel-13 relay is how looper CCs get from there to here.
 
 ---
 
-## 8. Signal flow
-
-Split the guitar at the **very front** — pitch detection collapses on anything
-reverbed or pitch-shifted, so the tracking feed must be pre-pedals.
-
-```
-             ┌─▶ Audio4c in 1 ──USB──▶ iPad ──▶ MIDI Guitar ──▶ softsynths
-  guitar ────┤                            │                          │
-             │                            └──── CoreMIDI ──┐    USB audio
-             └─▶ pedalboard ──stereo──▶ Audio4c in 3/4      │         │
-                                                            ▼         ▼
-                                           Mac: looper daemon ◀───────┘
-```
-
-The Audio4c has two USB-C host ports and inter-host routing is its entire reason
-to exist, so the iPad leg should be configuration (iConfig/Auracle) rather than
-cables. Four inputs covers this with one spare.
-
-**Note that the synth path does not go through the pedals at all.** The looper is
-therefore capturing two quite different sources, which forces a decision the UI
-must expose: does a layer record *a source* or *the mix*? (§12.)
-
----
-
-## 9. Don't buy MIDI Guitar for the Mac
+## 10. Don't buy MIDI Guitar for the Mac
 
 Not for this rig. If the softsynths live on the iPad, tracking belongs on the
 iPad too — shortest path, and the licence is already owned. Moving tracking to
@@ -243,7 +429,7 @@ would only be needed for whichever sounds get re-rendered most.
 
 ---
 
-## 10. Latency, and what has to be measured
+## 11. Latency, and what has to be measured
 
 Three separate numbers, none of which should be guessed:
 
@@ -322,8 +508,9 @@ every overdub** if uncompensated. This is the one that ruins a looper.
 > The residue is small and specific: a pedal with no analogue dry path (an amp
 > modeller, say) engaged for one layer and bypassed for another puts those two
 > layers a few milliseconds apart. Worth knowing as a number; not worth
-> compensating, and arguably part of the sound. So it does **not** need to enter
-> the belief model, which is what an earlier draft of this section claimed.
+> compensating, and arguably part of the sound.
+>
+> **This cancellation argument does not survive the send (§7).** See §20.
 
 **The self-test this affords.** Because the correction is exact, the engine has
 a check it can run on itself: record a loopback click against a playing loop and
@@ -349,7 +536,7 @@ The first implementation converted each input buffer's capture timestamp into a
 loop position using the host clock, and its alignment error tracked that column
 exactly. A three-minute loop would have ended up 135 samples out; an hour's
 session, 2700. Nothing about it announces itself — it is precisely the failure
-mode described at the top of §10, arriving by a route that had not occurred to
+mode described at the top of §11, arriving by a route that had not occurred to
 me.
 
 **The rule that follows: no host-clock arithmetic survives past startup.** Both
@@ -372,13 +559,13 @@ drift over the same runs grew to −37. The engine now measures that drift and
 ignores it, which is the correct relationship to have with it.
 
 This generalises past the looper. Anything correlating captured audio with
-played audio — the MIDI provenance of §6, the re-render alignment, any future
+played audio — the MIDI provenance of §8, the re-render alignment, any future
 conformance test — must pair frame counters rather than timestamps.
 
-**Pitch-detection latency.** Roughly 10–20 ms up high, worse on the low E.
-Notes have timestamps, so unlike audio this is fully fixable after the fact:
-shift the capture backwards by the measured offset and it lands where it was
-actually played. Possibly worth measuring per string range.
+**Pitch-detection latency.** Roughly 10–20 ms up high, worse on the low E. Notes
+have timestamps, so unlike audio this is fully fixable after the fact: shift the
+capture backwards by the measured offset and it lands where it was actually
+played. Possibly worth measuring per string range.
 
 **Synth-return offset.** The MIDI copy reaches the Mac *ahead* of the audio it
 produced, by the synth's rendering latency plus the return trip — and USB MIDI
@@ -392,37 +579,107 @@ machinery is for.
 
 ---
 
-## 11. The MC6 surface, and the UX thesis
+## 12. The control surface
 
-The defect in every looper, the 720 included, is that **one switch means four
-things depending on invisible state**, so you press and hope.
+Channel 13. Momentary means 127 acts and 0 is ignored, so a footswitch's release
+message is harmless.
 
-The thesis: **the app always shows what each switch will do right now, and when
-it will take effect.**
+### Transport
 
-> `SW2  Multiply → ends at cycle 4, in 2.1 s`
+| CC | Control | Type |
+|---|---|---|
+| 1 | Record / Overdub | momentary |
+| 2 | Multiply | momentary |
+| 3 | Undo | momentary |
+| 4 | Redo | momentary |
+| 5 | Take | momentary |
+| 6 | Clear | momentary |
+| 7 | Play / Stop | momentary |
+| 8 | Reverse — all | toggle |
+| 9 | Half speed — all | toggle |
 
-That is the Hedra move again — stop showing controls, show the resolved
-consequence. It is also why the looper wants the app even though the daemon can
-run without it.
+### Source and routing
 
-Provisional switch set for one MC6 bank (six switches plus three combinations,
-sixteen messages — see `DESIGN-v2` §5):
+| CC | Control | Type |
+|---|---|---|
+| 20 | Record source | segmented — board L/R, jacks 1–4 mono, iPad L/R, multi |
+| 21 | Record width | toggle mono / stereo |
+| 22 | Monitor source | segmented |
+| 23 | Monitor level | continuous |
+| 24 | Send destination | segmented — output pair |
+| 25 | Send source | segmented — layer / loop / live |
 
-| Switch | Function |
-|---|---|
-| 1 | Record / Overdub — context-dependent, and *labelled* with its current meaning |
-| 2 | Multiply |
-| 3 | Undo (layer) |
-| 4 | Loop select |
-| 5 | Stop / Clear (long-press) |
-| 6 | Reverse / half-speed |
+### Layers
 
-Comfortably inside the message budget.
+Direct banks for the performative controls; everything less frequent hangs off
+the selected-layer pointer, which is also the "step through the stack" gesture.
+
+| CC | Control | Type |
+|---|---|---|
+| 40–47 | Layer 1–8 mute | toggle |
+| 48–55 | Layer 1–8 level | continuous |
+| 60 | Selected layer | continuous 0–7 |
+| 61 / 62 | Layer next / previous | momentary |
+| 63 | Solo selected | toggle |
+| 64 | Selected layer — source | segmented |
+| 65 | Selected layer — pan | continuous |
+| 66 | Selected layer — width | continuous |
+| 67 | Selected layer — reverse | toggle |
+| 68 | Selected layer — half speed | toggle |
+
+Per-layer reverse and speed are nearly free given layers never mix down, and far
+more musical than the global versions — reverse the pad, keep the rhythm
+forward. 8 and 9 stay as masters; 67 and 68 are the ones that will get used.
+
+### Loops — reserved, see §17
+
+| CC | Control | Type |
+|---|---|---|
+| 70 | Loop select | continuous |
+| 71 / 72 | Loop next / previous | momentary |
+| 73 / 74 | Loop save / load | momentary |
+
+### Global
+
+| CC | Control | Type |
+|---|---|---|
+| 80 | Loop level | continuous |
+| 81 | Click | toggle |
+| 82 | Click level | continuous |
+| 83 | Input monitor | toggle |
+
+The segmented controls map directly onto the existing `SegmentedKnob` in the
+layout DSL, so the board-view face comes almost free.
 
 ---
 
-## 12. Display
+## 13. The foot
+
+The first draft designed a switch layout around performance constraints —
+bank-independence, no long-press on timing-critical switches. **Those were
+answers to a problem that does not exist here.** For recording, a bank change
+before Multiply costs a retake.
+
+What replaces it is simply: **assign from §12 as you please, and change your
+mind often.** That is the whole point of §2.
+
+The physical facts, for reference:
+
+| Bank preset index | Switch |
+|---|---|
+| 0–5 | MC6 onboard A–F |
+| 6–8 | first FS3X, G/H/I |
+| 9–11 | second FS3X, J/K/L — not yet fitted |
+
+So an MC6 MKII bank's twelve presets are **exactly** the maximum physical switch
+count: six onboard plus two three-button aux pedals. Nine available today.
+
+An earlier note in this repo described indices 6–11 as dual-press combinations.
+That is wrong and should not be relied on.
+
+---
+
+## 14. Display
 
 Two views, both wanted, neither sufficient alone:
 
@@ -431,65 +688,157 @@ containing four sectors of the two-bar ring makes the multiplier relationship
 *structural* rather than a number in a box. This is the view that answers "where
 are we and when does the next thing happen".
 
-**Per-track columns**, Repeater-style — every layer's state visible
-simultaneously, level, source, length multiple, reverse/speed, mute. This is the
-view that answers "what have I got".
+**Per-layer columns**, Repeater-style — every layer's state visible
+simultaneously: level, source, pan, length multiple, reverse/speed, mute, and
+its provenance. This is the view that answers "what have I got", and with §7 it
+answers "and where did it come from".
+
+Also wanted, and learned the hard way on 2026-08-15: **a live map of the switches
+as they sit under your foot**, showing what each does right now and lighting up
+on receipt. An afternoon went into being unable to distinguish "the stomp did
+not arrive" from "the stomp arrived and the daemon ignored it". The map makes
+the MIDI path self-evident, and it is the same idea as the pedal donuts — the
+screen shows what your feet are about to do.
 
 `Foreign/ClipDiagram.js` is a clip visualisation currently in LoopyPro's service
-and is probably reusable for one or both.
+and is probably reusable for one or both of the first two.
 
 ---
 
-## 13. Minimum viable
+## 15. Memory and limits
 
-Ordered so that each stage is usable on its own:
+**There has to be *an* upper limit**, because the audio callback must not
+allocate — that is why the arena is pre-allocated at startup. But the limit can
+be enormous; RAM is the only real constraint.
 
-1. **Daemon + one loop.** Record, play, overdub as layers, undo. Beats nothing.
-2. **Ring buffer.** Backward quantisation and retroactive capture. Beats the 720.
-3. **Master cycle + Multiply.** Parallel loops locked to the first. Beats most
-   pedals.
-4. **Reverse, half-speed, decoupled time/pitch.**
-5. **Link publish** — the looper as clock master.
-6. **MIDI provenance + re-render.**
-7. **Board-state provenance.**
+Stereo float32 at 48 kHz is 384 KB per second per layer:
 
-Stages 1–3 are the project. Everything after is upside.
+| loop length | 8 stereo layers |
+|---|---|
+| 30 s (current) | 92 MB |
+| 2 min | 368 MB |
+| 5 min | 920 MB |
+| 10 min | 1.8 GB |
+
+The current 30 s is a loop-pedal figure inherited from the proof of concept. For
+recording, minutes is the right order — **5 minutes is a good default** and it is
+a startup flag, so it costs nothing to choose deliberately.
+
+Genuinely unbounded means one of two things, both deferrable:
+
+- **growing the arena off the audio thread**, with the callback only ever reading
+  a pointer — doable, but a glitch risk at the boundary for little gain
+- **streaming layers to disk**, keeping a memory window
+
+Disk streaming is the honest answer for **loop slots** (§17), where total memory
+is `loops × layers × length` and does explode. Layers-to-disk-as-WAVs is wanted
+anyway as the export path, so the two should be designed together.
 
 ---
 
-## 14. Open questions
+## 16. Controlling the interface itself
 
-1. **Parallel loops: slaved or independent?** Slaved (loop B is 1×, 2× or 4× of
+If the AUDIO4c's routing matrix can be driven programmatically, then **the
+interface becomes a pedal too** — and its routing joins a board preset. Recall a
+board and the I/O reconfigures with it. That is a substantial idea, and entirely
+consistent with everything above.
+
+There is strong precedent in this ecosystem: `es9-config` and `fh2-config` are
+exactly this — typed models of a device's SysEx configuration protocol, with
+round-trip parse/print and live read/write. The pattern is proven twice.
+
+Order of attack, cheapest first:
+
+1. **Check for published documentation.** iConnectivity has historically been
+   more developer-friendly than most; worth ten minutes before reaching for a
+   sniffer.
+2. **Look inside AuracleX.** If it is Electron, the protocol is readable
+   JavaScript and this is an afternoon rather than a project. `ES-config-electron`
+   in `archived/` was exactly this situation.
+3. **Snoop the wire.** USB MIDI SysEx between the app and the device, diffed
+   against deliberate single-parameter changes.
+
+What would make it worth doing: the send in §7 needs inter-host routing
+configured, and that is the one thing on this interface that Auracle currently
+has to do by hand. Automating the thing that is otherwise a manual step before
+every session is the practical payoff; board-recall routing is the interesting
+one.
+
+---
+
+## 17. Staging
+
+Stages 1–3 are **done** (2026-08-14). Ordered so each is usable on its own:
+
+1. ~~**Daemon + one loop.** Record, play, overdub as layers, undo.~~ Done.
+2. ~~**Ring buffer.** Backward quantisation and retroactive capture.~~ Done.
+3. ~~**Master cycle + Multiply.**~~ Done.
+4. ~~**Itajara as a registry entry** — the CC map of §12, the channel-13 relay,
+   a pedal face.~~ Done 2026-08-15. 48 controls on channel 13, of which the
+   daemon implements 8; the rest report themselves as missing by name. The face
+   lives on the Looper page rather than in the Overview grid, and the Controls
+   page can already assign any of it to any switch.
+5. **Per-layer mute and level** in the output sum. The dedicated page's reason
+   to exist.
+6. **All eight input channels captured; source per layer.** §7.
+7. **Per-layer pan and width**, stored native. §5.
+8. **The send** — and with it re-amping, the board as outboard FX, and the
+   self-calibration of §20.
+9. **Export** — layers to disk as WAVs plus a manifest. The route into Ableton,
+   and the precondition for loop slots.
+10. **Reverse, half-speed, decoupled time/pitch**, global and per-layer.
+11. **Loop slots and sequences.** The 1440's move beyond the 720. Needs §15's
+    storage model.
+12. **Link publish** — the looper as clock master.
+13. **MIDI provenance + re-render** — shares machinery with the send.
+14. **Board-state provenance.**
+
+---
+
+## 18. Open questions
+
+Several from the first draft are now answered and recorded here rather than
+deleted, since the reasoning matters.
+
+1. ~~**Does a layer record a source, or the mix?**~~ **A source**, stored per
+   layer, chosen at record time — and retroactively choosable from the ring
+   (§6, §7).
+2. ~~**Stereo or mono layers?**~~ **Stereo-capable, not stereo-mandatory**:
+   native width stored, pan and width applied at playback (§5).
+3. ~~**Send pre or post?**~~ **Pre-fader and pre-mute**, so a layer can be
+   silent locally and still feed the send (§7).
+4. **Parallel loops: slaved or independent?** Slaved (loop B is 1×, 2× or 4× of
    loop A, phase-locked) is simpler, matches the multiplier gesture, and
-   preserves the derived clock. Independent (Loopy Pro) is more expressive,
-   much harder, and quietly discards §3. **Recommendation: slaved.**
-2. **Does a layer record a source, or the mix?** §8 — the synth path and the
-   pedal path are different signals and both are wanted.
-3. **What is the Undo granularity?** Whole layer, or the EDP's "long undo" that
-   can retract part of a pass?
-4. **Does the daemon need to run without the app at all**, or is app-present the
-   assumed case? Affects how much state lives where.
-5. **Loop storage.** Layers to disk as WAVs plus a manifest, into `pwyf-store`?
-   That would also be the cleanest route into Ableton, and would make BlackHole
-   unnecessary.
+   preserves the derived clock. Independent (Loopy Pro) is more expressive, much
+   harder, and quietly discards §4. **Recommendation: slaved.**
+5. **What is the Undo granularity?** Whole layer, or the EDP's "long undo" that
+   can retract part of a pass? Note that `undo` currently *zeroes* the layer, so
+   **Redo (CC 4) requires changing that first** — the layer must be unlinked and
+   kept, not wiped.
+6. **Does the daemon need to run without the app at all**, or is app-present the
+   assumed case? §2 pushes toward app-present, since the CC surface is relayed
+   by the app.
+7. **Loop storage format.** WAVs plus a manifest, into `pwyf-store`? That is
+   also the cleanest route into Ableton, and would make BlackHole unnecessary.
 
 ---
 
-## 15. To verify before designing further
+## 19. To verify
 
 - **Does MIDI Guitar on iOS publish notes to CoreMIDI** as well as to its
-  internal synth? The whole provenance idea in §6 rests on it.
+  internal synth? The whole provenance idea in §8 rests on it.
 - **Can the Audio4c routing matrix** carry the dry guitar to the iPad host and
   the synth audio back to the Mac host simultaneously? Two-host routing is the
   unit's purpose, so this should be configuration — but prove it early rather
-  than discover a limitation late.
+  than discover a limitation late. §16 may make it programmable.
 - ~~**Measure the audio round trip** before writing any overdub code.~~ Done
   2026-08-14 — and it taught us the number is session state rather than a
-  constant, which is the more useful result. §10.
+  constant, which is the more useful result. §11.
 - **Calibrate at startup, or verify what is stored.** Follows from the above and
-  is not optional. The self-test in §10 is the same mechanism, so this costs
-  little beyond what is already wanted.
-- **The pedalboard path — deferred, see below.**
+  is not optional. The self-test in §11 is the same mechanism, so this costs
+  little beyond what is already wanted. The daemon currently takes
+  `--residual 252` **on trust**, which is exactly the stale-calibration hazard
+  §11 warns about.
 - **The Audio4c channel map**, measured 2026-08-14 with `itajara map`:
 
   | input jack | host channel | click level | transit |
@@ -510,8 +859,9 @@ Stages 1–3 are the project. Everything after is upside.
   noted only so a later reading of these levels is not mistaken for a fault.
 
   Channels 4–7 read as hard digital zero with no iPad attached: the second-host
-  path, and where the synth audio of §6 will arrive. Output jack 1 is host
-  channel 0; outputs 2–4 are untested but presumably identity by symmetry.
+  path, and where the synth audio of §7 will arrive. Output jack 1 is host
+  channel 0; outputs 2–4 are untested but presumably identity by symmetry —
+  **and the send needs them, so test them.**
 
   No Auracle configuration was needed for capture; only the inter-host routing
   will need it.
@@ -521,35 +871,43 @@ Stages 1–3 are the project. Everything after is upside.
 
 ---
 
-## 16. Deferred: the pedalboard path
+## 20. The pedalboard path — un-deferred by the send
 
-**Parked 2026-08-14, deliberately.** Per §10 the board's contribution largely
-cancels, so this run confirms an assumption rather than supplying a number
-anything depends on. Nothing downstream is blocked on it, and the alignment
-self-test already proved the part that is. Revisit once there is a looper to
-record through — the answer is more interesting when it can be heard.
+**Parked 2026-08-14**, on the argument in §11 that constant pedal latency
+cancels between layers. That argument was correct for the case it addressed and
+**does not survive the send**.
 
-The whole procedure, so picking it up costs nothing:
+> When a layer goes out through the board and its return is recorded as a new
+> layer, the board's round trip lands *inside* the recorded audio. There is no
+> second layer carrying the same offset to cancel against — the re-amped layer
+> is late against the original by exactly the board's transit. So the number
+> stops being a curiosity and becomes a correction the engine has to apply.
+
+**The good news is that it stops being a manual measurement session.** Because
+the looper owns both ends of that path, it can calibrate it itself, with
+machinery that already exists in `measure.rs`: send an impulse out of the chosen
+output pair, record the return, correlate, store the constant.
+
+So this becomes a button — **Calibrate send loop** — run per output pair,
+re-run whenever the board changes. Which is a much better resting place than a
+procedure in a document, and it is the same design principle as §11: measure the
+configuration you are actually in rather than trusting a stored number.
+
+The manual procedure, kept for the first run and for diagnosing a surprise:
 
 1. Patch AUDIO4c **output 1** → pedalboard in; pedalboard out **L → input jack
    1**, **R → input jack 2**. Everything on the board **bypassed**.
 2. **Check levels first.** The Audio4c's output is line level, roughly 20 dB
    hotter than the instrument level the pedals expect, so start quiet:
-   `itajara levels --device AUDIO4c --seconds 20`, playing guitar through
-   the board to see where the peaks sit.
-3. `itajara sweep --device AUDIO4c --amp 0.05`, raising `--amp` only if
-   nothing answers.
+   `itajara levels --device AUDIO4c --seconds 20`.
+3. `itajara sweep --device AUDIO4c --amp 0.05`, raising `--amp` only if nothing
+   answers.
 
-**Reading it.** A residual at ≈252 means the board adds nothing to the dry path
-and the question is closed. Meaningfully larger means something in the chain
-converts even when bypassed — a buffered bypass with an A/D in it would not be
-visible any other way, and that is the one genuine discovery available here.
+**Reading it.** A residual at ≈252 means the board adds nothing to the dry path.
+Meaningfully larger means something in the chain converts even when bypassed — a
+buffered bypass with an A/D in it would not be visible any other way, and that is
+the one genuine discovery available here.
 
-**Optional second run.** Repeat with an amp modeller engaged, which by
-definition has no analogue dry path. The difference is that pedal's conversion
-latency, and the worst case for changing board state part-way through a stack of
-layers. Interesting; not actionable.
-
-**What would un-defer this.** Layers that audibly disagree when recorded through
-different board states, or any plan to compensate per-layer rather than
-uniformly.
+**Second run, now worth doing:** repeat with each wet pedal engaged. Under the
+send, "what does this pedal cost in samples" is no longer academic — it is the
+per-destination constant for re-amping through that pedal.

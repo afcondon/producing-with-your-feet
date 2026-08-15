@@ -18,10 +18,10 @@ import Prelude
 import Config.Registry (PedalRegistry)
 import Config.Registry as CRegistry
 import Config.Types (MidiRouting)
-import Data.Array as Array
 import Data.MC6.ControlBank (ControlBank, exampleControlBank)
 import Data.MC6.Types (MC6NativeBank)
 import Data.Map (Map)
+import Halogen as H
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Foreign.LooperSocket (LooperState, SocketStatus)
@@ -57,6 +57,12 @@ type MidiConnections =
   , mc6OutputId :: Maybe String
   , availableOutputs :: Array MidiPort
   , availableInputs :: Array MidiPort
+  -- | Live subscriptions to the two inputs, so re-opening a port that came back
+  -- | can tear down the old one first. Without this a reconnect would leave the
+  -- | previous subscription in place and every footswitch press would arrive
+  -- | twice — which for a looper means record-then-immediately-close.
+  , mc6InputSub :: Maybe H.SubscriptionId
+  , twisterInputSub :: Maybe H.SubscriptionId
   }
 
 type MC6Assignment =
@@ -90,8 +96,11 @@ type AppState =
   -- what the daemon last reported; it never models the engine itself.
   , looper :: Maybe LooperState
   , looperStatus :: SocketStatus
-  -- CC on the MC6 channel that the footswitch relay maps to a record toggle.
-  , looperToggleCC :: Int
+  -- MC6 bank the generated looper transport is written to. Itajara's CCs are
+  -- fixed by its pedal definition, so there is no base-CC to configure.
+  , mc6LooperBankNum :: Int
+  -- Result of the last looper-bank programming run, shown on the Looper page.
+  , looperProgramStatus :: Maybe String
   , midiTest :: Maybe String
   -- Manual CC test on the MIDI page: channel and CC to poke at the rig.
   , testCh :: Int
@@ -141,6 +150,8 @@ initAppState =
       , mc6OutputId: Nothing
       , availableOutputs: []
       , availableInputs: []
+      , mc6InputSub: Nothing
+      , twisterInputSub: Nothing
       }
   , cardOrder: []
   , hiddenPedals: []
@@ -158,7 +169,8 @@ initAppState =
   , activeControlBankIdx: Just 0
   , looper: Nothing
   , looperStatus: { connected: false, everConnected: false, lastError: "", url: "" }
-  , looperToggleCC: 20
+  , mc6LooperBankNum: 21
+  , looperProgramStatus: Nothing
   , midiTest: Nothing
   , testCh: 3
   , testCC: 1

@@ -772,7 +772,16 @@ handleAction = case _ of
     st <- H.get
     if Array.length input.controlBanks /= Array.length st.input.controlBanks
       then H.put (initialState input)
-      else H.modify_ _ { input = input }
+      else do
+        H.modify_ _ { input = input }
+        -- The CC index is built from the registry at mount. The registry
+        -- arrives asynchronously and can grow — a pedal added to `rig.json`
+        -- would otherwise be missing from the browser until a reload, which
+        -- reads as "that pedal can't be assigned" rather than "the index is
+        -- stale". Cheap to rebuild, and only when the count actually moved.
+        when (Array.length (CRegistry.registryPedals input.registry)
+                /= Array.length (CRegistry.registryPedals st.input.registry)) $
+          H.modify_ _ { ccIndex = buildCCIndex input.registry }
 
   SelectBank idx -> do
     -- Save pending bank property edits first

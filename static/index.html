@@ -1612,9 +1612,12 @@ body {
 
 /* --- Looper --- */
 
+/* Was 720px, from when this page was a single narrow column of readouts. The
+   pedal face needs its own half, but not the whole of a 2000px monitor —
+   knobs stretched across a metre are no easier to read than knobs that fit. */
 .looper-view {
   padding: 24px 32px;
-  max-width: 720px;
+  max-width: 1180px;
 }
 
 .looper-view h2 {
@@ -1699,6 +1702,63 @@ body {
   font-size: 12px;
   color: var(--fg-muted);
   margin-left: auto;
+}
+
+/* Transport and readout on the left, the pedal face on the right — the looper
+   is a live surface, so the two things you look at while playing sit side by
+   side rather than one scrolled off the bottom. */
+/* Readouts left, pedal right. The left column is capped — the state table and
+   the bank listing are narrow by nature — so the surplus goes to the face,
+   which is the thing you actually operate. */
+.looper-columns {
+  display: grid;
+  grid-template-columns: minmax(300px, 380px) minmax(360px, 1fr);
+  gap: 40px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .looper-columns { grid-template-columns: 1fr; }
+  .looper-right { position: static; }
+}
+
+.looper-right {
+  position: sticky;
+  top: 16px;
+}
+
+/* The pedal view brings its own centring and its own escape hatch. Here the
+   page is the destination, so the container should not add another inset and
+   "Back to Grid" has nothing to go back from. `display: none` rather than
+   `visibility` so it leaves the tab order too. */
+.looper-right .pedal-view-container { padding: 0; }
+.looper-right .pedal-view-back { display: none; }
+
+/* The MC6 starter bank, and the button that writes it. Sits below the
+   transport because you program it once and then rarely look again. */
+.looper-footswitch {
+  margin-top: 28px;
+  padding: 16px;
+  background: var(--bg-section);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  max-width: 640px;
+}
+
+.looper-footswitch h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.looper-footswitch .docs-table {
+  margin: 12px 0 16px;
+}
+
+.looper-muted {
+  font-size: 12px;
+  color: var(--fg-muted);
+  margin: 0 0 4px;
+  line-height: 1.5;
 }
 
 /* Where we are in the cycle. Crude beside the concentric rings the design

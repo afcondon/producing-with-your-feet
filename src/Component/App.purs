@@ -12,6 +12,7 @@ import Component.Header as Header
 import Data.Array as Array
 import Data.Argonaut.Core (stringify)
 import Data.Argonaut.Parser (jsonParser)
+import Data.Looper as Looper
 import Data.MC6.Backup as Backup
 import Data.MC6.ControlBank as ControlBank
 import Data.MC6.Diagnostics as Diagnostics
@@ -21,8 +22,8 @@ import Data.MC6.Types (MC6Message, MC6NativeBank, MC6Preset, MC6Action(..))
 import Data.Foldable (any, for_)
 import Data.Map as Map
 import Data.Int as Int
-import Data.Maybe (Maybe(..), fromMaybe)
-import Data.Midi (CC, MidiValue, ProgramNumber, makeCC, makeChannel, unCC, unChannel, unMidiValue, unProgramNumber, unsafeMidiValue)
+import Data.Maybe (Maybe(..), fromMaybe, isNothing)
+import Data.Midi (CC, MidiValue, ProgramNumber, makeCC, makeChannel, makeMidiValue, unCC, unChannel, unMidiValue, unProgramNumber, unsafeCC, unsafeMidiValue)
 import Data.Pedal (PedalDef, PedalId)
 import Pedals.Registry as PsRegistry
 import Data.Pedal.Engage (EngageConfig(..), EngageState(..), engageCCs)
@@ -40,7 +41,7 @@ import Effect.Exception as Exception
 import Config.Decode as Decode
 import Data.Either (Either(..))
 import Data.String.CodeUnits as SCU
-import Engine (AppState, MC6Assignment, View(..), initAppState, initEngineFromPedals)
+import Engine (AppState, EngineState, MC6Assignment, PedalState, View(..), initAppState, initEngineFromPedals)
 import Config.Preset as CPreset
 import Engine.Storage as Storage
 import Engine.Twister as Twister
@@ -67,12 +68,14 @@ data Action
   = Initialize
   | InitializeMIDI MidiRouting
   | RescanMIDI
+  | MidiPortChanged MIDI.PortChange
   | SelectMC6Output String
   | PingMC6
   | SetTestCh String
   | SetTestCC String
   | SendTestCC Int
   | ProgramBypassBanks
+  | ProgramLooperBank
   | SetView View
   | SetValue PedalId CC MidiValue
   | SendMomentary PedalId CC MidiValue
@@ -178,7 +181,10 @@ render state = case state.configError of
           HH.slot (Proxy :: _ "overview") unit OverviewView.component
             { engine: state.engine
             , registry: state.registry
-            , cardOrder: state.cardOrder
+            -- The Overview is the board: twelve pedals you set up and leave.
+            -- Itajara is a live surface rather than a set of settings, so it
+            -- keeps its pill but lives on its own page.
+            , cardOrder: Array.filter (not <<< Looper.isItajara) state.cardOrder
             , activePedal: state.overviewActivePedal
             }
             HandleOverview
@@ -329,12 +335,50 @@ renderLooperView state =
   HH.div [ HP.class_ (H.ClassName "looper-view") ]
     [ HH.h2_ [ HH.text "Looper" ]
     , connectionLine
-    , case state.looper of
-        Nothing -> HH.text ""
-        Just lp -> HH.div_ [ transport lp, readout lp ]
+    , audioLine
+    , HH.div [ HP.class_ (H.ClassName "looper-columns") ]
+        [ HH.div [ HP.class_ (H.ClassName "looper-left") ]
+            [ case state.looper of
+                Nothing -> HH.text ""
+                Just lp -> HH.div_ [ transport lp, readout lp ]
+            , footswitchCard
+            ]
+        -- The pedal face, on the page it belongs to rather than in the board
+        -- grid. Same component the board uses, so the knobs, the drag handling
+        -- and the value routing are the ones already in service elsewhere.
+        , HH.div [ HP.class_ (H.ClassName "looper-right") ]
+            [ HH.slot (Proxy :: _ "pedal") unit PedalView.component
+                { engine: state.engine
+                , pedalId: Looper.itajaraId
+                , registry: state.registry
+                }
+                HandlePedal
+            ]
+        ]
     ]
   where
   st = state.looperStatus
+
+  -- A connected socket says nothing about whether audio is running: the push
+  -- thread reads shared atomics and will serve a confident snapshot from an
+  -- engine whose device was unplugged. That failure cost an afternoon of
+  -- hunting a MIDI fault, so it gets its own line and says what to do.
+  audioLine = case state.looper of
+    Just lp | not lp.audioAlive ->
+      HH.p [ HP.class_ (H.ClassName "looper-conn down") ]
+        [ HH.text $
+            if lp.deviceLost
+              then "The daemon lost the audio device — reconnecting. Commands will not take effect until it is back."
+              else "The daemon is connected but its audio has stopped. Commands will not take effect."
+        ]
+    Just lp | lp.reopens > 0 ->
+      HH.p [ HP.class_ (H.ClassName "looper-muted") ]
+        [ HH.text $ "Audio device recovered "
+            <> show lp.reopens
+            <> (if lp.reopens == 1 then " time" else " times")
+            <> " this session."
+        ]
+    _ -> HH.text ""
 
   connectionLine =
     HH.p [ HP.class_ (H.ClassName ("looper-conn" <> if st.connected then " ok" else " down")) ]
@@ -344,32 +388,34 @@ renderLooperView state =
           else "No daemon. Start it with:  itajara loop --device AUDIO4c --ws"
       ]
 
-  -- The one button, and it is the fundamental looper gesture: the first press
-  -- sets the cycle, every later one overdubs. What it will do next depends on
-  -- state you cannot otherwise see, so it says so on its face.
+  -- Every button here goes through `SetValue` on the Itajara pedal — the same
+  -- path a footswitch or a Twister encoder takes. There is deliberately no
+  -- shortcut to the socket from the UI: one route in means one place to debug.
   transport lp =
     HH.div [ HP.class_ (H.ClassName "looper-transport") ]
-      [ HH.button
-          [ HP.class_ (H.ClassName ("looper-btn" <> if lp.recording then " recording" else ""))
-          , HP.disabled (not st.connected)
-          , HE.onClick \_ -> LooperCommand "r"
-          ]
-          [ HH.text (nextPress lp) ]
-      , HH.button
-          [ HP.class_ (H.ClassName "looper-btn small")
-          , HP.disabled (not st.connected || lp.layers == 0)
-          , HE.onClick \_ -> LooperCommand "u"
-          ]
-          [ HH.text "Undo" ]
+      [ gestureBtn ("looper-btn" <> if lp.recording then " recording" else "")
+          (not st.connected) 1 (nextPress lp)
+      , gestureBtn "looper-btn small"
+          (not st.connected || lp.loopFrames == 0) 2
+          (if lp.state == "multiplying" then "End multiply" else "Multiply")
+      , gestureBtn "looper-btn small" (not st.connected) 5 "Take"
+      , gestureBtn "looper-btn small" (not st.connected || lp.layers == 0) 3 "Undo"
       , HH.button
           [ HP.class_ (H.ClassName "looper-btn small")
           , HP.disabled (not st.connected)
-          , HE.onClick \_ -> LooperCommand "k"
+          , HE.onClick \_ -> SetValue Looper.itajaraId (unsafeCC 81)
+                               (unsafeMidiValue (if lp.click then 0 else 127))
           ]
           [ HH.text (if lp.click then "Click off" else "Click on") ]
-      , HH.span [ HP.class_ (H.ClassName "looper-hint") ]
-          [ HH.text ("MC6 CC " <> show state.looperToggleCC <> " does the same.") ]
       ]
+
+  gestureBtn cls disabled ccNum label =
+    HH.button
+      [ HP.class_ (H.ClassName cls)
+      , HP.disabled disabled
+      , HE.onClick \_ -> SetValue Looper.itajaraId (unsafeCC ccNum) (unsafeMidiValue 127)
+      ]
+      [ HH.text label ]
 
   -- | What the next press does, which is the thing every looper hides.
   nextPress lp = case lp.state of
@@ -409,6 +455,41 @@ renderLooperView state =
           , HP.style ("width:" <> show (max 0.0 (min 100.0 (lp.phase * 100.0))) <> "%")
           ]
           []
+      ]
+
+  -- Itajara is a pedal now, so its full surface lives on its own Detail page
+  -- and any switch can be assigned to any of it. What remains here is the one
+  -- thing that page cannot do: put a usable bank on the hardware today.
+  footswitchCard =
+    HH.div [ HP.class_ (H.ClassName "looper-footswitch") ]
+      [ HH.h3_ [ HH.text "Footswitch control" ]
+      , HH.p [ HP.class_ (H.ClassName "looper-muted") ]
+          [ HH.text $
+              "Itajara is a pedal on channel " <> show Looper.itajaraChannel
+              <> ", so the MC6 addresses it exactly as it addresses Habit or MOOD — "
+              <> "and every control is on its own page, assignable to any switch. "
+              <> "This writes a starter transport bank to MC6 bank "
+              <> show state.mc6LooperBankNum <> "."
+          ]
+      , HH.table [ HP.class_ (H.ClassName "docs-table") ]
+          [ HH.tbody_ (map bankRow (Looper.looperBank state.mc6LooperBankNum).switches) ]
+      , HH.button
+          [ HP.class_ (H.ClassName "files-btn")
+          , HP.disabled (isNothing state.connections.mc6Output)
+          , HE.onClick \_ -> ProgramLooperBank
+          ]
+          [ HH.text "Program MC6 looper bank" ]
+      , case state.looperProgramStatus of
+          Nothing -> HH.text ""
+          Just msg -> HH.p [ HP.class_ (H.ClassName "looper-muted") ] [ HH.text msg ]
+      ]
+
+  -- Switch letters run A–F on the MC6 itself, then G/H/I on the first FS3X.
+  bankRow sw =
+    if sw.label == "" then HH.text ""
+    else HH.tr_
+      [ HH.td [ HP.class_ (H.ClassName "docs-cc") ] [ HH.text sw.label ]
+      , HH.td_ [ HH.text sw.longName ]
       ]
 
   row label value =
@@ -701,10 +782,10 @@ handleAction = case _ of
         -- Load saved state from the cache (overrides defaults)
         mEngine <- liftEffect Storage.loadEngineState
         case mEngine of
-          Just eng -> H.modify_ _ { engine = eng }
+          Just eng -> H.modify_ _ { engine = reconcileEngine eng defaultEngine }
           Nothing -> pure unit
         cardOrder <- liftEffect $ Storage.loadCardOrderParsed defaultCardOrder
-        H.modify_ _ { cardOrder = cardOrder }
+        H.modify_ _ { cardOrder = reconcileOrder cardOrder defaultCardOrder }
         presets <- liftEffect Storage.loadPresetsParsed
         boardPresets <- liftEffect Storage.loadBoardPresetsParsed
         mc6Assignments <- liftEffect Storage.loadMC6AssignmentsParsed
@@ -757,7 +838,8 @@ handleAction = case _ of
     -- what was needed.
     { listener: midiListener, emitter: midiEmitter } <- H.liftEffect HS.create
     void $ H.subscribe midiEmitter
-    void $ liftEffect $ MIDI.onStateChange mAccess (HS.notify midiListener RescanMIDI)
+    void $ liftEffect $ MIDI.onStateChange mAccess \change ->
+      HS.notify midiListener (MidiPortChanged change)
     -- Auto-select MIDI ports using routing patterns from registry
     -- Auto-select Twister input
     let mTwisterIn = Array.find (\p -> contains (Pattern routing.twisterInput.match) p.name) inputs
@@ -796,6 +878,58 @@ handleAction = case _ of
           <> show (Array.length outputs) <> " out, "
           <> show (Array.length inputs) <> " in"
 
+  -- | A port came or went. Put back whatever we had chosen.
+  -- |
+  -- | Refreshing the dropdowns is not enough, and that was the bug: a port that
+  -- | reappears is a *new* `MIDIPort`, so the handle opened before the
+  -- | disconnection is dead and delivers nothing without ever saying so. Every
+  -- | cycle of the USB bus meant reconnecting by hand, and the only symptom was
+  -- | that stomping did nothing — indistinguishable from a wrong bank, a wrong
+  -- | channel, or a dead daemon, all of which we chased today.
+  MidiPortChanged change -> do
+    handleAction RescanMIDI
+    st <- H.get
+    let matches sel = sel == Just change.id
+    if change.state == "disconnected"
+      then do
+        liftEffect $ Console.log $ "MIDI port gone: " <> change.name
+        -- Drop the dead handles so the UI stops claiming a connection, and
+        -- silence the subscriptions rather than leaving them attached to a
+        -- port that no longer exists.
+        when (matches st.connections.mc6InputId) do
+          for_ st.connections.mc6InputSub H.unsubscribe
+          H.modify_ _ { connections { mc6Input = Nothing, mc6InputSub = Nothing } }
+        when (matches st.connections.twisterInputId) do
+          for_ st.connections.twisterInputSub H.unsubscribe
+          H.modify_ _ { connections { twisterInput = Nothing, twisterInputSub = Nothing } }
+        when (matches st.connections.pedalOutputId) $
+          H.modify_ _ { connections { pedalOutput = Nothing } }
+        when (matches st.connections.mc6OutputId) $
+          H.modify_ _ { connections { mc6Output = Nothing } }
+        when (matches st.connections.twisterOutputId) $
+          H.modify_ _ { connections { twisterOutput = Nothing } }
+        H.modify_ _ { midiTest = Just (change.name <> " disconnected") }
+      else when (change.state == "connected") do
+        liftEffect $ Console.log $ "MIDI port back: " <> change.name
+        -- Re-open only what was selected and is currently dead. Re-opening a
+        -- working port would tear down its subscription and could drop a
+        -- message in the gap.
+        when (matches st.connections.mc6InputId && isNothing st.connections.mc6Input) $
+          handleAction (SelectMC6Input change.id)
+        when (matches st.connections.twisterInputId && isNothing st.connections.twisterInput) $
+          handleAction (SelectTwisterInput change.id)
+        for_ st.connections.access \access -> do
+          when (matches st.connections.pedalOutputId && isNothing st.connections.pedalOutput) do
+            mOut <- liftEffect $ MIDI.openOutput access change.id
+            H.modify_ _ { connections { pedalOutput = mOut } }
+          when (matches st.connections.mc6OutputId && isNothing st.connections.mc6Output) do
+            mOut <- liftEffect $ MIDI.openOutput access change.id
+            H.modify_ _ { connections { mc6Output = mOut } }
+          when (matches st.connections.twisterOutputId && isNothing st.connections.twisterOutput) do
+            mOut <- liftEffect $ MIDI.openOutput access change.id
+            H.modify_ _ { connections { twisterOutput = mOut } }
+        H.modify_ _ { midiTest = Just (change.name <> " reconnected") }
+
   SetView view -> do
     H.modify_ _ { view = view }
     case view of
@@ -824,21 +958,45 @@ handleAction = case _ of
     -- not responding is indistinguishable between "no output selected", "the
     -- pedal has no channel", and "sent correctly and something downstream ate
     -- it" - three very different problems that look identical from the stage.
-    case st.connections.pedalOutput of
-      Nothing ->
-        H.modify_ _ { midiTest = Just "CC not sent: no Pedal MIDI output selected" }
-      Just output -> do
-        let mCh = do
-              ps <- Map.lookup pid st.engine
-              makeChannel ps.channel
-        case mCh of
-          Nothing ->
-            H.modify_ _ { midiTest = Just ("CC not sent: no channel for " <> show pid) }
-          Just ch -> do
-            liftEffect $ MIDI.sendCC output ch ccNum val
-            H.modify_ _ { midiTest = Just
-              ("sent CC " <> show (unCC ccNum) <> " val " <> show (unMidiValue val)
-                <> " ch " <> show (unChannel ch) <> " to " <> show pid) }
+    -- Itajara is a pedal like any other except in one respect: its transport is
+    -- the socket rather than a MIDI port. Branching here rather than upstream is
+    -- what lets the assignment UI, board presets, the Twister and the donut view
+    -- stay ignorant of the difference.
+    if Looper.isItajara pid
+      then case Looper.command ccNum val of
+        Looper.Ignore -> pure unit
+        Looper.NotYetImplemented what -> do
+          liftEffect $ Console.log $ "looper: " <> what <> " is not in the engine yet"
+          H.modify_ _ { midiTest = Just ("looper: " <> what <> " not implemented") }
+        Looper.Send cmd -> do
+          ok <- liftEffect $ LooperSocket.send cmd
+          H.modify_ _ { midiTest = Just
+            ( if ok then "looper: sent " <> show cmd
+              else "looper: daemon not connected, dropped " <> show cmd ) }
+      else case st.connections.pedalOutput of
+        Nothing ->
+          H.modify_ _ { midiTest = Just "CC not sent: no Pedal MIDI output selected" }
+        Just output -> do
+          let mCh = do
+                ps <- Map.lookup pid st.engine
+                makeChannel ps.channel
+          case mCh of
+            Nothing ->
+              H.modify_ _ { midiTest = Just ("CC not sent: no channel for " <> show pid) }
+            Just ch -> do
+              liftEffect $ MIDI.sendCC output ch ccNum val
+              H.modify_ _ { midiTest = Just
+                ("sent CC " <> show (unCC ccNum) <> " val " <> show (unMidiValue val)
+                  <> " ch " <> show (unChannel ch) <> " to " <> show pid) }
+    -- A gesture is not a state. Left at 127 the pedal's Rec button would stay
+    -- lit for the rest of the session, and a board preset would recall a
+    -- permanent record command.
+    when (Looper.isItajara pid && Looper.isMomentary ccNum) $
+      H.modify_ \s -> s
+        { engine = Map.update
+            (\ps -> Just ps { values = Map.insert ccNum (unsafeMidiValue 0) ps.values })
+            pid s.engine
+        }
     -- LED feedback for UI-originated changes
     unless st.suppressTwister do
       for_ st.focusPedalId \focusPid ->
@@ -951,6 +1109,29 @@ handleAction = case _ of
           ("programmed " <> show (Array.length banks) <> " bypass-test bank(s) from MC6 bank "
             <> show st.mc6DiagBankNum) }
 
+  -- | Write the looper transport to its own MC6 bank.
+  -- |
+  -- | The bank is generated from the same gesture table the relay reads, so
+  -- | the hardware cannot drift away from the handler: if a stomp does the
+  -- | wrong thing after this runs, the table is wrong, not the wiring.
+  ProgramLooperBank -> do
+    st <- H.get
+    case st.connections.mc6Output of
+      Nothing ->
+        H.modify_ _ { looperProgramStatus = Just "No MC6 SysEx output selected — pick one on the Connect page." }
+      Just output -> do
+        let cb = Looper.looperBank st.mc6LooperBankNum
+            presets = ControlBank.controlBankToPresets st.mc6BoardBankNum cb
+        H.modify_ _ { looperProgramStatus = Just "Programming…" }
+        withEditorSession output do
+          for_ presets \pr -> do
+            let bytes = SysEx.sysexPresetData cb.mc6BankNumber pr.switchIndex
+                          pr.shortName pr.longName pr.toToggle pr.messages
+            sendSysExLogged ("looper-" <> show pr.switchIndex) output bytes
+            H.liftAff (delay (Milliseconds 100.0))
+        H.modify_ _ { looperProgramStatus = Just
+          ("Written to MC6 bank " <> show st.mc6LooperBankNum <> ". Stomp to test.") }
+
   SelectTwisterInput portId -> do
     st <- H.get
     case st.connections.access of
@@ -961,13 +1142,20 @@ handleAction = case _ of
         -- failed open shows as "selected but dead" rather than silently
         -- reverting to "not connected" and looking like the tap was missed.
         H.modify_ _ { connections { twisterInputId = Just portId } }
+        -- Tear down any previous subscription first. Re-selecting, or
+        -- re-opening after a reconnect, would otherwise stack listeners and
+        -- every message would arrive once per open.
+        for_ st.connections.twisterInputSub H.unsubscribe
         case mInput of
-          Nothing -> pure unit
+          Nothing ->
+            H.modify_ _ { connections { twisterInput = Nothing, twisterInputSub = Nothing } }
           Just input -> do
-            H.modify_ _ { connections { twisterInput = Just input, twisterInputId = Just portId } }
-            void $ H.subscribe $ HS.makeEmitter \emit ->
+            sid <- H.subscribe $ HS.makeEmitter \emit ->
               MIDI.onMessage input \bytes ->
                 emit (TwisterMidiReceived bytes)
+            H.modify_ _ { connections { twisterInput = Just input
+                                      , twisterInputId = Just portId
+                                      , twisterInputSub = Just sid } }
 
   TwisterMidiReceived bytes ->
     case parseTwisterMsg bytes of
@@ -980,6 +1168,12 @@ handleAction = case _ of
 
   HandleHeader output -> case output of
     Header.ViewChanged view -> handleAction (SetView view)
+    Header.PedalPillClicked pid | Looper.isItajara pid ->
+      -- The looper's pill is a door rather than a selection: it has no place
+      -- in the twelve-cell grid, so the only sensible thing a click can mean
+      -- is "take me to it".
+      handleAction (SetView LooperView)
+
     Header.PedalPillClicked pid -> do
       st <- H.get
       case st.view of
@@ -1143,26 +1337,38 @@ handleAction = case _ of
         -- failed open shows as "selected but dead" rather than silently
         -- reverting to "not connected" and looking like the tap was missed.
         H.modify_ _ { connections { mc6InputId = Just portId } }
+        -- See the note in `SelectTwisterInput`: a stacked subscription would
+        -- relay every footswitch press twice, which for the looper means
+        -- record-then-immediately-close.
+        for_ st.connections.mc6InputSub H.unsubscribe
         case mInput of
-          Nothing -> pure unit
+          Nothing ->
+            H.modify_ _ { connections { mc6Input = Nothing, mc6InputSub = Nothing } }
           Just input -> do
-            H.modify_ _ { connections { mc6Input = Just input, mc6InputId = Just portId } }
-            void $ H.subscribe $ HS.makeEmitter \emit ->
+            sid <- H.subscribe $ HS.makeEmitter \emit ->
               MIDI.onMessage input \bytes ->
                 emit (MC6MidiReceived bytes)
+            H.modify_ _ { connections { mc6Input = Just input
+                                      , mc6InputId = Just portId
+                                      , mc6InputSub = Just sid } }
 
   MC6MidiReceived bytes -> do
     liftEffect $ Console.log $ "MC6 relay: " <> show bytes
-    st <- H.get
     case bytes of
-      -- Channel 1 CC with value 127 = a footswitch press.
+      -- Itajara's channel. Every other pedal is reached by the MC6 directly
+      -- over MIDI, so the app never sees those; the looper has no MIDI
+      -- hardware, so its CCs come here and go out over the socket. Relaying
+      -- the whole channel rather than a table of gestures means the MC6 can be
+      -- reprogrammed freely without touching this file.
+      [status, ccNum, val] | status == 0xB0 + Looper.itajaraChannel - 1 ->
+        case makeCC ccNum, makeMidiValue val of
+          Just c, Just v -> handleAction (SetValue Looper.itajaraId c v)
+          _, _ -> pure unit
+
+      -- Channel 1 CC with value 127 = a board-recall footswitch press.
       [status, ccNum, 127] | status == 0xB0 ->
-        -- One switch drives the looper; the rest recall boards. Deciding that
-        -- here, rather than in the daemon, is what keeps a single process
-        -- talking to the MC6 and a single place deciding what a press means.
-        if ccNum == st.looperToggleCC
-          then handleAction (LooperCommand "r")
-          else handleBoardRecallFromMC6 ccNum
+        handleBoardRecallFromMC6 ccNum
+
       _ -> pure unit
 
   -- | Pull the newest snapshot the socket is holding.
@@ -1170,10 +1376,31 @@ handleAction = case _ of
   -- | The daemon pushes thirty times a second; this reads at ten, because a
   -- | position readout does not need more and Halogen re-rendering at thirty
   -- | would make the whole app feel heavy for the sake of one number.
+  -- | Writing state unconditionally at 10 Hz re-renders the whole app ten times
+  -- | a second forever, which is how the Overview's footswitches died. Only
+  -- | touch state when the daemon actually said something new; with no daemon
+  -- | running this settles to zero work.
   LooperPoll -> do
     st' <- liftEffect LooperSocket.status
     snap <- liftEffect LooperSocket.latest
-    H.modify_ _ { looper = snap, looperStatus = st' }
+    cur <- H.get
+    when (cur.looper /= snap || cur.looperStatus /= st') do
+      H.modify_ _ { looper = snap, looperStatus = st' }
+      -- The daemon's `k` and `m` flip rather than set, so the app's idea of
+      -- them could drift from the engine's after one dropped command and never
+      -- recover. It reports both in every snapshot, so take its word: for the
+      -- things the engine owns, the snapshot is authoritative and pedal state
+      -- follows it rather than the other way round.
+      for_ snap \lp ->
+        H.modify_ \s -> s
+          { engine = Map.update
+              (\ps -> Just ps { values =
+                  Map.insert (unsafeCC 81) (unsafeMidiValue (if lp.click then 127 else 0))
+                    (Map.insert (unsafeCC 83)
+                       (unsafeMidiValue (if lp.monitor then 127 else 0)) ps.values) })
+              Looper.itajaraId
+              s.engine
+          }
 
   -- | One command to the daemon, from a button or a footswitch alike.
   -- |
@@ -1798,6 +2025,35 @@ dimAllLEDs = for_ (Array.range 0 15) \i -> do
 
 -- | Merge layout from PureScript pedal definitions into JSON-decoded pedals.
 -- | JSON provides runtime config; layout is PureScript-only (contains ADTs).
+-- | Fold what the browser remembered over what the config says, rather than
+-- | letting either win outright.
+-- |
+-- | Storage is a snapshot of a rig that had twelve pedals; the config is the
+-- | rig as it is now. Taking storage wholesale means a pedal added to
+-- | `rig.json` never appears, and a CC added to an existing pedal reads as
+-- | absent — both of which look like the new thing is broken rather than like
+-- | the cache is old. Per-CC union costs nothing and removes the whole class
+-- | of "clear your local storage and try again".
+reconcileEngine :: EngineState -> EngineState -> EngineState
+reconcileEngine stored defaults =
+  Map.fromFoldable (map merge (Map.toUnfoldable defaults :: Array (Tuple PedalId PedalState)))
+  where
+  merge (Tuple pid def) = Tuple pid $ case Map.lookup pid stored of
+    Nothing -> def
+    -- Channel comes from the config, never from the cache: `rig.json` is where
+    -- that is decided, and a stale channel is silent and baffling.
+    Just s -> def
+      { values = Map.union s.values def.values
+      , info = Map.union s.info def.info
+      }
+
+-- | Keep the order you arranged, drop pedals that no longer exist, and append
+-- | ones that have appeared since.
+reconcileOrder :: Array PedalId -> Array PedalId -> Array PedalId
+reconcileOrder stored defaults =
+  Array.filter (\p -> Array.elem p defaults) stored
+    <> Array.filter (\p -> not (Array.elem p stored)) defaults
+
 mergeLayout :: PedalDef -> PedalDef
 mergeLayout p = case PsRegistry.findPedal p.meta.id of
   Just psDef -> p { layout = psDef.layout }

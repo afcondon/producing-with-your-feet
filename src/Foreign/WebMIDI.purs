@@ -3,6 +3,7 @@ module Foreign.WebMIDI
   , MIDIOutput
   , MIDIInput
   , MidiPort
+  , PortChange
   , requestMIDIAccess
   , getOutputs
   , getInputs
@@ -36,6 +37,16 @@ type MidiPort =
   , name :: String
   }
 
+-- | A connect or disconnect, as reported by `statechange`.
+type PortChange =
+  { id :: String
+  , name :: String
+  -- | "connected" or "disconnected".
+  , state :: String
+  -- | "input" or "output".
+  , portType :: String
+  }
+
 foreign import requestMIDIAccessImpl
   :: (MIDIAccess -> Effect Unit)
   -> (Error -> Effect Unit)
@@ -60,7 +71,7 @@ foreign import openInputImpl
 
 foreign import sendImpl :: MIDIOutput -> Array Int -> Effect Unit
 foreign import onMessageImpl :: MIDIInput -> (Array Int -> Effect Unit) -> Effect (Effect Unit)
-foreign import onStateChangeImpl :: MIDIAccess -> Effect Unit -> Effect (Effect Unit)
+foreign import onStateChangeImpl :: MIDIAccess -> (PortChange -> Effect Unit) -> Effect (Effect Unit)
 foreign import randomUUID :: Effect String
 
 requestMIDIAccess :: Aff MIDIAccess
@@ -105,5 +116,11 @@ sendPC output ch pc =
 onMessage :: MIDIInput -> (Array Int -> Effect Unit) -> Effect (Effect Unit)
 onMessage = onMessageImpl
 
-onStateChange :: MIDIAccess -> Effect Unit -> Effect (Effect Unit)
+-- | Fires when any port connects or disconnects.
+-- |
+-- | A port that comes back is a *new* `MIDIPort` object, so any handle opened
+-- | before the disconnection is dead and will deliver nothing without ever
+-- | saying so. Knowing which port changed is what lets the app re-open the one
+-- | it had selected instead of merely refreshing a dropdown.
+onStateChange :: MIDIAccess -> (PortChange -> Effect Unit) -> Effect (Effect Unit)
 onStateChange = onStateChangeImpl

@@ -106,10 +106,25 @@ export const onMessageImpl = function (input) {
   };
 };
 
+// Which port changed, and how. The event carries this and the old binding threw
+// it away, so the app could see that *something* had happened but not that the
+// MC6 in particular had just come back — and therefore never re-opened it. A
+// port that reappears is a different MIDIPort object; the handle held from
+// before is dead and will silently deliver nothing.
 export const onStateChangeImpl = function (access) {
   return function (callback) {
     return function () {
-      var handler = function () { callback(); };
+      var handler = function (ev) {
+        var p = ev && ev.port;
+        callback({
+          id: p && p.id ? p.id : "",
+          name: p && p.name ? p.name : "",
+          // "connected" | "disconnected"
+          state: p && p.state ? p.state : "",
+          // "input" | "output"
+          portType: p && p.type ? p.type : ""
+        })();
+      };
       access.onstatechange = handler;
       return function () {
         access.onstatechange = null;

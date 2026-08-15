@@ -291,9 +291,22 @@ handleAction = case _ of
       }
     rerenderAll
 
+  -- Halogen calls `receive` on every parent render, not only when this
+  -- component's input changed — and the parent re-renders ten times a second to
+  -- poll the looper. Rebuilding thirteen HATS trees at that rate tears the DOM
+  -- out from under the pointer: mousedown lands on one node, mouseup on its
+  -- replacement, and the browser never synthesises a `click`. Footswitches went
+  -- dead while knobs kept working, because knobs fire on `pointerdown`, which
+  -- happens before the next rebuild.
+  --
+  -- So re-render only when something we actually draw from has moved.
   Receive input -> do
+    st <- H.get
     H.modify_ _ { input = input }
-    rerenderAll
+    when (st.input.engine /= input.engine
+       || st.input.activePedal /= input.activePedal
+       || st.input.cardOrder /= input.cardOrder)
+      rerenderAll
 
   WindowResize -> do
     w <- H.liftEffect $ Window.innerWidth =<< window
