@@ -204,6 +204,9 @@ render state = case state.configError of
             , mc6BankNames: state.mc6BankNames
             , mc6BankSwitches: state.mc6BankSwitches
             , mc6ReadStatus: state.mc6ReadStatus
+            , boardPresets: state.boardPresets
+            , presets: state.presets
+            , mc6Assignments: state.mc6Assignments
             }
             HandleControls
         FilesView -> renderFilesView state
@@ -1293,8 +1296,6 @@ handleAction = case _ of
     BoardsView.DeleteBoard presetId -> handleDeleteBoard presetId
     BoardsView.ExportBoard bp -> handleExportBoard bp
     BoardsView.ImportBoards boards -> handleImportBoards boards
-    BoardsView.AssignBoardToSwitch boardId switchIdx -> handleAssignBoardToSwitch boardId switchIdx
-    BoardsView.UnassignBoard boardId -> handleUnassignBoard boardId
 
   HandleControls output -> case output of
     ControlsView.SaveControlBanks banks mActiveIdx -> do
@@ -1308,6 +1309,10 @@ handleAction = case _ of
       syncControlBankToMC6
     ControlsView.ReadMC6 ->
       handleAction ReadMC6Banks
+    ControlsView.AssignBoard bankNum switchIdx boardId ->
+      handleAssignBoardToSwitch bankNum boardId switchIdx
+    ControlsView.UnassignSwitch bankNum switchIdx ->
+      handleUnassignSwitch bankNum switchIdx
 
   ExportAllPresetsAction -> handleExportAllPresets
   ExportAllBoardsAction -> handleExportAllBoards
@@ -1716,8 +1721,16 @@ handleOverwriteBoard presetId pedals = do
   ) s.boardPresets }
   persistBoardPresets
 
+-- | Delete a board, and take it off any footswitch it was on.
+-- |
+-- | The unassign is not tidiness. An assignment names a board by id, so a
+-- | deleted board leaves a switch pointing at nothing — the app would show an
+-- | empty switch while the hardware still carried the compiled messages, which
+-- | is the worst of both: it looks free, and it does something. Clearing first
+-- | also sends the SysEx that empties it on the device.
 handleDeleteBoard :: forall o m. MonadAff m => PresetId -> H.HalogenM AppState Action Slots o m Unit
 handleDeleteBoard presetId = do
+  handleUnassignBoard presetId
   H.modify_ \s -> s { boardPresets = Array.filter (\bp -> bp.id /= presetId) s.boardPresets }
   persistBoardPresets
 
@@ -1738,11 +1751,16 @@ handleImportBoards imported = do
 
 -- MC6 assignment handlers
 
-handleAssignBoardToSwitch :: forall o m. MonadAff m => PresetId -> Int -> H.HalogenM AppState Action Slots o m Unit
-handleAssignBoardToSwitch boardId switchIdx = do
+-- | Put a board on one switch of one bank.
+-- |
+-- | The bank is a parameter rather than `mc6BoardBankNum` because assignment is
+-- | now made from the Controls page, where you are already looking at a
+-- | particular bank. A single global "the boards bank" could only ever describe
+-- | one page of an instrument that has thirty.
+handleAssignBoardToSwitch :: forall o m. MonadAff m => Int -> PresetId -> Int -> H.HalogenM AppState Action Slots o m Unit
+handleAssignBoardToSwitch bankNum boardId switchIdx = do
   st <- H.get
-  let bankNum = st.mc6BoardBankNum
-      newAssignment :: MC6Assignment
+  let newAssignment :: MC6Assignment
       newAssignment = { bankNumber: bankNum, switchIndex: switchIdx, boardPresetId: boardId }
       -- Remove any existing assignment for this switch AND any existing assignment for this board in this bank
       filtered = Array.filter (\a -> not
@@ -1756,6 +1774,19 @@ handleAssignBoardToSwitch boardId switchIdx = do
   -- Auto-sync: program this switch to MC6
   let mBoard = Array.find (\bp -> bp.id == boardId) st.boardPresets
   syncSwitchToMC6 bankNum switchIdx mBoard
+
+-- | Clear one switch, whatever was on it.
+handleUnassignSwitch :: forall o m. MonadAff m => Int -> Int -> H.HalogenM AppState Action Slots o m Unit
+handleUnassignSwitch bankNum switchIdx = do
+  st <- H.get
+  let updated = Array.filter
+        (\a -> not (a.bankNumber == bankNum && a.switchIndex == switchIdx))
+        st.mc6Assignments
+  H.modify_ _ { mc6Assignments = updated }
+  liftEffect $ Storage.saveMC6Assignments updated
+  liftEffect FolderBackup.scheduleBackup
+  pushSnapshot
+  syncSwitchToMC6 bankNum switchIdx Nothing
 
 handleUnassignBoard :: forall o m. MonadAff m => PresetId -> H.HalogenM AppState Action Slots o m Unit
 handleUnassignBoard boardId = do

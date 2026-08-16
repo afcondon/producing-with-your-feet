@@ -10,7 +10,6 @@ import Prelude
 import Color (toHexString)
 import Data.Array as Array
 import Data.Const (Const)
-import Data.Int as Int
 import Data.Foldable (any)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
@@ -18,6 +17,7 @@ import Data.Midi (CC, MidiValue, ProgramNumber, unsafeMidiValue, unProgramNumber
 import Data.Pedal (PedalDef, PedalId)
 import Data.Pedal.Engage (EngageConfig(..), EngageState(..))
 import Data.Preset (BoardPreset, BoardPresetEntry, PedalPreset, PresetId)
+import Data.String as String
 import Data.String.CodeUnits as SCU
 import Data.Tuple (Tuple(..))
 import Effect.Class (liftEffect)
@@ -61,8 +61,6 @@ data Output
   | ImportBoards (Array BoardPreset)
   | FocusPedal PedalId
   | SendEngageAll EngageState
-  | AssignBoardToSwitch PresetId Int
-  | UnassignBoard PresetId
 
 type GridEntry =
   { engage :: EngageState
@@ -104,7 +102,6 @@ data Action
   | ClickOverwriteBoard PresetId
   | ClickDeleteBoard PresetId
   | ClickExportBoard BoardPreset
-  | AssignToSwitch PresetId String
 
 type Slot = H.Slot (Const Void) Output
 
@@ -314,16 +311,16 @@ renderBudget state bp =
 
 renderBoardItemNormal :: forall m. State -> BoardPreset -> H.ComponentHTML Action () m
 renderBoardItemNormal state bp =
-  let assignedSwitch = Array.findMap (\a ->
-        if a.boardPresetId == bp.id then Just a.switchIndex else Nothing
-        ) state.input.mc6Assignments
+  -- Read-only: assignment is made from Controls, where you are looking at the
+  -- switch you are filling. This just says where the sound ended up.
+  let assignedPlaces = Array.filter (\a -> a.boardPresetId == bp.id) state.input.mc6Assignments
   in HH.div_
     [ HH.div [ HP.class_ (H.ClassName "boards-item-header") ]
         [ HH.span [ HP.class_ (H.ClassName "boards-item-name") ] [ HH.text bp.name ]
-        , case assignedSwitch of
-            Just idx -> HH.span [ HP.class_ (H.ClassName "boards-item-assigned-badge") ]
-              [ HH.text (switchLetter idx) ]
-            Nothing -> HH.text ""
+        , if Array.null assignedPlaces then HH.text "" else
+            HH.span [ HP.class_ (H.ClassName "boards-item-assigned-badge") ]
+              [ HH.text (String.joinWith " "
+                  (map (\a -> show a.bankNumber <> switchLetter a.switchIndex) assignedPlaces)) ]
         , renderBudget state bp
         , HH.span [ HP.class_ (H.ClassName "boards-item-date") ] [ HH.text (SCU.take 10 bp.modified) ]
         ]
@@ -356,7 +353,6 @@ renderBoardItemNormal state bp =
             ]
             [ HH.text "Delete" ]
         ]
-    , renderAssignDropdown state bp
     ]
 
 renderEditForm :: forall m. State -> BoardPreset -> H.ComponentHTML Action () m
@@ -397,38 +393,6 @@ switchLetter = case _ of
   7 -> "H"
   8 -> "I"
   _ -> "?"
-
-renderAssignDropdown :: forall m. State -> BoardPreset -> H.ComponentHTML Action () m
-renderAssignDropdown state bp =
-  case state.input.mc6ActiveBank of
-    Nothing -> HH.text ""
-    Just bank ->
-      let currentAssignment = Array.find (\a -> a.boardPresetId == bp.id) state.input.mc6Assignments
-          currentVal = case currentAssignment of
-            Just a -> show a.switchIndex
-            Nothing -> ""
-      in HH.div [ HP.class_ (H.ClassName "boards-item-assign") ]
-        [ HH.span [ HP.class_ (H.ClassName "boards-item-assign-label") ] [ HH.text "MC6:" ]
-        , HH.select
-            [ HP.class_ (H.ClassName "boards-assign-select")
-            , HP.value currentVal
-            , HE.onValueChange (AssignToSwitch bp.id)
-            ]
-            ( [ HH.option [ HP.value "" ] [ HH.text "\x2014" ] ]
-              <> Array.mapWithIndex (\idx _ ->
-                  let letter = switchLetter idx
-                      occupant = case Array.find (\a -> a.bankNumber == bank.bankNumber && a.switchIndex == idx) state.input.mc6Assignments of
-                        Just a | a.boardPresetId /= bp.id ->
-                          case Array.find (\b -> b.id == a.boardPresetId) state.input.boardPresets of
-                            Just b -> " (" <> b.name <> ")"
-                            Nothing -> " (assigned)"
-                        _ -> case Array.index bank.presets idx of
-                          Just p | p.shortName /= "" -> " (" <> p.shortName <> ")"
-                          _ -> ""
-                  in HH.option [ HP.value (show idx) ] [ HH.text (letter <> occupant) ]
-                ) (Array.replicate 9 unit)
-            )
-        ]
 
 boardSummary :: PedalRegistry -> BoardPreset -> Array PedalPreset -> String
 boardSummary reg bp allPresets =
@@ -590,7 +554,3 @@ handleAction = case _ of
 
   ClickExportBoard bp -> H.raise (ExportBoard bp)
 
-  AssignToSwitch boardId valStr -> do
-    case Int.fromString valStr of
-      Just switchIdx -> H.raise (AssignBoardToSwitch boardId switchIdx)
-      Nothing -> H.raise (UnassignBoard boardId)

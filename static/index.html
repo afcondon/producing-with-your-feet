@@ -2625,6 +2625,31 @@ body {
 .controls-observed-names { color: var(--fg-muted); font-variant-numeric: tabular-nums; }
 .controls-warn { color: #be123c; font-weight: 600; }
 
+.controls-holds {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; margin-bottom: 12px;
+  background: var(--bg-section); border-radius: var(--radius);
+}
+.controls-holds label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--fg-muted); font-weight: 600;
+}
+.controls-holds-select { font-size: 12px; min-width: 300px; }
+.controls-holds-budget {
+  font-size: 12px; font-variant-numeric: tabular-nums;
+  font-weight: 600; color: var(--fg-muted);
+}
+.controls-holds-budget.over { color: #be123c; }
+.controls-holds-where { margin-left: auto; font-size: 11px; color: var(--fg-light); }
+
+.controls-board-held { max-width: 68ch; }
+.controls-board-held p { font-size: 13px; margin: 0 0 8px; }
+
+.controls-bank-switch-board {
+  font-size: 10px; color: #7e22ce; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
 .controls-switch-body { display: flex; gap: 20px; align-items: flex-start; }
 .controls-switch-body > *:first-child { flex: 1; min-width: 340px; }
 .controls-switch-body > .controls-search-panel { flex: 0 0 320px; }

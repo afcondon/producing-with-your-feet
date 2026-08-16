@@ -10,6 +10,7 @@ import Prelude
 import Component.Controls.Survey as Survey
 import Data.Array as Array
 import Data.Const (Const)
+import Data.Foldable (for_)
 import Data.Int as Int
 import Data.Map (Map)
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
@@ -19,6 +20,8 @@ import Data.MC6.Survey as MC6Survey
 import Data.MC6.Types (MC6Action(..), MC6Message, MC6MsgType(..), MC6NativeBank, MC6TogglePosition(..), intToMC6Action, intToMC6MsgType, mc6ActionToInt, mc6ToggleToInt)
 import Data.Midi (unCC)
 import Data.Pedal (PedalDef, PedalId, Control(..), LabelSource(..), Section)
+import Data.Preset (BoardPreset, PedalPreset, PresetId)
+import Engine (MC6Assignment)
 import Data.String as String
 import Data.String.CodeUnits (contains)
 import Data.String.Common (toLower)
@@ -44,6 +47,14 @@ type Input =
   , mc6BankNames :: Map Int String
   , mc6BankSwitches :: Map Int (Array String)
   , mc6ReadStatus :: Maybe String
+  -- What a switch can hold besides messages. A board preset compiles to
+  -- messages, so it is an alternative filling for the same slot rather than a
+  -- different kind of thing — but the compilation has a budget, which is why
+  -- the presets come along too: the count shown here must be the count that
+  -- gets sent, so it comes from the same function.
+  , boardPresets :: Array BoardPreset
+  , presets :: Array PedalPreset
+  , mc6Assignments :: Array MC6Assignment
   }
 
 data Output
@@ -54,6 +65,12 @@ data Output
   -- | answer, and a read button somewhere else would be a button you press and
   -- | then go looking for the result of.
   | ReadMC6
+  -- | Put a board on a switch, or take it off. Addressed by (bank, switch)
+  -- | rather than by board, because a switch holds exactly one thing while a
+  -- | board can sit on many switches — the other direction can express a
+  -- | contradiction and this one cannot.
+  | AssignBoard Int Int PresetId
+  | UnassignSwitch Int Int
 
 -- | Flat searchable entry for one CC control from the pedal registry
 type CCEntry =
@@ -136,6 +153,7 @@ data Action
   | CreatePageHere Int
   | ToggleElideUnknown
   | RequestRead
+  | SetSwitchHolds Int String
 
 type Slot = H.Slot (Const Void) Output
 
@@ -449,14 +467,38 @@ renderBankSwitchCell state bank mCard idx =
         ]
     , HH.div [ HP.class_ (H.ClassName "controls-bank-switch-label") ]
         [ HH.text (if unwritable then "not written" else fromMaybe "" (mSw <#> _.label)) ]
-    , HH.div [ HP.class_ (H.ClassName "controls-bank-switch-verb") ]
-        [ HH.text (maybe "" Survey.verbName verb) ]
+    , case assignedBoard state bank.mc6BankNumber idx of
+        Just bp -> HH.div [ HP.class_ (H.ClassName "controls-bank-switch-board") ]
+          [ HH.text (bp.name <> "  " <> show (boardBudget state bp)
+                      <> "/" <> show Board.messageLimit) ]
+        Nothing -> HH.div [ HP.class_ (H.ClassName "controls-bank-switch-verb") ]
+          [ HH.text (maybe "" Survey.verbName verb) ]
     , case observed of
         Just nm | nm /= "" && Just nm /= (mSw <#> _.label) ->
           HH.div [ HP.class_ (H.ClassName "controls-bank-switch-observed") ]
             [ HH.text ("device: " <> nm) ]
         _ -> HH.text ""
     ]
+
+-- | The board assigned to a switch, if any.
+assignedBoard :: State -> Int -> Int -> Maybe BoardPreset
+assignedBoard state bankNum idx = do
+  a <- Array.find (\x -> x.bankNumber == bankNum && x.switchIndex == idx)
+         state.input.mc6Assignments
+  Array.find (\b -> b.id == a.boardPresetId) state.input.boardPresets
+
+-- | How many messages a board compiles to.
+-- |
+-- | Derived exactly as the sync path derives it, including the return jump, so
+-- | the number shown is the number sent. A budget display that disagrees with
+-- | the transmission is worse than none.
+boardBudget :: State -> BoardPreset -> Int
+boardBudget state bp =
+  Board.boardMessageCount state.input.registry state.input.presets
+    (state.input.activeControlBankIdx
+      >>= Array.index state.input.controlBanks
+      <#> _.mc6BankNumber)
+    bp
 
 -- ──── Zoom 3: one switch ────
 
@@ -466,7 +508,9 @@ renderSwitchZone state idx = case selectedBank state of
   Just bank -> case Array.index bank.switches idx of
     Nothing -> HH.text ""
     Just sw ->
-      HH.div [ HP.class_ (H.ClassName "controls-zone controls-zone-switch") ]
+      let bankNum = bank.mc6BankNumber
+          mBoard = assignedBoard state bankNum idx
+      in HH.div [ HP.class_ (H.ClassName "controls-zone controls-zone-switch") ]
         [ HH.div [ HP.class_ (H.ClassName "controls-zone-head") ]
             [ HH.button
                 [ HP.class_ (H.ClassName "controls-zone-back")
@@ -476,11 +520,77 @@ renderSwitchZone state idx = case selectedBank state of
             , HH.h3_ [ HH.text ("Switch " <> switchLetter idx
                                   <> (if sw.label == "" then "" else " \x00b7 " <> sw.label)) ]
             ]
-        , HH.div [ HP.class_ (H.ClassName "controls-switch-body") ]
-            [ renderSwitchSection (bankColor state.selectedBankIdx) bank.returnSwitchIndex idx sw
-            , renderSearchPanel state
-            ]
+        , renderHoldsSelector state bankNum idx mBoard
+        , case mBoard of
+            Just bp -> renderBoardHeld state bp
+            Nothing ->
+              HH.div [ HP.class_ (H.ClassName "controls-switch-body") ]
+                [ renderSwitchSection (bankColor state.selectedBankIdx) bank.returnSwitchIndex idx sw
+                , renderSearchPanel state
+                ]
         ]
+
+-- | What this switch holds: messages you author, or a board that compiles to
+-- | them.
+-- |
+-- | Asked from the switch rather than from the board, which is the direction
+-- | that cannot lie: a switch holds one thing, so a select box is the whole
+-- | truth about it. Asked from the board — "which switch is this on?" — two
+-- | boards can name the same switch and the model has no way to say which won.
+renderHoldsSelector
+  :: forall m. State -> Int -> Int -> Maybe BoardPreset -> H.ComponentHTML Action () m
+renderHoldsSelector state bankNum idx mBoard =
+  HH.div [ HP.class_ (H.ClassName "controls-holds") ]
+    [ HH.label_ [ HH.text "This switch holds" ]
+    , HH.select
+        [ HP.class_ (H.ClassName "controls-holds-select")
+        , HP.value (maybe "" _.id mBoard)
+        , HE.onValueChange (SetSwitchHolds idx)
+        ]
+        ( [ HH.option [ HP.value "" ] [ HH.text "control switch \x2014 the messages below" ] ]
+            <> map boardOption state.input.boardPresets
+        )
+    , case mBoard of
+        Nothing -> HH.text ""
+        Just bp ->
+          let n = boardBudget state bp
+          in HH.span
+            [ HP.class_ (H.ClassName ("controls-holds-budget"
+                          <> if n > Board.messageLimit then " over" else "")) ]
+            [ HH.text (show n <> "/" <> show Board.messageLimit) ]
+    , HH.span [ HP.class_ (H.ClassName "controls-holds-where") ]
+        [ HH.text ("bank " <> show bankNum <> " \x00b7 switch " <> switchLetter idx) ]
+    ]
+  where
+  boardOption bp =
+    HH.option [ HP.value bp.id ]
+      [ HH.text (bp.name <> "  (" <> show (boardBudget state bp) <> "/"
+                  <> show Board.messageLimit <> ")") ]
+
+-- | A switch holding a board shows the compilation, not an editor.
+-- |
+-- | The messages are generated from the board every time it is synced, so an
+-- | editable message list here would be a field you can type into and watch get
+-- | overwritten. Better to say where the content actually comes from.
+renderBoardHeld :: forall m. State -> BoardPreset -> H.ComponentHTML Action () m
+renderBoardHeld state bp =
+  let n = boardBudget state bp
+  in HH.div [ HP.class_ (H.ClassName "controls-board-held") ]
+    ( [ HH.p_
+          [ HH.text "The messages on this switch are compiled from the board "
+          , HH.strong_ [ HH.text bp.name ]
+          , HH.text ", and are rewritten from it on every sync. Edit the board in Boards to change what this switch does."
+          ]
+      ]
+        <> (if bp.notes == "" then [] else
+              [ HH.p [ HP.class_ (H.ClassName "preset-description") ] [ HH.text bp.notes ] ])
+        <> (if n > Board.messageLimit
+              then [ HH.p [ HP.class_ (H.ClassName "controls-warn") ]
+                       [ HH.text ("This board compiles to " <> show n <> " messages and a switch holds "
+                                   <> show Board.messageLimit <> ". Sync will refuse rather than send a switch that does most of what you asked.") ]
+                   ]
+              else [])
+    )
 
 renderBankProperties :: forall m. State -> H.ComponentHTML Action () m
 renderBankProperties state =
@@ -1045,6 +1155,13 @@ handleAction = case _ of
   ToggleElideUnknown -> H.modify_ \st -> st { elideUnknown = not st.elideUnknown }
 
   RequestRead -> H.raise ReadMC6
+
+  SetSwitchHolds idx boardId -> do
+    st <- H.get
+    for_ (selectedBank st) \bank ->
+      if boardId == ""
+        then H.raise (UnassignSwitch bank.mc6BankNumber idx)
+        else H.raise (AssignBoard bank.mc6BankNumber idx boardId)
 
 -- ──── Helpers ────
 
