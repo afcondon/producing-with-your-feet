@@ -38,6 +38,7 @@ import Prelude
 import Data.Argonaut.Core (Json, stringify)
 import Data.Argonaut.Core as Json
 import Data.Argonaut.Parser (jsonParser)
+import Data.Array as Array
 import Data.Either (hush)
 import Data.Int as Int
 import Data.JSDate as JSDate
@@ -550,29 +551,54 @@ mc6AssignmentsToJsonString =
 
 -- | The document the store expects: whole collections, keyed as it keys them.
 snapshotToJsonString
-  :: Array PedalPreset -> Array BoardPreset -> Array MC6Assignment -> String
-snapshotToJsonString presets boards assignments =
+  :: Array PedalPreset
+  -> Array BoardPreset
+  -> Array ControlBank
+  -> Array MC6Assignment
+  -> String
+snapshotToJsonString presets boards banks assignments =
   stringify $ Json.fromObject $ FO.fromFoldable
     [ Tuple "presets" (Json.fromArray (map presetToJson presets))
     , Tuple "patches" (Json.fromArray (map boardPresetToJson boards))
+    , Tuple "banks" (Json.fromArray (map controlBankToJson banks))
     , Tuple "assignments" (Json.fromArray (map mc6AssignmentToJson assignments))
     ]
 
 -- | Fill the cache from a snapshot fetched off the store.
 -- |
 -- | Returns false if the payload could not be read at all, so the caller can
--- | say so rather than silently continuing on stale data. Individual
--- | collections that are absent are left as they are — the store's own guard
--- | treats absence as "no change", and the cache should agree.
+-- | say so rather than silently continuing on stale data.
+-- |
+-- | Two collections are skipped rather than written, mirroring the guards
+-- | `Store.replaceAll` puts on the write side — a reconciling *read* is one bug
+-- | away from being an erase in exactly the same way:
+-- |
+-- |   * ABSENT means "no change". The store says nothing about that collection.
+-- |   * EMPTY also means "no change", because the alternative is that the first
+-- |     load against a store which has never held this collection silently
+-- |     replaces good local work with nothing. That is not hypothetical: the
+-- |     `banks` collection did not exist until control banks moved into the
+-- |     store, so every existing browser had pages the store had never seen.
+-- |
+-- | The cost is that a collection emptied deliberately elsewhere will not empty
+-- | here until this client next pushes. That is the right way round: a stale
+-- | extra bank is a nuisance, a deleted one is lost work.
 hydrateFromSnapshot :: String -> Effect Boolean
 hydrateFromSnapshot raw = case hush (jsonParser raw) >>= Json.toObject of
   Nothing -> pure false
   Just o -> do
     write "presets" PresetsKey o
     write "patches" BoardPresetsKey o
+    write "banks" ControlBanksKey o
     write "assignments" MC6AssignmentsKey o
     pure true
   where
   write key storageKey o = case FO.lookup key o of
     Nothing -> pure unit
-    Just j -> setItem storageKey (stringify j)
+    Just j
+      | isEmptyArray j -> pure unit
+      | otherwise -> setItem storageKey (stringify j)
+
+  isEmptyArray j = case Json.toArray j of
+    Just xs -> Array.null xs
+    Nothing -> false

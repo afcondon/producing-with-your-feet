@@ -17,6 +17,9 @@ module Server.Store
   , listPatches
   , writePatch
   , deletePatch
+  , listBanks
+  , writeBank
+  , deleteBank
   , readAssignments
   , writeAssignments
   ) where
@@ -45,6 +48,11 @@ presetsDir dir = concat [ dir, "presets" ]
 patchesDir :: String -> String
 patchesDir dir = concat [ dir, "patches" ]
 
+-- | Authored MC6 pages. One file each, like patches, so `git log` on the store
+-- | says which page changed rather than "banks.json changed".
+banksDir :: String -> String
+banksDir dir = concat [ dir, "banks" ]
+
 assignmentsPath :: String -> String
 assignmentsPath dir = concat [ dir, "assignments.json" ]
 
@@ -57,6 +65,7 @@ ensureLayout dir = do
   mkdirP dir
   mkdirP (presetsDir dir)
   mkdirP (patchesDir dir)
+  mkdirP (banksDir dir)
 
 -- | Directory entries, or none if the directory is absent.
 lsSafe :: String -> Aff (Array String)
@@ -128,6 +137,26 @@ deletePatch :: String -> String -> Aff Unit
 deletePatch dir patchId =
   rmSafe (concat [ patchesDir dir, patchId <> ".json" ])
 
+-- ------------------------------------------------------------------ banks
+
+listBanks :: String -> Aff AJ.Json
+listBanks dir = do
+  files <- jsonFiles <$> lsSafe (banksDir dir)
+  ms <- traverse (\f -> readJson (concat [ banksDir dir, f ])) files
+  pure $ AJ.fromArray (Array.catMaybes ms)
+
+writeBank :: String -> String -> AJ.Json -> Aff Unit
+writeBank dir bankId j = do
+  mkdirP (banksDir dir)
+  writeJson (concat [ banksDir dir, bankId <> ".json" ]) j
+
+deleteBank :: String -> String -> Aff Unit
+deleteBank dir bankId =
+  rmSafe (concat [ banksDir dir, bankId <> ".json" ])
+
+countBanks :: String -> Aff Int
+countBanks dir = Array.length <<< jsonFiles <$> lsSafe (banksDir dir)
+
 -- ------------------------------------------------------------ assignments
 
 readAssignments :: String -> Aff AJ.Json
@@ -150,11 +179,13 @@ snapshot :: String -> Aff AJ.Json
 snapshot dir = do
   presets <- listPresets dir
   patches <- listPatches dir
+  banks <- listBanks dir
   assignments <- readAssignments dir
   pure $ AJ.fromObject $ Object.fromFoldable
     [ Tuple "version" (AJ.fromNumber 1.0)
     , Tuple "presets" presets
     , Tuple "patches" patches
+    , Tuple "banks" banks
     , Tuple "assignments" assignments
     ]
 
@@ -193,17 +224,20 @@ replaceAll dir force j = do
 
   existingPresets <- countPresets dir
   existingPatches <- countPatches dir
+  existingBanks <- countBanks dir
 
   let
     wipes existing incoming = not force && existing > 0 && Array.null incoming
     presetWipe = maybe false (wipes existingPresets) (mArr "presets")
     patchWipe = maybe false (wipes existingPatches) (mArr "patches")
+    bankWipe = maybe false (wipes existingBanks) (mArr "banks")
 
-  if presetWipe || patchWipe then
+  if presetWipe || patchWipe || bankWipe then
     pure $ Left
       ( "refusing to empty a non-empty store: "
           <> (if presetWipe then show existingPresets <> " presets " else "")
           <> (if patchWipe then show existingPatches <> " patches " else "")
+          <> (if bankWipe then show existingBanks <> " banks " else "")
           <> "would be deleted. Retry against /api/snapshot/force if intended."
       )
   else do
@@ -220,6 +254,12 @@ replaceAll dir force j = do
       Just patches -> do
         kept <- traverse (writeOnePatch dir) patches
         prunePatches dir (Array.catMaybes kept)
+
+    case mArr "banks" of
+      Nothing -> pure unit
+      Just banks -> do
+        kept <- traverse (writeOneBank dir) banks
+        pruneBanks dir (Array.catMaybes kept)
 
     case fld "assignments" of
       Just a -> writeAssignments dir a
@@ -272,3 +312,16 @@ prunePatches dir keep = do
   files <- jsonFiles <$> lsSafe (patchesDir dir)
   let stale = Array.filter (\f -> not (Array.elem f keep)) files
   void $ traverse (\f -> rmSafe (concat [ patchesDir dir, f ])) stale
+
+writeOneBank :: String -> AJ.Json -> Aff (Maybe String)
+writeOneBank dir j = case strField "id" j of
+  Just bankId -> do
+    writeBank dir bankId j
+    pure (Just (bankId <> ".json"))
+  Nothing -> pure Nothing
+
+pruneBanks :: String -> Array String -> Aff Unit
+pruneBanks dir keep = do
+  files <- jsonFiles <$> lsSafe (banksDir dir)
+  let stale = Array.filter (\f -> not (Array.elem f keep)) files
+  void $ traverse (\f -> rmSafe (concat [ banksDir dir, f ])) stale

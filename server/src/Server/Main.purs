@@ -10,6 +10,7 @@
 -- |
 -- |     presets/<pedalId>/<presetId>.json
 -- |     patches/<patchId>.json
+-- |     banks/<bankId>.json
 -- |     assignments.json
 -- |
 -- | One file per record, so `git log` on the store says which preset changed
@@ -58,6 +59,8 @@ data Route
   | PresetOne String String
   | Patches
   | PatchOne String
+  | Banks
+  | BankOne String
   | Assignments
 
 derive instance Generic Route _
@@ -71,6 +74,8 @@ route = root $ sum
   , "PresetOne": "api" / "presets" / segment / segment
   , "Patches": "api" / "patches" / noArgs
   , "PatchOne": "api" / "patches" / segment
+  , "Banks": "api" / "banks" / noArgs
+  , "BankOne": "api" / "banks" / segment
   , "Assignments": "api" / "assignments" / noArgs
   }
 
@@ -118,6 +123,15 @@ router dir { route: r, method, body } = case r, method of
     okJson j
   PatchOne patchId, Delete -> do
     liftAff (Store.deletePatch dir patchId)
+    okJson (AJ.fromString "deleted")
+
+  Banks, Get -> okJson =<< liftAff (Store.listBanks dir)
+
+  BankOne bankId, Put -> withJsonBody \j -> do
+    liftAff (Store.writeBank dir bankId j)
+    okJson j
+  BankOne bankId, Delete -> do
+    liftAff (Store.deleteBank dir bankId)
     okJson (AJ.fromString "deleted")
 
   Assignments, Get -> okJson =<< liftAff (Store.readAssignments dir)

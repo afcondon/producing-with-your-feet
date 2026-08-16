@@ -1199,6 +1199,7 @@ handleAction = case _ of
     ControlsView.SaveControlBanks banks mActiveIdx -> do
       H.modify_ _ { controlBanks = banks, activeControlBankIdx = mActiveIdx }
       st <- H.get
+      -- localStorage is the cache; the store is where authored pages live.
       liftEffect $ Storage.saveControlBanks st.controlBanks
       liftEffect FolderBackup.scheduleBackup
       pushSnapshot
@@ -1840,7 +1841,7 @@ pushSnapshot = do
   st <- H.get
   base <- liftEffect Remote.storeBaseUrl
   let
-    body = Storage.snapshotToJsonString st.presets st.boardPresets st.mc6Assignments
+    body = Storage.snapshotToJsonString st.presets st.boardPresets st.controlBanks st.mc6Assignments
   res <- H.liftAff (Remote.putSnapshot base body)
   case res of
     Right _ -> pure unit
