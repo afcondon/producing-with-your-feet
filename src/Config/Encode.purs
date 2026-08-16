@@ -337,10 +337,21 @@ rigConfigToJson rig = obj
       , "twisterOutput" /\ obj [ "match" /\ str "Midi Fighter Twister" ]
       , "mc6Input" /\ obj [ "match" /\ str "Morningstar" ]
       ]
+  -- `range` is what the slot browser sweeps; `managed` is only where saving
+  -- from this app defaults to. Meris has no managed range because all sixteen
+  -- of its slots hold factory presets — there is no safe corner to save into.
   , "slotRanges" /\ arr
-      [ obj [ "brand" /\ str "Meris", "range" /\ obj [ "start" /\ num 0, "count" /\ num 16 ] ]
-      , obj [ "brand" /\ str "Strymon", "range" /\ obj [ "start" /\ num 50, "count" /\ num 26 ] ]
-      , obj [ "brand" /\ str "Chase Bliss", "range" /\ obj [ "start" /\ num 1, "count" /\ num 122 ] ]
+      [ obj [ "brand" /\ str "Meris"
+            , "range" /\ obj [ "start" /\ num 0, "count" /\ num 16 ]
+            ]
+      , obj [ "brand" /\ str "Strymon"
+            , "range" /\ obj [ "start" /\ num 0, "count" /\ num 128 ]
+            , "managed" /\ obj [ "start" /\ num 50, "count" /\ num 26 ]
+            ]
+      , obj [ "brand" /\ str "Chase Bliss"
+            , "range" /\ obj [ "start" /\ num 1, "count" /\ num 122 ]
+            , "managed" /\ obj [ "start" /\ num 50, "count" /\ num 73 ]
+            ]
       ]
   , "controller" /\ str "controllers/mc6-banks.json"
   ]

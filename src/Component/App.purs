@@ -28,6 +28,7 @@ import Data.Pedal (PedalDef, PedalId)
 import Pedals.Registry as PsRegistry
 import Data.Pedal.Engage (EngageConfig(..), EngageState(..), engageCCs)
 import Data.Preset (PedalPreset, BoardPreset, PresetId)
+import Data.Preset as Preset
 import Data.String as String
 import Data.String.CodeUnits (contains)
 import Data.String.Pattern (Pattern(..))
@@ -160,6 +161,7 @@ render state = case state.configError of
             , presets: state.presets
             , connections: state.connections
             , registry: state.registry
+            , baselineStatus: state.baselineStatus
             }
             HandleGrid
         DetailView pid ->
@@ -212,6 +214,7 @@ render state = case state.configError of
                   , presets: state.presets
                   , connections: state.connections
                   , registry: state.registry
+                  , baselineStatus: state.baselineStatus
                   }
                   HandleSideGrid
               ]
@@ -1233,6 +1236,8 @@ handleAction = case _ of
     GridView.AssignSlot presetId pn -> handleAssignSlot presetId pn
     GridView.ExportPreset preset -> handleExportPreset preset
     GridView.ImportPresets presets -> handleImportPresets presets
+    GridView.SaveSlotRef r -> handleSaveSlotRef r
+    GridView.BaselinePedal pid -> handleBaselinePedal pid
 
   HandleBoards output -> case output of
     BoardsView.RecallBoard bp -> recallBoard bp
@@ -1448,6 +1453,69 @@ handleGridOutput = case _ of
   GridView.AssignSlot presetId pn -> handleAssignSlot presetId pn
   GridView.ExportPreset preset -> handleExportPreset preset
   GridView.ImportPresets presets -> handleImportPresets presets
+  GridView.SaveSlotRef r -> handleSaveSlotRef r
+  GridView.BaselinePedal pid -> handleBaselinePedal pid
+
+-- | Spacing between CCs in a baseline sweep.
+-- |
+-- | Deliberately much slower than the 5ms used for preset recall. A sweep is
+-- | the one operation whose whole value is that it lands, and these pedals give
+-- | nothing back — no CC readback on Strymon, Chase Bliss or Meris — so a
+-- | message the pedal was too busy to take is lost silently and leaves exactly
+-- | the unknown state the sweep was run to escape. Tens of milliseconds costs
+-- | about a second on the largest baseline (MOOD, 45 CCs) and buys the pedal
+-- | room to keep up.
+baselineSendDelayMs :: Number
+baselineSendDelayMs = 25.0
+
+-- | Re-anchor one pedal to its baseline.
+-- |
+-- | This is the only operation that *establishes* pedal state rather than
+-- | tracking it. Everything else in the app — observing the MC6, recalling a
+-- | preset, moving a knob — updates a belief that was already there; a sweep
+-- | replaces it outright by transmitting every value the definition declares.
+-- |
+-- | It is deliberately idempotent and safe to repeat. Since no pedal here can
+-- | be read back, a second sweep is the only available defence against a
+-- | dropped message, and it costs the same as the first.
+-- | Note this sends the CCs itself rather than looping over `SetValue`, and
+-- | must keep doing so. `SetValue` writes to state, the `delay` between CCs
+-- | yields, and Halogen therefore renders the whole tree between every message
+-- | — measured at ~270ms per CC on the Boards page, against the 25ms this is
+-- | trying to space by. That does not merely make the sweep slow, it makes the
+-- | spacing wildly uneven, which is the one property the sweep needs.
+-- |
+-- | So: transmit in a tight loop with only the delay in it, and write the
+-- | belief once at the end. `values = def.baseline` wholesale is exactly right
+-- | — being at the baseline is the state we just asserted.
+handleBaselinePedal :: forall o m. MonadAff m => PedalId -> H.HalogenM AppState Action Slots o m Unit
+handleBaselinePedal pid = do
+  st <- H.get
+  -- Itajara's "CCs" are looper gestures, not parameters: sweeping them would
+  -- fire record, multiply, undo and clear in sequence. Its state lives in the
+  -- daemon and is reset there.
+  if Looper.isItajara pid
+    then H.modify_ _ { baselineStatus = Just "The looper is reset in the daemon, not by a CC sweep." }
+    else for_ (CRegistry.findPedal st.registry pid) \def -> do
+      let entries = Map.toUnfoldable def.baseline :: Array (Tuple CC MidiValue)
+          n = Array.length entries
+          mCh = Map.lookup pid st.engine >>= \ps -> makeChannel ps.channel
+      case st.connections.pedalOutput, mCh of
+        Nothing, _ ->
+          H.modify_ _ { baselineStatus = Just "Not sent \x2014 no Pedal MIDI output selected on the MIDI page." }
+        _, Nothing ->
+          H.modify_ _ { baselineStatus = Just ("Not sent \x2014 no MIDI channel for " <> show pid <> ".") }
+        Just output, Just ch -> do
+          H.modify_ _ { baselineStatus = Just ("Sweeping — " <> show n <> " CCs…") }
+          for_ entries \(Tuple ccNum val) -> do
+            liftEffect $ MIDI.sendCC output ch ccNum val
+            H.liftAff (delay (Milliseconds baselineSendDelayMs))
+          H.modify_ \s -> s
+            { engine = Map.update (\ps -> Just ps { values = def.baseline }) pid s.engine
+            , baselineStatus = Just
+                ("Swept — " <> show n <> " CCs sent on channel " <> show (unChannel ch)
+                  <> ". Nothing here reads back, so run it again if you want to be sure.")
+            }
 
 -- Preset CRUD handlers
 
@@ -1473,6 +1541,32 @@ handleSavePreset r = do
         , values
         , info
         , savedSlot: Nothing
+        , created: now
+        , modified: now
+        }
+  H.modify_ \s -> s { presets = Array.cons preset s.presets }
+  persistPresets
+
+-- | Keep a numbered slot without capturing what is in it.
+-- |
+-- | The empty value map is the whole point rather than a gap to fill in later:
+-- | the app genuinely does not know what slot 14 sounds like and should not
+-- | pretend to. Everything downstream that matters — board entries, the MC6
+-- | Program Change path — reads `savedSlot` and never touches `values`.
+handleSaveSlotRef :: forall o m. MonadAff m => { pedalId :: PedalId, slot :: ProgramNumber, name :: String } -> H.HalogenM AppState Action Slots o m Unit
+handleSaveSlotRef r = do
+  uuid <- liftEffect MIDI.randomUUID
+  now <- liftEffect Storage.nowISO
+  let preset :: PedalPreset
+      preset =
+        { id: uuid
+        , pedalId: r.pedalId
+        , name: r.name
+        , description: "Lives in the pedal at slot " <> show (unProgramNumber r.slot) <> "; values not captured."
+        , notes: ""
+        , values: Map.empty
+        , info: Map.empty
+        , savedSlot: Just r.slot
         , created: now
         , modified: now
         }
@@ -1866,6 +1960,11 @@ persistBoardPresets = do
 -- Recall helpers
 
 recallPreset :: forall o m. MonadAff m => PedalPreset -> H.HalogenM AppState Action Slots o m Unit
+recallPreset preset
+  -- A slot reference has nothing to stream. Without this it would recall by
+  -- sending an empty list of CCs, which looks exactly like a working recall
+  -- and does nothing at all.
+  | Preset.isSlotRef preset = for_ preset.savedSlot (sendPC_ preset.pedalId)
 recallPreset preset = do
   st <- H.get
   for_ (Map.lookup preset.pedalId st.engine) \ps ->

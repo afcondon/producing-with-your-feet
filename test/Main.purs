@@ -36,17 +36,30 @@ main :: Effect Unit
 main = do
   log "Running pedal definition tests..."
 
-  -- All 12 pedals registered
+  -- Twelve boxes on the floor, plus Itajara.
+  --
+  -- Itajara is the app's own looper rather than a pedal we bought, so its
+  -- definition is split differently: the baseline and the sections live in
+  -- config/pedals/itajara.json and the PureScript entry carries only the donut
+  -- layout. The two assertions below are about pedals that ship their data in
+  -- PureScript, so they exclude it rather than being weakened for it.
   let count = Array.length Registry.pedals
-  assert "Pedal count is 12" (count == 12)
+  assert "Pedal count is 13 (12 hardware + Itajara)" (count == 13)
 
-  -- Each pedal has a non-empty baseline
-  let allHaveBaseline = Array.all (\p -> not (Map.isEmpty p.baseline)) Registry.pedals
-  assert "All pedals have baselines" allHaveBaseline
+  let hardwarePedals = Array.filter (\p -> p.meta.id /= PedalId "itajara") Registry.pedals
+  assert "12 hardware pedals" (Array.length hardwarePedals == 12)
 
-  -- Each pedal has at least one section
-  let allHaveSections = Array.all (\p -> not (Array.null p.sections)) Registry.pedals
-  assert "All pedals have sections" allHaveSections
+  -- Each hardware pedal has a non-empty baseline
+  let allHaveBaseline = Array.all (\p -> not (Map.isEmpty p.baseline)) hardwarePedals
+  assert "All hardware pedals have baselines" allHaveBaseline
+
+  -- Each hardware pedal has at least one section
+  let allHaveSections = Array.all (\p -> not (Array.null p.sections)) hardwarePedals
+  assert "All hardware pedals have sections" allHaveSections
+
+  -- Itajara still has to bring a layout, or the Looper page renders nothing.
+  assert "Itajara has a layout"
+    (Array.any (\p -> p.meta.id == PedalId "itajara" && isJust p.layout) Registry.pedals)
 
   -- findPedal works (via registry)
   let reg = CRegistry.mkRegistry Registry.pedals [] { pedalOutput: { match: "" }, twisterInput: { match: "" }, twisterOutput: { match: "" }, mc6Input: { match: "" } }

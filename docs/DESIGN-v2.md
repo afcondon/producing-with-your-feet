@@ -107,6 +107,171 @@ the pedal's own controls and the store is silently wrong. 39 of the current 252
 presets already carry a `savedSlot`, and none of those claims has been verified
 against hardware.
 
+### The fifth state: a slot we never captured
+
+*Implemented 2026-08-15.* Some of the best sounds on the board were saved to a
+numbered slot years ago, and some pedals will not give them back — the two Meris
+units name their sixteen presets, but only inside the Meris editor. Requiring a
+captured value map before a slot can be used is friction with nothing on the
+other end of it: what a board or an MC6 switch needs is the number.
+
+So a **slot reference** is a preset with an empty value map and a `savedSlot`
+(`Data.Preset.isSlotRef`). It sits in the same library, the same board entries
+and the same Program Change path as a captured preset. Two operations have to
+check first: recall sends the PC rather than streaming nothing, and
+overwrite/assign-slot are withheld, because both would claim we hold values we
+do not.
+
+This is the *inverse* of Flash. Flash writes our values into the pedal; a
+reference admits the pedal's values were never ours.
+
+### The reset, and why it does not live in the pedal
+
+A "known good" per pedal is what re-anchors belief after any period the app was
+not watching. The tempting implementation is a locked preset in the pedal's own
+memory — the last slot, recalled with one Program Change.
+
+**That reintroduces the problem it is meant to cure.** Recalling slot N and
+concluding "the pedal is now at baseline" is a *belief*, resting on the slot
+still holding what we flashed. The reset's entire job is to replace belief with
+knowledge, and a stored preset cannot do that. Sending every baseline CC can:
+afterwards we do not think the pedal is at those values, we know, because we
+transmitted each one.
+
+So the authoritative reset is **the baseline in `config/pedals/*.json`, sent as
+a full CC sweep**. This is already what the owner asked for in every respect
+that matters — it is per-pedal, it is versioned in Git, and it is genuinely
+un-overwritable in a way no pedal slot is. MOOD's baseline is 45 CCs and covers
+even the DIP-switch section, since Chase Bliss exposes those as CC 61–63.
+
+It also works on Meris, which has sixteen slots and no spare one — a
+slot-based reset is impossible there, and a mechanism that covers 11 of 13
+pedals is not an anchor.
+
+**A pedal-slot copy is still worth having, as a convenience.** One footswitch to
+known-good when you are at the board without the app. That is a cache of the
+authoritative baseline, not the source of it, and the honest way to build it is:
+sweep the CCs (which is the prerequisite anyway — it is how the pedal gets to
+baseline before you save), then save, then lock the slot so the app never
+targets it.
+
+Per-brand locations, as proposed:
+
+| Brand | Reset slot | Reachable by |
+|---|---|---|
+| Chase Bliss | 122 (last) | plain Program Change |
+| Strymon | bank 2, preset 99 (#299) | **Bank Select + PC — see below** |
+| Meris | none available | CC sweep only |
+
+**#299 is not currently expressible.** `makeProgramNumber` caps at 127 and
+`savedSlot` is a bare program number, because a MIDI Program Change addresses
+128 values. Reaching Strymon's third bank needs a bank message first; the MC6
+has `MsgStrymonBankUp`/`MsgStrymonBankDown` for exactly this, so the hardware
+side is solved, but `PedalPreset.savedSlot` would have to become bank+program,
+with the codec and the MC6 message generation following.
+
+Worth noting what that would cost if it spread: two messages per pedal instead
+of one turns a twelve-pedal board recall from 12 messages into 24, over the
+16-message ceiling of §5. It stays affordable only because the reset is a
+deliberate standalone action and never part of a board recall — which is another
+reason to keep the managed range (50–75) inside bank 0.
+
+### Reserved slots, and the one thing Git cannot restore
+
+The slot browser sweeps everything a Program Change can reach, because the
+factory presets are most of the reason to browse. That makes it newly possible
+to point the save ceremony at a slot that shipped with the pedal.
+
+`rig.json` already separates the two questions — `range` is what the browser
+sweeps, `managed` is where this app saves — which keeps the default safe on the
+Strymons. It does not cover Chase Bliss, whose first two slots are factory
+content inside a range with no managed sub-range, and it does not cover a slot
+the owner simply does not want to lose.
+
+**Planned: a lock, per slot, that the save ceremony refuses to target.**
+
+Version control and the pedal cover different halves of the problem, and the
+halves happen to be complementary. Git protects the *library* — names, values,
+which slot we believe holds what — and restores any of it, but it has never held
+the pedal's own memory and cannot put Strymon factory preset 3 back. A factory
+reset does exactly the opposite: it restores the pedal's content and destroys
+ours. So nothing here is truly unrecoverable; what a lock prevents is the
+*recovery*, which means factory-resetting to retrieve one preset and then
+re-flashing everything of ours from the store.
+
+That puts this well below "data loss" in priority. The stronger argument is
+simpler: these pedals hold hundreds of slots and Program Change reaches 128 of
+them, so there is never a reason to aim a save at a low one. The convention is
+avoiding a pointless collision, not rationing a scarce resource.
+
+Which is why `managed` should stay modest rather than expand to fill the space.
+**A flashed preset is a starting point, not a finished sound** — enough variety
+to get into the ballpark on a given pedal, then tweaked by hand from there. Most
+pedals have nowhere near seventy-eight distinguishable useful settings, so a
+library that large would be a library nobody could choose from. Both MIDI brands
+now reserve from 50 up (`Strymon` 50–75, `Chase Bliss` 50–122); the ceiling is
+generous, the expectation is that it stays mostly empty.
+
+(Strymon factory *values* are recoverable in principle without a reset: sweep a
+control across its range and the Faves LED blinks green as it passes the stored
+value. This is a per-parameter, eyes-on-the-pedal procedure with no MIDI
+readback, so it cannot be automated and is only worth doing for a sound that
+matters. Noted so nobody re-derives it.)
+
+**Meris is a different case, and possibly a solved one.** Its sixteen presets
+are held in the Meris editor app, not only in the pedal — which means the values
+and the names may both be exportable. If that library can be read, Meris slot
+references become captured presets carrying their real names, and the problem
+that motivated slot references in the first place disappears for this brand.
+Worth investigating before building anything else here. Unresolved: what format
+the editor writes, and whether it round-trips.
+
+Two shapes share the mechanism and should not be conflated:
+
+- **Factory reservations** — static, brand-level, declarative. Belongs beside
+  `managed` in `rig.json`, so it is versioned with the repo and identical for
+  everyone with that pedal. Covers "the Strymon factory presets" and "the first
+  two Chase Bliss".
+- **Owner locks** — dynamic, per slot, set from the UI on a sound the owner has
+  decided not to risk. Belongs in the store beside the presets.
+
+Note that a lock here is *advisory*, and should be honest about that. This app
+never writes a pedal's preset memory — no MIDI message it sends causes a save.
+What it does is run the ceremony that tells the owner to hold the footswitch.
+So the lock intercepts a human action, not a transmission, and its whole job is
+to be read before the foot goes down.
+
+### Keeping the belief synced: observe, don't mediate
+
+*Confirmed empirically 2026-08-16.* The MC6 mirrors its pedal-bound messages to
+USB as well as DIN — a footswitch programmed to send a MOOD CC shows up in the
+app console. This was the open question behind two competing designs, and it
+settles it in favour of the cheaper one.
+
+**Rejected: mediation.** Program each switch to emit on an app-owned channel;
+the app translates and forwards to the pedal. It syncs perfectly, but it makes
+the app load-bearing — browser closed and the pedalboard is dead.
+
+**Adopted: observation.** The MC6 keeps talking to the pedals directly. The app
+listens to every channel and updates its belief from what it hears. Same sync
+while the app is running, no added latency, no MC6 reprogramming, and the board
+still works when the app does not. It also picks up switches programmed by hand
+in the Morningstar editor, which mediation never would.
+
+`MC6MidiReceived` currently interprets channel 1 (board recall) and channel 13
+(Itajara) and drops the rest on the floor. The work is to decode the rest
+against the registry — every pedal declares its channel and its CCs, so the
+mapping already exists.
+
+Mediation stays correct for exactly one thing: where a single gesture must
+become many messages. Board recall is the case — one proxy CC expanding to
+twelve Program Changes in the app, which as a bonus removes the 16-message
+truncation described in §5. Channels 9 and 16 remain free for this.
+
+Neither mechanism sees a knob turned by hand, and neither knows what happened
+while the app was closed. That is what §3's reset is for: observation *keeps*
+belief true, only a reset can *make* it true.
+
 ---
 
 ## 4. The MC6: two kinds of switch
@@ -194,3 +359,8 @@ probably worth keeping for the looper.
 5. **Is a board preset allowed to be partial** — addressing only some pedals,
    leaving the rest as they are? The budget permits it and it is probably more
    useful than an all-twelve scene.
+6. ~~**Where do factory reservations end?**~~ Resolved: don't declare them. The
+   app cannot know which slots shipped with content, the loss is recoverable by
+   factory reset, and with hundreds of slots there is no reason to save low
+   anyway. Ship the lock mechanism empty and let the owner lock what they
+   actually care about. §3.

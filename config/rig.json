@@ -80,6 +80,10 @@
     {
       "brand": "Strymon",
       "range": {
+        "start": 0,
+        "count": 128
+      },
+      "managed": {
         "start": 50,
         "count": 26
       }
@@ -89,6 +93,10 @@
       "range": {
         "start": 1,
         "count": 122
+      },
+      "managed": {
+        "start": 50,
+        "count": 73
       }
     }
   ],

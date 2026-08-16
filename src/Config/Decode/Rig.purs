@@ -4,7 +4,7 @@ module Config.Decode.Rig
 
 import Prelude
 
-import Config.Types (MidiMatch, MidiRouting, PedalEntry, RigConfig, SlotRange)
+import Config.Types (BrandSlots, MidiMatch, MidiRouting, PedalEntry, RigConfig, SlotRange)
 import Data.Argonaut.Core (Json)
 import Data.Argonaut.Core as Json
 import Data.Int as Int
@@ -61,11 +61,19 @@ decodeMidiMatch json = do
   match <- lookupStr "match" obj
   Just { match }
 
-decodeSlotRangeEntry :: Json -> Maybe { brand :: String, range :: SlotRange }
+-- | `managed` is optional: a rig.json written before the browse/save split
+-- | still decodes, and simply has no house convention for where to save.
+decodeSlotRangeEntry :: Json -> Maybe { brand :: String, slots :: BrandSlots }
 decodeSlotRangeEntry json = do
   obj <- Json.toObject json
   brand <- lookupStr "brand" obj
-  rangeJson <- FO.lookup "range" obj >>= Json.toObject
-  start <- lookupNum "start" rangeJson
-  count <- lookupNum "count" rangeJson
-  Just { brand, range: { start, count } }
+  range <- FO.lookup "range" obj >>= decodeSpan
+  let managed = FO.lookup "managed" obj >>= decodeSpan
+  Just { brand, slots: { range, managed } }
+
+decodeSpan :: Json -> Maybe SlotRange
+decodeSpan json = do
+  obj <- Json.toObject json
+  start <- lookupNum "start" obj
+  count <- lookupNum "count" obj
+  Just { start, count }

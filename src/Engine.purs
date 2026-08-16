@@ -102,6 +102,10 @@ type AppState =
   -- Result of the last looper-bank programming run, shown on the Looper page.
   , looperProgramStatus :: Maybe String
   , midiTest :: Maybe String
+  -- | Outcome of the last baseline sweep, shown on the pedal card that
+  -- | triggered it. Separate from `midiTest` because that changes on every CC
+  -- | from anywhere and would flicker noise into the card.
+  , baselineStatus :: Maybe String
   -- Manual CC test on the MIDI page: channel and CC to poke at the rig.
   , testCh :: Int
   , testCC :: Int
@@ -172,6 +176,7 @@ initAppState =
   , mc6LooperBankNum: 21
   , looperProgramStatus: Nothing
   , midiTest: Nothing
+  , baselineStatus: Nothing
   , testCh: 3
   , testCC: 1
   , mc6DiagBankNum: 30

@@ -635,6 +635,25 @@ body {
 
 .preset-actions input[type="file"] { display: none; }
 
+/* Baseline sits apart from Save/Reference: those record what the pedal is
+   doing, this one asserts it. Pushed to the right so it is not clicked by
+   reflex on the way to the other two. */
+.preset-actions .baseline-btn {
+  margin-left: auto;
+  border-style: dashed;
+  color: var(--fg-muted);
+}
+.preset-actions .baseline-btn:hover {
+  color: var(--fg);
+  border-style: solid;
+}
+.baseline-status {
+  margin: -8px 0 14px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--fg-muted);
+}
+
 /* Preset save form */
 .preset-save-form {
   padding: 12px;
@@ -676,6 +695,58 @@ body {
   border-color: var(--active-bg);
 }
 
+/* Slot reference: audition a numbered slot, then keep it */
+.preset-slot-ref-form {
+  padding: 12px;
+  background: var(--bg-section);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+}
+.slot-ref-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.slot-ref-row label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-muted);
+}
+.slot-ref-row input {
+  padding: 6px 8px;
+  font-size: 14px;
+  font-family: inherit;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.slot-ref-number { width: 72px; font-variant-numeric: tabular-nums; }
+.slot-ref-name { flex: 1 1 140px; min-width: 120px; }
+.slot-ref-row button {
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  background: var(--bg);
+}
+.slot-ref-row .save-confirm {
+  background: var(--active-bg);
+  color: var(--active-fg);
+  border-color: var(--active-bg);
+}
+.slot-ref-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--fg-muted);
+}
+
 /* Preset list */
 .preset-list {
   list-style: none;
@@ -694,10 +765,20 @@ body {
   color: var(--fg-muted);
   margin: 0 0 8px;
 }
+.slot-grid-heading.collapsible {
+  cursor: pointer;
+  user-select: none;
+}
+.slot-grid-heading.collapsible:hover { color: var(--fg); }
 .slot-grid {
   display: grid;
   grid-template-columns: repeat(13, 1fr);
   gap: 4px;
+  /* A full Program Change span is 128 buttons. Cap the height so a wide brand
+     does not push the preset list off the card, and let it scroll instead. */
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 2px;
 }
 .slot-btn {
   padding: 6px 2px;
@@ -719,6 +800,27 @@ body {
 .slot-btn.last-sent {
   background: var(--active-bg, #e8e8e8);
   box-shadow: 0 0 0 1px var(--fg-muted);
+}
+/* The region this app saves into. Everything outside it is the pedal's own
+   content, which is browsable but not ours to overwrite by default. */
+.slot-btn.managed {
+  border-color: var(--pedal-color, var(--fg-muted));
+}
+.slot-grid-legend {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--fg-muted);
+}
+.slot-legend-swatch {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--pedal-color, var(--fg-muted));
+  border-radius: 3px;
 }
 
 .preset-item {
@@ -757,6 +859,14 @@ body {
 .preset-slot-badge.library {
   background: var(--border);
   color: var(--fg-muted);
+}
+/* A reference carries the pedal's colour but wears it hollow: same pedal,
+   but a pointer at a sound rather than a copy of one. The inline style sets
+   only the background, so the border and inset read through. */
+.preset-slot-badge.ref {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55);
+  opacity: 0.8;
+  letter-spacing: 0.03em;
 }
 
 .preset-date {
