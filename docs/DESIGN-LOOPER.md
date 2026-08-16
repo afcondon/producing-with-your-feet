@@ -787,9 +787,24 @@ Stages 1–3 are **done** (2026-08-14). Ordered so each is usable on its own:
 9. **Export** — layers to disk as WAVs plus a manifest. The route into Ableton,
    and the precondition for loop slots. **Promoted 2026-08-16:** driving Ableton
    from the floor was dropped along with LoopyPro (`DESIGN-CONTROLS.md` §5), so
-   export is no longer one route into the DAW — it is the only one. Everything
-   below it in this list assumes loops leave the daemon eventually; this is
-   where that becomes true.
+   getting loops out of the daemon is no longer one route into the DAW — it is
+   the only one. Everything below it in this list assumes loops leave the daemon
+   eventually; this is where that becomes true.
+
+   **Files are the cheap answer, not necessarily the right one.** Living inside
+   Ableton — as a plugin, or a Max for Live device talking to the daemon — would
+   beat a manifest of WAVs, because the loop would still be a loop rather than a
+   rendered artefact, and the overdub-after-the-fact ideas in §13 would survive
+   the trip. Three things make it less far-fetched than it sounds: `continuo`
+   already hosts AudioUnit and VST3 plugins headlessly in this rig, so plugin
+   machinery is not foreign; Link is already running, so tempo agreement is
+   solved; and the daemon's engine is a library the wrapper would call rather
+   than a program it would have to reimplement.
+
+   Unresolved, and worth an afternoon's investigation before committing to
+   either: whether the wrapper hosts the engine in-process or talks to the
+   running daemon, and what that does to the frame-counter clock pairing that
+   §3 depends on. Export-to-files is the fallback that certainly works.
 10. **Reverse, half-speed, decoupled time/pitch**, global and per-layer.
 11. **Loop slots and sequences.** The 1440's move beyond the 720. Needs §15's
     storage model.

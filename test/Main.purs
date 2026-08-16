@@ -18,6 +18,7 @@ import Data.MC6.Board as Board
 import Data.MC6.ControlBank as ControlBank
 import Data.MC6.Message as MC6Msg
 import Data.MC6.Types (MC6Action(..))
+import Data.MC6.Survey as Survey
 import Data.MC6.Verb as Verb
 import Data.Tuple (Tuple(..))
 import Pedals.Registry as Registry
@@ -291,6 +292,52 @@ main = do
     (Verb.classify reg 1 [ MC6Msg.bankJumpMessage 22 ActionPress ] == Verb.Navigation (Verb.ToBank 22))
   assert "a CC on the relay channel is a scene, not a pedal action"
     (Verb.classify reg 1 [ MC6Msg.ccMessage 1 20 127 ActionPress ] == Verb.Scene { cc: 20 })
+
+  log ""
+  log "Running MC6 survey tests..."
+
+  let cards = Survey.survey reg 1 [ ControlBank.exampleControlBank ] []
+
+  assert "the survey covers all 30 banks" (Array.length cards == Survey.bankCount)
+  assert "a known bank has 12 slots"
+    (Array.all (\c -> Array.length c.slots == 12) (Survey.knownBanks cards))
+  -- An unknown bank has *no* slots rather than twelve blank ones. Twelve blanks
+  -- would assert twelve empty switches, which is precisely the claim we cannot
+  -- make about a bank nobody has looked at.
+  assert "an unknown bank has no slots at all"
+    (Array.all (\c -> Array.null c.slots)
+      (Array.filter (\c -> c.provenance == Survey.Unknown) cards))
+
+  -- The distinction the whole view turns on: we authored one bank, and know
+  -- nothing whatever about the other twenty-nine. Painting those as empty
+  -- would be a lie about most of the instrument.
+  assert "only the authored bank is known" (Array.length (Survey.knownBanks cards) == 1)
+  assert "unknown banks are Unknown, not empty"
+    (Array.all (\c -> c.provenance == Survey.Unknown)
+      (Array.filter (\c -> c.bankNumber /= 20) cards))
+
+  -- The default bank lives at 20 and its nine switches pad out to twelve.
+  case Array.find (\c -> c.bankNumber == 20) cards of
+    Nothing -> assert "default control bank surveyed at bank 20" false
+    Just c -> do
+      assert "default control bank surveyed at bank 20" (c.provenance == Survey.Authored)
+      assert "its name survives the survey" (c.name == "Default Controls")
+      assert "padding to 12 is Blank, not Raw"
+        (Array.length (Array.filter (_ == Verb.Blank) c.slots) == 4)
+
+  -- Navigation edges: the default bank's return switch carries no jump until
+  -- the bank is compiled, so an uncompiled survey has no edges to draw.
+  assert "no phantom navigation edges" (Array.null (Survey.navigationEdges cards))
+
+  let navCard =
+        { bankNumber: 1, name: "Boards", provenance: Survey.Authored
+        , slots: [ Verb.Navigation (Verb.ToBank 20), Verb.Blank ] }
+  assert "a bank jump becomes a graph edge"
+    (Survey.navigationEdges [ navCard ] == [ Tuple 1 20 ])
+  assert "unknown banks contribute no edges"
+    (Array.null (Survey.navigationEdges
+      [ { bankNumber: 5, name: "", provenance: Survey.Unknown
+        , slots: [ Verb.Navigation (Verb.ToBank 3) ] } ]))
 
   log ""
   log "Done."
