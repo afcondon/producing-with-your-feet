@@ -311,11 +311,24 @@ per-bank and lazily** — it fetched the current bank's names as the owner
 navigated, not all thirty up front. So verification can be incremental and
 cheap rather than an all-or-nothing dump.
 
-**Still missing: the request frames.** The sniffer listens to the device's
-output, so it captured replies and not the editor's questions. Morningstar's
-protocol appears to echo the function ID, so the obvious experiment is to send
-`F1=0x11 F2=0x05` with an empty payload and see whether the bank names come
-back. A read request writes nothing, so it is safe to try.
+**Resolved 2026-08-16: there are no request frames.** Sending `F1=0x11 F2=0x05`
+drew nothing, and neither did sweeping the function-code space — because the
+device is never asked. `sysexConnect` makes it *volunteer* a full dump:
+controller settings, then every bank name in one frame, then the twelve switch
+names of whichever bank it is currently on. Confirmed four times in one session
+(`test/mc6-connect-dump-20260816.json`), and it is why the very first probe
+button was the only one that appeared to do anything — it was already doing the
+whole job.
+
+So reading the MC6 is **connect, listen, disconnect**. Two consequences:
+
+- A connect yields **all thirty bank names but only one bank's switches.** The
+  device re-announces `09 01` whenever the current bank changes, so walking the
+  banks would fill in the rest — at the cost of moving the device, which makes
+  it a deliberate action rather than something a read should do by default.
+- Session control is real and shared: our disconnect frame demonstrably drops
+  the official editor's session. Anything reading the device should assume the
+  editor may be holding one, and that closing ours affects it.
 
 A file export is a snapshot and goes stale. The editor reads live because that
 is the only thing that is true.

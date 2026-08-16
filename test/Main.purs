@@ -4,7 +4,6 @@ import Prelude
 
 import Data.Argonaut.Core (stringify)
 import Data.Array as Array
-import Data.Int.Bits (xor)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), isJust, isNothing, maybe)
 import Data.Midi (makeCC, makeMidiValue, makeProgramNumber)
@@ -384,26 +383,10 @@ main = do
                       , 0, 0, 0, 0, 0, 0, 0, 18, 0, 0xF7 ]
       == Just (Read.OtherReply 0x06 0x01))
 
-  -- Requests are 18 bytes with a correct checksum and self-declared length,
-  -- both rules taken from the captured replies.
-  let checkFrame label f =
-        let n = Array.length f
-            declared = case Array.index f 14, Array.index f 15 of
-              Just hi, Just lo -> hi * 128 + lo
-              _, _ -> -1
-            body = Array.dropEnd 2 f
-            cs = Array.foldl xor 0 body `mod` 128
-        in do
-          assert (label <> ": 18 bytes") (n == 18)
-          assert (label <> ": declares its own length") (declared == n)
-          assert (label <> ": checksum is right")
-            (Array.index f 14 /= Nothing && Array.index f (n - 2) == Just cs)
-          assert (label <> ": terminated") (Array.index f (n - 1) == Just 0xF7)
-
-  checkFrame "bank-names request" Read.requestBankNames
-  checkFrame "bank-switches request" (Read.requestBankSwitches 19)
-  assert "the bank number rides in F3, 0-based"
-    (Array.index (Read.requestBankSwitches 19) 8 == Just 19)
+  -- No request-frame tests: there are no request frames. Sweeping the
+  -- function-code space found nothing that asks for bank data, because the
+  -- device volunteers a full dump on connect instead. All this module does is
+  -- decode, and the decoder is tested above against the device's own bytes.
 
   log ""
   log "Done."

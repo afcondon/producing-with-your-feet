@@ -12,14 +12,25 @@
 -- | to it blind — which is how a generated looper bank came to be sitting on top
 -- | of a hand-built one, with the old bank's name still showing.
 -- |
+-- | **There is no read request, and that was the whole difficulty.** A sweep of
+-- | the function-code space found nothing that asks for bank data, because the
+-- | device is not asked: `sysexConnect` makes it *volunteer* a full dump —
+-- | controller settings, then every bank name in one frame, then the twelve
+-- | switch names of whichever bank it is currently sitting on. Verified four
+-- | times over in `test/mc6-connect-dump-20260816.json`. So reading the MC6 is
+-- | connect, listen, disconnect, and this module only has to decode.
+-- |
+-- | The consequence to know: a connect yields **all thirty bank names but only
+-- | one bank's switches**. The device re-announces `09 01` whenever the current
+-- | bank changes, so walking the banks would fill in the rest — at the cost of
+-- | moving the device, which makes it a deliberate action rather than a default.
+-- |
 -- | **Bank numbers here are what the wire uses: 0-based.** Morningstar's editor
 -- | displays them 1-based, so wire 19 is the bank the editor calls 20. Three
 -- | independent confirmations are recorded in `DESIGN-CONTROLS.md` §7. Getting
 -- | this backwards silently writes to a neighbouring bank.
 module Data.MC6.Read
   ( MC6Reply(..)
-  , requestBankNames
-  , requestBankSwitches
   , decodeReply
   , replyBank
   ) where
@@ -28,53 +39,10 @@ import Prelude
 
 import Data.Array as Array
 import Data.Char (fromCharCode)
-import Data.Foldable (foldl)
-import Data.Int.Bits (shr, xor, (.&.))
 import Data.Maybe (Maybe(..))
 import Data.String.CodeUnits as SCU
 import Data.String as Str
 import Data.Tuple (Tuple(..))
-
-manufacturerId :: Array Int
-manufacturerId = [ 0x00, 0x21, 0x24 ]
-
-mc6mk2DeviceId :: Int
-mc6mk2DeviceId = 0x03
-
--- | XOR of every byte before it, masked to seven bits. Verified against the
--- | capture: both sampled reply frames reproduce their own checksum exactly, so
--- | this is the same rule the device uses in both directions.
-checksum :: Array Int -> Int
-checksum bytes = foldl xor 0 bytes .&. 0x7F
-
--- | Build a request.
--- |
--- | Differs from `SysEx.sysexFrame` in one respect discovered from the capture:
--- | bytes 14 and 15 carry the **total frame length** as a fourteen-bit value,
--- | most significant seven bits first. Every captured frame agrees with its own
--- | declared length. The upload path leaves those bytes zero and demonstrably
--- | works, so the device does not appear to check them on input — but a request
--- | is a new conversation and there is no reason to send a field wrong when the
--- | correct value is known.
-request :: Array Int -> Array Int
-request funcIds =
-  let padded = Array.take 6 (funcIds <> Array.replicate 6 0)
-      -- 16 header + 0 payload + checksum + F7
-      total = 18
-      body =
-        [ 0xF0 ] <> manufacturerId <> [ mc6mk2DeviceId, 0x00 ] <> padded
-          <> [ 0x00, 0x00, (total `shr` 7) .&. 0x7F, total .&. 0x7F ]
-  in body <> [ checksum body, 0xF7 ]
-
--- | Every bank name in one frame. The cheapest possible whole-instrument read:
--- | one request labels all thirty cards.
-requestBankNames :: Array Int
-requestBankNames = request [ 0x11, 0x05 ]
-
--- | The twelve switch names of one bank. The editor issues this per bank as you
--- | navigate rather than dumping everything, so verification can be incremental.
-requestBankSwitches :: Int -> Array Int
-requestBankSwitches bank = request [ 0x09, 0x01, bank ]
 
 data MC6Reply
   = BankNames (Array (Tuple Int String))
