@@ -153,9 +153,32 @@ Two consequences worth stating plainly, because both were previously beliefs.
 the MC6 or pedal SysEx we send. And **Realtime is not filtered either**, so MIDI
 clock passes everywhere, which matters once Itajara is in the path.
 
-Per-channel filters and remaps are still unread; they are `29 × 16 × 2` round
-trips and a remap is the worse failure of the two, since it delivers to the
-wrong pedal rather than to none.
+**Per-channel: nothing filtered, nothing remapped, anywhere.** All 29 ports ×
+16 channels were read — 464 entries of `GetFilterChannelIn/Out` and
+`GetRemapChannelInSysEx1/Out` — and every single one is identical:
+
+```json
+[ [], [], { "channel": 1, "filters": [] }, { "channel": 1, "filters": [] } ]
+```
+
+Both filter arrays empty means no message type is dropped on any channel of any
+port. (On a SysEx1 device the per-channel codes are `1` Note On/Off, `2` Poly
+Key, `3` Control Change, `4` Program Change, `5` Channel Pressure, `6` Pitch
+Bend — so an empty array is a real answer, not a missing one.)
+
+The remap structs need one step of care, because a constant is exactly what a
+broken getter looks like. `filters` in a remap lists *which message types get
+remapped* — Auracle's own `ToggleRemap` pushes and pops type codes into that
+array — so `filters: []` means the remap is inactive and the `channel` field
+never applies. And `channel` reading **1 for every channel asked for** is what
+settles it: a real identity mapping would report channel N for channel N, so a
+flat 1 is an inert stored default rather than a routing decision. Remapping is
+off across the whole device.
+
+This is the reassuring outcome, and it was worth confirming rather than
+assuming: a remap is the worst failure mode in the rig, because it delivers to
+the *wrong* pedal instead of to none, and the symptom is a pedal that responds
+to somebody else's knob.
 
 ## What would actually be worth having
 

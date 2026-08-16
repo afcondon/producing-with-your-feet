@@ -553,5 +553,32 @@
     9
    ]
   }
- ]
+ ],
+ "channelFilterCodes": {
+  "1": "Note On/Off",
+  "2": "Poly Key",
+  "3": "Control Change",
+  "4": "Program Change",
+  "5": "Channel Pressure",
+  "6": "Pitch Bend"
+ },
+ "channels": {
+  "covered": "all 29 ports x 16 channels = 464 entries, GetFilterChannelIn/Out and GetRemapChannelInSysEx1/Out",
+  "entryCount": 464,
+  "distinctValues": 1,
+  "value": [
+   [],
+   [],
+   {
+    "channel": 1,
+    "filters": []
+   },
+   {
+    "channel": 1,
+    "filters": []
+   }
+  ],
+  "shape": "[filterChannelIn, filterChannelOut, remapChannelIn, remapChannelOut]",
+  "reading": "Every entry identical. Both filter arrays empty: no message type is filtered on any channel of any port. Both remap structs carry filters:[] -- the filters array lists which message types get remapped, so empty means the remap is inactive and its channel field never applies. That channel reads 1 for every channel asked for, which is what makes it inert rather than an identity mapping: a real identity map would report channel N for channel N."
+ }
 }
