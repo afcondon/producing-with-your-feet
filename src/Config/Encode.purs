@@ -75,11 +75,13 @@ engageToJson = case _ of
     [ "type" /\ str "single"
     , "cc" /\ num (unCC cc)
     ]
-  DualEngage { a, b } -> obj
+  DualEngage { a, b, both } -> obj $
     [ "type" /\ str "dual"
     , "a" /\ obj [ "cc" /\ num (unCC a.cc), "label" /\ str a.label ]
     , "b" /\ obj [ "cc" /\ num (unCC b.cc), "label" /\ str b.label ]
-    ]
+    ] <> case both of
+      Nothing -> []
+      Just cc -> [ "both" /\ num (unCC cc) ]
 
 ccMapToJson :: Map.Map CC MidiValue -> Json
 ccMapToJson vals =

@@ -1541,8 +1541,20 @@ body {
 .boards-persist-hidden { display: none; }
 .boards-wrapper { display: flex; gap: 12px; }
 .boards-wrapper > .grid-view { flex: 0 0 340px; grid-template-columns: 1fr; }
-.boards-wrapper > .boards-view { flex: 0 1 560px; min-width: 0; }
-.boards-wrapper > .right-panels { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.boards-wrapper > .boards-view { flex: 1; min-width: 0; }
+
+/* Build on the left, library on the right. The right column was the MC6;
+   assignment to switches now lives on the Controls page instead. */
+.boards-view {
+  display: grid;
+  grid-template-columns: minmax(0, 560px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.boards-build-col, .boards-library-col { min-width: 0; }
+@media (max-width: 1100px) {
+  .boards-view { grid-template-columns: minmax(0, 1fr); }
+}
 
 /* --- Boards View --- */
 
@@ -2063,6 +2075,26 @@ body {
   border-radius: 3px;
   color: var(--fg);
   min-width: 120px;
+}
+
+/* Compiled cost against the MC6's 16-message preset ceiling. Shown always,
+   because the number is not guessable from the board's contents. */
+.boards-item-budget {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 6px;
+  border-radius: 10px;
+  color: var(--fg-muted);
+  background: var(--bg-section);
+  border: 1px solid var(--border-light);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.boards-item-budget.over {
+  color: #fff;
+  background: #b3261e;
+  border-color: #b3261e;
 }
 
 .boards-item-assigned-badge {

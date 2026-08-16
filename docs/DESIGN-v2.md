@@ -263,10 +263,13 @@ in the Morningstar editor, which mediation never would.
 against the registry — every pedal declares its channel and its CCs, so the
 mapping already exists.
 
-Mediation stays correct for exactly one thing: where a single gesture must
-become many messages. Board recall is the case — one proxy CC expanding to
-twelve Program Changes in the app, which as a bonus removes the 16-message
-truncation described in §5. Channels 9 and 16 remain free for this.
+Mediation now has **no default use**. It was expected to be needed for board
+recall — one proxy CC expanding to twelve Program Changes — on the grounds that
+a scene could not fit in sixteen messages and that a direct recall would break
+the app's picture of the board. Neither holds: scenes generally fit (see the
+corrected budget in §5), and the app observes a direct recall going past like
+any other traffic. It stays available as a deliberate escape hatch for a scene
+that wants to exceed the ceiling; channels 9 and 16 remain free for that.
 
 Neither mechanism sees a knob turned by hand, and neither knows what happened
 while the app was closed. That is what §3's reset is for: observation *keeps*
@@ -299,7 +302,44 @@ An MC6 MKII preset carries **at most 16 messages**. With twelve pedals that is
 the binding constraint on what a board preset can express.
 
 **The rule v2 adopts:** a board changes *at most one thing per pedal* — either
-a bypass **or** a program change. Twelve pedals, twelve messages, four spare.
+a bypass **or** a program change.
+
+**Corrected 2026-08-16.** That rule was costed as "twelve pedals, twelve
+messages, four spare". Wrong: a *dual-engage* pedal takes two CCs to bypass, and
+four of the thirteen are dual-engage (Flint, Lost + Found, MOOD, Onward). One
+thing per pedal across all twelve therefore costs up to **sixteen** messages,
+and the bank jump makes seventeen. The discipline is right; the headroom does
+not exist.
+
+Compiled from the real library: `test board 2` costs 16 + jump and is **already
+over**, `Testing board presets` sits exactly on 16, and the other three cost six
+or fewer. So the ceiling is not theoretical, and `SysEx.purs` drops the overflow
+silently via `Array.take 16` — a board that reads correctly on screen is missing
+messages on the hardware.
+
+**The headroom is recoverable.** Most or all of the two-channel pedals accept a
+single message that bypasses the whole pedal, rather than one CC per channel.
+`Flint` declares `CC 33 "Both"` beside its two channel toggles, and `MOOD`
+declares `CC 55 "True Bypass"`; `Onward` and `Lost + Found` declare nothing, but
+the Chase Bliss pedals share a MIDI implementation, so that is more likely a gap
+in our transcription than a gap in the pedals. With a one-message bypass for all
+four, `test board 2` drops from 17 to 14 and `Testing board presets` from 16 to
+13 — comfortably inside the budget.
+
+Two things to get right before treating it as free:
+
+- **`config/pedals/*.json` is a partial transcription.** Habit's `Other` section
+  has two entries; these files were written for the controls that mattered at
+  the time, not as complete MIDI specs. Verify against the manuals.
+- **True bypass is not "both channels off".** Dropping the relay takes the pedal
+  out of the path and cuts trails; turning both channels off leaves it buffered
+  and may let them ring. For a board that *establishes* a starting point the
+  former is usually right, but they are different sounds and the config should
+  not conflate them.
+
+The mechanism: `DualEngage { a, b }` gains an optional `both :: Maybe CC`, and
+the compiler emits the single message where it is declared and two where it is
+not — so an unverified pedal stays correct-but-expensive rather than wrong.
 
 This is what makes flashing (§3) necessary rather than merely an optimisation.
 Sending a preset as parameters costs one message per changed CC, which blows

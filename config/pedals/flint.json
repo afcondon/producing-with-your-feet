@@ -17,7 +17,8 @@
     "b": {
       "cc": 16,
       "label": "Verb"
-    }
+    },
+    "both": 33
   },
   "baseline": {
     "0": 0,

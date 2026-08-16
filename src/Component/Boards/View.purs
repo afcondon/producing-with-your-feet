@@ -31,6 +31,7 @@ import Halogen.HTML.Properties as HP
 import Config.Registry (PedalRegistry)
 import Config.Registry as CRegistry
 import Data.MC6.Types (MC6NativeBank)
+import Data.MC6.Board as Board
 
 type Input =
   { engine :: EngineState
@@ -40,6 +41,10 @@ type Input =
   , registry :: PedalRegistry
   , mc6ActiveBank :: Maybe MC6NativeBank
   , mc6Assignments :: Array MC6Assignment
+  -- | The control bank a board switch long-presses into, if any. Needed here
+  -- | only because it adds one message to the compiled board, and a budget
+  -- | that ignored it would be wrong by exactly the amount that matters.
+  , controlBankNum :: Maybe Int
   }
 
 data Output
@@ -127,11 +132,21 @@ initialState i =
   , editNotes: ""
   }
 
+-- | Two columns: build a board on the left, the library on the right.
+-- |
+-- | The right column used to hold a picture of the MC6. That put two different
+-- | assignment surfaces for the same twelve physical switches in the app — this
+-- | one and the Controls page — and made Boards look like a page about the
+-- | pedalboard controller rather than a page about sounds. Boards is the
+-- | library; putting things on switches happens in one place, which is
+-- | Controls.
 render :: forall m. State -> H.ComponentHTML Action () m
 render state =
   HH.div [ HP.class_ (H.ClassName "boards-view") ]
-    [ renderBuilderGrid state
-    , renderBoardList state
+    [ HH.div [ HP.class_ (H.ClassName "boards-build-col") ]
+        [ renderBuilderGrid state ]
+    , HH.div [ HP.class_ (H.ClassName "boards-library-col") ]
+        [ renderBoardList state ]
     ]
 
 renderBuilderGrid :: forall m. State -> H.ComponentHTML Action () m
@@ -274,6 +289,29 @@ renderBoardItem state bp =
         _ -> renderBoardItemNormal state bp
     ]
 
+-- | What this board costs on the MC6, out of the sixteen a preset can hold.
+-- |
+-- | Worth showing on every board rather than only when it overflows, because
+-- | the number is not guessable: a dual-engage pedal costs two messages to
+-- | bypass unless it declares a whole-pedal bypass, so two boards touching the
+-- | same twelve pedals can differ by four. The count comes from compiling the
+-- | board — the same function that sends it — so it cannot flatter.
+renderBudget :: forall m. State -> BoardPreset -> H.ComponentHTML Action () m
+renderBudget state bp =
+  HH.span
+    [ HP.class_ (H.ClassName ("boards-item-budget" <> if over then " over" else ""))
+    , HP.title (if over
+        then "Over the MC6's 16-message limit: the last "
+               <> show (n - Board.messageLimit)
+               <> " would be dropped. Set a pedal to \x2014\x2014 to get back under."
+        else "Compiles to " <> show n <> " of the MC6's 16 messages.")
+    ]
+    [ HH.text (show n <> "/" <> show Board.messageLimit) ]
+  where
+  n = Board.boardMessageCount state.input.registry state.input.presets
+        state.input.controlBankNum bp
+  over = n > Board.messageLimit
+
 renderBoardItemNormal :: forall m. State -> BoardPreset -> H.ComponentHTML Action () m
 renderBoardItemNormal state bp =
   let assignedSwitch = Array.findMap (\a ->
@@ -286,6 +324,7 @@ renderBoardItemNormal state bp =
             Just idx -> HH.span [ HP.class_ (H.ClassName "boards-item-assigned-badge") ]
               [ HH.text (switchLetter idx) ]
             Nothing -> HH.text ""
+        , renderBudget state bp
         , HH.span [ HP.class_ (H.ClassName "boards-item-date") ] [ HH.text (SCU.take 10 bp.modified) ]
         ]
     , if bp.notes /= ""

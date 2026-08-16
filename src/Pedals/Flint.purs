@@ -35,6 +35,7 @@ pedal =
   , engage: DualEngage
       { a: { cc: cc 10, label: "Trem" }
       , b: { cc: cc 16, label: "Verb" }
+      , both: Just (cc 33)
       }
   , baseline: Map.fromFoldable
       [ cc 0 /\ mv 0, cc 10 /\ mv 127, cc 11 /\ mv 1, cc 12 /\ mv 64

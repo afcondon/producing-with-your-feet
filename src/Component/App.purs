@@ -18,7 +18,8 @@ import Data.MC6.ControlBank as ControlBank
 import Data.MC6.Diagnostics as Diagnostics
 import Data.MC6.Message as MC6Msg
 import Data.MC6.SysEx as SysEx
-import Data.MC6.Types (MC6Message, MC6NativeBank, MC6Preset, MC6Action(..))
+import Data.MC6.Types (MC6Action(..), MC6NativeBank, MC6Preset)
+import Data.MC6.Board as Board
 import Data.Foldable (any, for_)
 import Data.Map as Map
 import Data.Int as Int
@@ -228,10 +229,10 @@ render state = case state.configError of
               , registry: state.registry
               , mc6ActiveBank: Array.find (\b -> b.bankNumber == state.mc6BoardBankNum) state.mc6Banks
               , mc6Assignments: state.mc6Assignments
+              , controlBankNum: map _.mc6BankNumber
+                  (state.activeControlBankIdx >>= Array.index state.controlBanks)
               }
               HandleBoards
-          , HH.div [ HP.class_ (H.ClassName "right-panels") ]
-              [ renderMC6Panel state ]
           ]
         )
     ]
@@ -675,73 +676,6 @@ renderMidiDiagnostics state =
   portList ports =
     if Array.null ports then HH.p_ [ HH.text "(none)" ]
     else HH.div_ (map (\p -> line ("name=\"" <> p.name <> "\"") ("id=\"" <> p.id <> "\"")) ports)
-
--- | MC6 footswitch panel — 3 rows of 3 in hardware layout: D E F / A B C / G H I
-renderMC6Panel :: forall m. MonadAff m => AppState -> H.ComponentHTML Action Slots m
-renderMC6Panel state =
-  HH.div [ HP.class_ (H.ClassName "mc6-panel") ]
-    [ HH.div [ HP.class_ (H.ClassName "mc6-header") ]
-        [ HH.span [ HP.class_ (H.ClassName "mc6-title") ] [ HH.text "MC6" ]
-        , HH.button
-            [ HP.class_ (H.ClassName "mc6-clear-btn")
-            , HE.onClick \_ -> ClearMC6Bank
-            ]
-            [ HH.text "Clear" ]
-        , HH.button
-            [ HP.class_ (H.ClassName "mc6-export-btn")
-            , HE.onClick \_ -> ExportMC6BackupAction
-            ]
-            [ HH.text "Export" ]
-        ]
-    , HH.div [ HP.class_ (H.ClassName "mc6-bank-tabs") ]
-        (map (\n ->
-          HH.button
-            [ HP.class_ (H.ClassName ("mc6-bank-tab" <> if n == state.mc6BoardBankNum then " active" else ""))
-            , HE.onClick \_ -> SelectBoardBank n
-            ]
-            [ HH.text (show n) ]
-        ) [1, 2, 3, 4, 5])
-    , HH.div [ HP.class_ (H.ClassName "mc6-switches") ]
-        -- Row 1: D E F (preset indices 3, 4, 5)
-        [ renderSwitchRow "D" 3, renderSwitchRow "E" 4, renderSwitchRow "F" 5
-        -- Row 2: A B C (preset indices 0, 1, 2)
-        , renderSwitchRow "A" 0, renderSwitchRow "B" 1, renderSwitchRow "C" 2
-        -- Row 3: G H I (preset indices 6, 7, 8)
-        , renderSwitchRow "G" 6, renderSwitchRow "H" 7, renderSwitchRow "I" 8
-        ]
-    ]
-  where
-  -- Look up board assignment for a switch in the active board bank
-  boardForSwitch :: Int -> Maybe { boardPresetId :: String, boardName :: String }
-  boardForSwitch idx =
-    case Array.find (\a -> a.bankNumber == state.mc6BoardBankNum && a.switchIndex == idx) state.mc6Assignments of
-      Just a -> case Array.find (\bp -> bp.id == a.boardPresetId) state.boardPresets of
-        Just bp -> Just { boardPresetId: a.boardPresetId, boardName: bp.name }
-        Nothing -> Nothing
-      Nothing -> Nothing
-
-  renderSwitchRow :: String -> Int -> H.ComponentHTML Action Slots m
-  renderSwitchRow letter idx =
-    case boardForSwitch idx of
-      Just board ->
-        HH.div
-          [ HP.class_ (H.ClassName "mc6-switch board-assigned")
-          , HE.onClick \_ -> ClickMC6Switch idx
-          ]
-          [ HH.span [ HP.class_ (H.ClassName "mc6-switch-letter") ] [ HH.text letter ]
-          , HH.span [ HP.class_ (H.ClassName "mc6-switch-label") ] [ HH.text (SCU.take 8 board.boardName) ]
-          , HH.button
-              [ HP.class_ (H.ClassName "mc6-switch-clear")
-              , HE.onClick \_ -> UnassignMC6Switch idx
-              ]
-              [ HH.text "\x00d7" ]
-          ]
-      Nothing ->
-        HH.div
-          [ HP.class_ (H.ClassName "mc6-switch empty") ]
-          [ HH.span [ HP.class_ (H.ClassName "mc6-switch-letter") ] [ HH.text letter ]
-          , HH.span [ HP.class_ (H.ClassName "mc6-switch-label") ] [ HH.text letter ]
-          ]
 
 handleAction :: forall o m. MonadAff m => Action -> H.HalogenM AppState Action Slots o m Unit
 handleAction = case _ of
@@ -1787,12 +1721,24 @@ syncSwitchToMC6 bankNum switchIdx mBoard = do
             sendSysExLogged ("clear-" <> show switchIdx) output sysexBytes
             H.liftAff (delay (Milliseconds 100.0))
         Just bp -> do
-          let messages = boardToMC6Messages st bp mControlBankNum
-              sysexBytes = SysEx.sysexPresetData bankNum switchIdx (SCU.take 8 bp.name) bp.name false messages
-          liftEffect $ Console.log $ "MC6 SysEx: " <> bp.name <> " → switch " <> show switchIdx <> " (" <> show (Array.length messages) <> " messages)"
-          withEditorSession output do
-            sendSysExLogged ("preset-" <> show switchIdx) output sysexBytes
-            H.liftAff (delay (Milliseconds 200.0))
+          let messages = Board.boardToMC6Messages st.registry st.presets mControlBankNum bp
+              n = Array.length messages
+          -- Refuse rather than truncate. `sysexPresetData` pads with
+          -- `Array.take 16`, so an over-budget board used to program cleanly
+          -- and arrive on the hardware missing its last messages — a switch
+          -- that silently does most of what you asked is worse than one that
+          -- says it cannot.
+          if n > Board.messageLimit
+            then H.modify_ _ { midiTest = Just
+              ("Not programmed: \"" <> bp.name <> "\" needs " <> show n
+                <> " messages and an MC6 preset holds " <> show Board.messageLimit
+                <> ". Set a pedal to \x2014\x2014 to get under.") }
+            else do
+              let sysexBytes = SysEx.sysexPresetData bankNum switchIdx (SCU.take 8 bp.name) bp.name false messages
+              liftEffect $ Console.log $ "MC6 SysEx: " <> bp.name <> " → switch " <> show switchIdx <> " (" <> show n <> " messages)"
+              withEditorSession output do
+                sendSysExLogged ("preset-" <> show switchIdx) output sysexBytes
+                H.liftAff (delay (Milliseconds 200.0))
       -- Also sync the control bank to its dedicated MC6 bank
       syncControlBankToMC6
 
@@ -1813,48 +1759,6 @@ syncControlBankToMC6 = do
             let sysexBytes = SysEx.sysexPresetData cb.mc6BankNumber p.switchIndex p.shortName p.longName p.toToggle p.messages
             sendSysExLogged ("ctrl-" <> show p.switchIndex) output sysexBytes
             H.liftAff (delay (Milliseconds 100.0))
-
--- | Convert a board preset to MC6 messages: PC per pedal + bypass CCs.
--- | Walks the board's pedal entries, resolves PC numbers from saved slots,
--- | and adds engage CCs for bypassed pedals.
--- | When a control bank number is provided, appends a BankJump on LongPressRelease.
-boardToMC6Messages :: AppState -> BoardPreset -> Maybe Int -> Array MC6Message
-boardToMC6Messages st bp mControlBankNum =
-  let entries = Map.toUnfoldable bp.pedals :: Array (Tuple PedalId { presetId :: Maybe PresetId, engage :: EngageState })
-      pedalMsgs = Array.concatMap (entryToMessages st) entries
-      jumpMsg = case mControlBankNum of
-        Nothing -> []
-        Just bankNum -> [MC6Msg.bankJumpMessage bankNum ActionLongPressRelease]
-      allMsgs = pedalMsgs <> jumpMsg
-      indexed = Array.mapWithIndex Tuple allMsgs
-  in map (\(Tuple idx msg) -> msg { msgIndex = idx }) indexed
-  where
-  entryToMessages :: AppState -> Tuple PedalId { presetId :: Maybe PresetId, engage :: EngageState } -> Array MC6Message
-  entryToMessages state (Tuple pid entry) =
-    case entry.engage of
-      EngageNoChange -> [] -- untouched pedal, skip
-      _ ->
-        let ch = fromMaybe 1 (map _.meta.defaultChannel (CRegistry.findPedal state.registry pid))
-            pcMsg = case entry.presetId of
-              Nothing -> []
-              Just presetId ->
-                case Array.find (\p -> p.id == presetId) state.presets of
-                  Nothing -> []
-                  Just preset -> case preset.savedSlot of
-                    Nothing -> []
-                    Just slot -> [MC6Msg.pcMessage ch (unProgramNumber slot) ActionPress]
-            bypassMsg = case entry.engage of
-              EngageOff ->
-                case CRegistry.findPedal state.registry pid of
-                  Nothing -> []
-                  Just def -> case def.engage of
-                    SingleEngage cc -> [MC6Msg.ccMessage ch (unCC cc) 0 ActionPress]
-                    DualEngage { a, b } ->
-                      [ MC6Msg.ccMessage ch (unCC a.cc) 0 ActionPress
-                      , MC6Msg.ccMessage ch (unCC b.cc) 0 ActionPress
-                      ]
-              _ -> []
-        in pcMsg <> bypassMsg
 
 -- | Inject board-recall trigger messages into mc6Banks for export
 injectBoardTriggers :: Array MC6Assignment -> Array BoardPreset -> Array MC6NativeBank -> Array MC6NativeBank

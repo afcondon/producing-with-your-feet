@@ -36,6 +36,7 @@ pedal =
   , engage: DualEngage
       { a: { cc: cc 102, label: "Right" }
       , b: { cc: cc 103, label: "Left" }
+      , both: Nothing
       }
   , baseline: Map.fromFoldable
       [ cc 14 /\ mv 64, cc 15 /\ mv 64, cc 16 /\ mv 64

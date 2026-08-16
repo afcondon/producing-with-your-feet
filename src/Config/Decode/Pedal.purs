@@ -84,7 +84,10 @@ decodeEngage json = do
       bObj <- FO.lookup "b" obj >>= Json.toObject
       bCc <- lookupNum "cc" bObj >>= makeCC
       bLabel <- lookupStr "label" bObj
-      Just (DualEngage { a: { cc: aCc, label: aLabel }, b: { cc: bCc, label: bLabel } })
+      -- Optional, and absence is meaningful: a pedal whose whole-pedal bypass
+      -- we have not verified costs two messages rather than being guessed at.
+      let both = lookupNum "both" obj >>= makeCC
+      Just (DualEngage { a: { cc: aCc, label: aLabel }, b: { cc: bCc, label: bLabel }, both })
     _ -> Nothing
 
 decodeCCMap :: Json -> Maybe (Map.Map CC MidiValue)

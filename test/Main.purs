@@ -5,15 +5,17 @@ import Prelude
 import Data.Argonaut.Core (stringify)
 import Data.Array as Array
 import Data.Map as Map
-import Data.Maybe (Maybe(..), isJust, isNothing)
+import Data.Maybe (Maybe(..), isJust, isNothing, maybe)
 import Data.Midi (makeCC, makeMidiValue, makeProgramNumber)
 import Data.Pedal (PedalId(..))
-import Data.Pedal.Engage (EngageState(..))
+import Data.Pedal.Engage (EngageConfig(..), EngageState(..), bypassCCs)
 import Effect (Effect)
 import Effect.Console (log)
 import Config.Registry as CRegistry
 import Engine (initEngineFromPedals)
 import Engine.Storage (engineToJson, parseEngine, parseCardOrder, parsePresets, parseBoardPresets, parseEngageState)
+import Data.MC6.Board as Board
+import Data.Tuple (Tuple(..))
 import Pedals.Registry as Registry
 
 -- Golden fixture: JS-format engine state with 3 pedals, numeric-string CC keys
@@ -161,6 +163,50 @@ main = do
   assert "parseEngageState b" (parseEngageState "b" == Just EngageB)
   assert "parseEngageState no-change" (parseEngageState "no-change" == Just EngageNoChange)
   assert "parseEngageState invalid" (isNothing (parseEngageState "invalid"))
+
+  -- The MC6 message budget.
+  --
+  -- DESIGN-v2 §5 originally costed a board at "twelve pedals, twelve messages,
+  -- four spare", which was wrong: a dual-engage pedal needs two CCs to bypass
+  -- unless it declares a whole-pedal bypass, and four of the thirteen are dual.
+  -- These pin the arithmetic, because the failure mode is silent — SysEx pads
+  -- with `Array.take 16` and the overflow is simply dropped.
+  let dualPedals = Array.filter (\p -> case p.engage of
+        DualEngage _ -> true
+        _ -> false) Registry.pedals
+  assert "4 pedals are dual-engage" (Array.length dualPedals == 4)
+
+  assert "a single-engage bypass costs 1 message"
+    (Array.all (\p -> case p.engage of
+      SingleEngage _ -> Array.length (bypassCCs p.engage) == 1
+      _ -> true) Registry.pedals)
+
+  assert "Flint declares a whole-pedal bypass, so costs 1"
+    (maybe false (\p -> Array.length (bypassCCs p.engage) == 1)
+      (CRegistry.findPedal reg (PedalId "flint")))
+  assert "MOOD declares a whole-pedal bypass, so costs 1"
+    (maybe false (\p -> Array.length (bypassCCs p.engage) == 1)
+      (CRegistry.findPedal reg (PedalId "mood")))
+
+  -- Unverified pedals stay correct-but-expensive rather than guessed at.
+  assert "Onward has no declared whole-pedal bypass, so costs 2"
+    (maybe false (\p -> Array.length (bypassCCs p.engage) == 2)
+      (CRegistry.findPedal reg (PedalId "onward")))
+
+  -- The case that motivated all of it: every pedal switched off at once.
+  let allOffBoard =
+        { id: "budget-test", name: "all off", description: "", notes: ""
+        , pedals: Map.fromFoldable
+            (map (\p -> Tuple p.meta.id { presetId: Nothing, engage: EngageOff })
+              Registry.pedals)
+        , created: "", modified: ""
+        }
+      allOffCost = Board.boardMessageCount reg [] (Just 20) allOffBoard
+  assert ("all-thirteen-off board fits in " <> show Board.messageLimit
+           <> " (costs " <> show allOffCost <> ")")
+    (allOffCost <= Board.messageLimit)
+  assert "boardFits agrees with the count"
+    (Board.boardFits reg [] (Just 20) allOffBoard == (allOffCost <= Board.messageLimit))
 
   log ""
   log "Done."
