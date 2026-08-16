@@ -19,6 +19,9 @@ module Data.MC6.Survey
   , survey
   , knownBanks
   , navigationEdges
+  , NavEdge
+  , navEdges
+  , universalEdges
   , reachableFrom
   , stranded
   , deadEnds
@@ -137,12 +140,45 @@ knownBanks = Array.filter (\c -> c.provenance /= Unknown)
 -- | navigation is unknown too — drawing it as a dead end would be a false
 -- | accusation.
 navigationEdges :: Array BankCard -> Array (Tuple Int Int)
-navigationEdges cards = Array.nub do
+navigationEdges = Array.nub <<< map (\e -> Tuple e.from e.to) <<< navEdges
+
+-- | The same edges, keeping the switch they live on.
+-- |
+-- | Which switch a jump sits on is not decoration: a footswitch that means the
+-- | same thing on every page is a different kind of thing from a jump peculiar
+-- | to one bank. The first is the instrument's furniture and should recede; the
+-- | second is the actual shape of a performance. Losing the slot index makes
+-- | them indistinguishable, which is why this is the primitive and the plain
+-- | edge list is derived from it.
+type NavEdge = { from :: Int, to :: Int, slot :: Int }
+
+navEdges :: Array BankCard -> Array NavEdge
+navEdges cards = do
   c <- knownBanks cards
-  v <- c.slots
+  Tuple i v <- Array.mapWithIndex Tuple c.slots
   case v of
-    Navigation (ToBank n) -> pure (Tuple c.bankNumber n)
+    Navigation (ToBank n) -> pure { from: c.bankNumber, to: n, slot: i }
     _ -> []
+
+-- | Jumps that are furniture: the same switch going to the same bank from most
+-- | of the instrument.
+-- |
+-- | A "back to bank 1 on switch G everywhere" edge would otherwise draw thirty
+-- | lines converging on one node and drown every jump that actually
+-- | distinguishes a page. Returned as a set of `(slot, to)` pairs so the view
+-- | can draw them faintly rather than hide them — they are real, they are just
+-- | not news.
+-- |
+-- | The threshold is half the known banks, floored at three, so a two-bank rig
+-- | never has its only two jumps declared universal.
+universalEdges :: Array BankCard -> Set (Tuple Int Int)
+universalEdges cards =
+  let known = Array.length (knownBanks cards)
+      threshold = max 3 (known / 2)
+      counted = Map.fromFoldableWith (+)
+        (map (\e -> Tuple (Tuple e.slot e.to) 1) (Array.nub (navEdges cards)))
+  in Set.fromFoldable
+       (Map.keys (Map.filter (_ >= threshold) counted))
 
 -- | Every bank you can get to from `home` by pressing switches.
 -- |

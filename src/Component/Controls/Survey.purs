@@ -36,13 +36,14 @@ import Prelude
 
 import Data.Array as Array
 import Data.Int as Int
-import Data.MC6.Survey (BankCard, Provenance(..), bankCount, deadEnds, knownBanks, navigationEdges, reachableFrom, stranded)
+import Data.MC6.Survey (BankCard, NavEdge, Provenance(..), bankCount, deadEnds, knownBanks, navEdges, reachableFrom, stranded, universalEdges)
 import Data.MC6.Verb (ActionShape(..), NavTarget(..), Verb(..))
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Pedal (PedalId(..))
+import Data.Set (Set)
 import Data.Set as Set
 import Data.String as String
-import Data.Tuple (Tuple(..), fst, snd)
+import Data.Tuple (Tuple(..))
 import Halogen as H
 import Halogen.HTML as HH
 import Halogen.HTML.Core (AttrName(..), ElemName(..), Namespace(..))
@@ -125,6 +126,18 @@ shapeLabel = case _ of
   Momentary -> "hold"
   Toggling -> "latch"
   OneShot -> "one shot"
+
+-- | Where the twelve switches actually are underfoot: four rows of three.
+-- |
+-- | The MC6 itself is the first two rows and its top row is D E F, not A B C —
+-- | the indices run along the bottom row first. Then an FS3X per row after
+-- | that. Drawing them in index order would make the card a list rather than a
+-- | picture of the pedal, and the point of a card this small is that you
+-- | recognise the shape without reading it.
+-- |
+-- | The editor's own 9-switch grid uses the same convention for its first nine.
+physicalOrder :: Array Int
+physicalOrder = [ 3, 4, 5, 0, 1, 2, 6, 7, 8, 9, 10, 11 ]
 
 -- ──── Render ────
 
@@ -221,7 +234,7 @@ renderCard props card =
           <> (if card.provenance == Unknown then [ "unknown" ] else [])
           <> (if isHome then [ "home" ] else [])
           <> (if isOpen then [ "open" ] else []))
-      outgoing = map snd (Array.filter (\e -> fst e == card.bankNumber) (navigationEdges props.cards))
+      outgoing = map _.to (Array.filter (\e -> e.from == card.bankNumber) (navEdges props.cards))
   in HH.div
     [ HP.class_ (H.ClassName classes)
     , HE.onClick \_ -> if isOpen then props.onCollapse else props.onExpand card.bankNumber
@@ -242,7 +255,7 @@ renderCard props card =
     , if Array.null card.slots
         then HH.div [ HP.class_ (H.ClassName "survey-card-unread") ] [ HH.text "not read" ]
         else HH.div [ HP.class_ (H.ClassName "survey-card-slots") ]
-               (Array.mapWithIndex (renderSlot card) card.slots)
+               (Array.mapMaybe (\i -> renderSlot card i <$> Array.index card.slots i) physicalOrder)
     , if Array.null outgoing
         then HH.text ""
         else HH.div [ HP.class_ (H.ClassName "survey-card-jumps") ]
@@ -277,7 +290,11 @@ renderSlot card idx verb =
 -- | back" are things you can look at rather than things you have to remember.
 renderNavMap :: forall w i. SurveyProps i -> HH.HTML w i
 renderNavMap props =
-  let edges = navigationEdges props.cards
+  let universal = universalEdges props.cards
+      -- Deduplicated on the pair actually drawn, so a jump that exists on two
+      -- switches of the same bank is one arc, not two on top of each other.
+      edges = Array.nubBy (\a b -> compare (Tuple a.from a.to) (Tuple b.from b.to))
+                (navEdges props.cards)
   in if Array.null edges
     then HH.div [ HP.class_ (H.ClassName "survey-navmap-empty") ]
       [ HH.text "No bank jumps are programmed yet, so there is no navigation to draw." ]
@@ -287,11 +304,20 @@ renderNavMap props =
           [ sAttr "viewBox" ("0 0 " <> show mapW <> " " <> show mapH)
           , sAttr "class" "survey-navmap-svg"
           ]
-          ( [ svgEl "defs" [] [ arrowMarker ] ]
-              <> map edgeLine edges
+          ( [ svgEl "defs" [] [ arrowMarker, arrowMarkerFaint ] ]
+              -- Furniture first, so a jump peculiar to one page is drawn over
+              -- the everywhere-jumps rather than under them.
+              <> map (edgeLine universal) (Array.filter (isUniversal universal) edges)
+              <> map (edgeLine universal) (Array.filter (not <<< isUniversal universal) edges)
               <> map (nodeDot props) props.cards
           )
+      , if Set.isEmpty universal then HH.text "" else
+          HH.p [ HP.class_ (H.ClassName "survey-legend-note") ]
+            [ HH.text "Faint arrows are the same switch going to the same bank almost everywhere \x2014 the instrument's furniture rather than the shape of a set." ]
       ]
+
+isUniversal :: Set (Tuple Int Int) -> NavEdge -> Boolean
+isUniversal universal e = Set.member (Tuple e.slot e.to) universal
 
 mapCols :: Int
 mapCols = 6
@@ -325,6 +351,24 @@ arrowMarker =
         ] []
     ]
 
+arrowMarkerFaint :: forall w i. HH.HTML w i
+arrowMarkerFaint =
+  svgEl "marker"
+    [ sAttr "id" "survey-arrow-faint"
+    , sAttr "markerWidth" "8"
+    , sAttr "markerHeight" "8"
+    , sAttr "refX" "7"
+    , sAttr "refY" "3"
+    , sAttr "orient" "auto"
+    , sAttr "markerUnits" "strokeWidth"
+    ]
+    [ svgEl "path"
+        [ sAttr "d" "M0,0 L7,3 L0,6 Z"
+        , sAttr "fill" edgeInk
+        , sAttr "opacity" "0.28"
+        ] []
+    ]
+
 edgeInk :: String
 edgeInk = "#5b7fa8"
 
@@ -334,22 +378,24 @@ edgeInk = "#5b7fa8"
 -- | The control point is pushed off the chord by a fraction of the
 -- | perpendicular, which also keeps a jump between adjacent banks from
 -- | disappearing under the two node dots.
-edgeLine :: forall w i. Tuple Int Int -> HH.HTML w i
-edgeLine (Tuple from to) =
-  let x1 = nodeX from
-      y1 = nodeY from
-      x2 = nodeX to
-      y2 = nodeY to
+edgeLine :: forall w i. Set (Tuple Int Int) -> NavEdge -> HH.HTML w i
+edgeLine universal e =
+  let x1 = nodeX e.from
+      y1 = nodeY e.from
+      x2 = nodeX e.to
+      y2 = nodeY e.to
       cx = (x1 + x2) / 2.0 + (y2 - y1) * 0.18
       cy = (y1 + y2) / 2.0 - (x2 - x1) * 0.18
+      faint = isUniversal universal e
   in svgEl "path"
     [ sAttr "d" ("M" <> show x1 <> "," <> show y1
                   <> " Q" <> show cx <> "," <> show cy
                   <> " " <> show x2 <> "," <> show y2)
     , sAttr "stroke" edgeInk
-    , sAttr "stroke-width" "1.2"
+    , sAttr "stroke-width" (if faint then "0.8" else "1.2")
+    , sAttr "opacity" (if faint then "0.28" else "1")
     , sAttr "fill" "none"
-    , sAttr "marker-end" "url(#survey-arrow)"
+    , sAttr "marker-end" (if faint then "url(#survey-arrow-faint)" else "url(#survey-arrow)")
     ] []
 
 nodeDot :: forall w i. SurveyProps i -> BankCard -> HH.HTML w i
