@@ -15,6 +15,8 @@ module Engine.Storage
   , loadMC6AssignmentsParsed
   , saveControlBanks
   , loadControlBanksParsed
+  , saveSharedSwitches
+  , loadSharedSwitchesParsed
   , parseEngine
   , parseCardOrder
   , parsePresets
@@ -45,6 +47,7 @@ import Data.JSDate as JSDate
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.MC6.ControlBank (ControlBank, ControlBankSwitch)
+import Data.MC6.Shared (SharedSwitch)
 import Data.MC6.Types (MC6Message, MC6TogglePosition(..), mc6MsgTypeToInt, intToMC6MsgType, mc6ActionToInt, intToMC6Action, mc6ToggleToInt)
 import Data.Midi (CC, MidiValue, makeCC, makeMidiValue, makeProgramNumber, unCC, unMidiValue, unProgramNumber)
 import Data.Pedal (PedalId(..))
@@ -67,6 +70,7 @@ data StorageKey
   | CardOrderKey
   | MC6AssignmentsKey
   | ControlBanksKey
+  | SharedSwitchesKey
 
 keyString :: StorageKey -> String
 keyString = case _ of
@@ -77,6 +81,7 @@ keyString = case _ of
   CardOrderKey -> "pedal-explorer-card-order"
   MC6AssignmentsKey -> "pedal-explorer-mc6-assignments"
   ControlBanksKey -> "pedal-explorer-control-banks"
+  SharedSwitchesKey -> "pedal-explorer-shared-switches"
 
 getStorage :: Effect Storage.Storage
 getStorage = window >>= localStorage
@@ -445,6 +450,45 @@ parseMC6Assignment json = do
 
 -- Control Bank serialization
 
+saveSharedSwitches :: Array SharedSwitch -> Effect Unit
+saveSharedSwitches shared = do
+  let json = Json.fromArray (map sharedSwitchToJson shared)
+  setItem SharedSwitchesKey (stringify json)
+
+loadSharedSwitchesParsed :: Effect (Array SharedSwitch)
+loadSharedSwitchesParsed = do
+  mStr <- getItem SharedSwitchesKey
+  pure $ fromMaybe [] (mStr >>= parseSharedSwitches)
+
+parseSharedSwitches :: String -> Maybe (Array SharedSwitch)
+parseSharedSwitches str = do
+  json <- hush (jsonParser str)
+  arr <- Json.toArray json
+  traverse parseSharedSwitch arr
+
+sharedSwitchToJson :: SharedSwitch -> Json
+sharedSwitchToJson s =
+  Json.fromObject $ FO.fromFoldable
+    [ Tuple "id" (Json.fromString s.id)
+    , Tuple "slot" (Json.fromNumber (Int.toNumber s.slot))
+    , Tuple "label" (Json.fromString s.label)
+    , Tuple "longName" (Json.fromString s.longName)
+    , Tuple "toToggle" (Json.fromBoolean s.toToggle)
+    , Tuple "messages" (Json.fromArray (map mc6MessageToJson s.messages))
+    ]
+
+parseSharedSwitch :: Json -> Maybe SharedSwitch
+parseSharedSwitch json = do
+  obj <- Json.toObject json
+  id <- FO.lookup "id" obj >>= Json.toString
+  slot <- FO.lookup "slot" obj >>= Json.toNumber >>= Int.fromNumber
+  label <- FO.lookup "label" obj >>= Json.toString
+  let longName = fromMaybe "" (FO.lookup "longName" obj >>= Json.toString)
+      toToggle = fromMaybe false (FO.lookup "toToggle" obj >>= Json.toBoolean)
+  messagesJson <- FO.lookup "messages" obj >>= Json.toArray
+  messages <- traverse parseMC6Message messagesJson
+  pure { id, slot, label, longName, toToggle, messages }
+
 saveControlBanks :: Array ControlBank -> Effect Unit
 saveControlBanks banks = do
   let json = Json.fromArray (map controlBankToJson banks)
@@ -469,6 +513,7 @@ controlBankToJson cb =
     , Tuple "description" (Json.fromString cb.description)
     , Tuple "mc6BankNumber" (Json.fromNumber (Int.toNumber cb.mc6BankNumber))
     , Tuple "returnSwitchIndex" (Json.fromNumber (Int.toNumber cb.returnSwitchIndex))
+    , Tuple "sharedOverrides" (Json.fromArray (map (Json.fromNumber <<< Int.toNumber) cb.sharedOverrides))
     , Tuple "switches" (Json.fromArray (map controlBankSwitchToJson cb.switches))
     ]
 
@@ -505,7 +550,14 @@ parseControlBank json = do
   returnSwitchIndex <- FO.lookup "returnSwitchIndex" obj >>= Json.toNumber >>= Int.fromNumber
   switchesJson <- FO.lookup "switches" obj >>= Json.toArray
   switches <- traverse parseControlBankSwitch switchesJson
-  pure { id, name, description, mc6BankNumber, returnSwitchIndex, switches }
+  -- Absent on every page written before shared switches existed, and absent is
+  -- the right default: a page that never refused anything refuses nothing.
+  let sharedOverrides = fromMaybe []
+        ( FO.lookup "sharedOverrides" obj
+            >>= Json.toArray
+            >>= traverse (\j -> Json.toNumber j >>= Int.fromNumber)
+        )
+  pure { id, name, description, mc6BankNumber, returnSwitchIndex, switches, sharedOverrides }
 
 parseControlBankSwitch :: Json -> Maybe ControlBankSwitch
 parseControlBankSwitch json = do

@@ -32,6 +32,11 @@ type ControlBank =
   , mc6BankNumber :: Int
   , returnSwitchIndex :: Int
   , switches :: Array ControlBankSwitch
+  -- | Slots this page keeps for itself, refusing the instrument-wide shared
+  -- | switch that would otherwise fill them (`Data.MC6.Shared`). Empty on every
+  -- | page until someone deliberately takes a slot back, which is the point: an
+  -- | override should be a decision, not a default.
+  , sharedOverrides :: Array Int
   }
 
 -- | How many switches a bank has.
@@ -121,6 +126,7 @@ exampleControlBank =
   , description: "Habit loop, Brig infinite, MOOD freeze, Clean/Mercury7 swell, Lex speed, Brig tap"
   , mc6BankNumber: 20
   , returnSwitchIndex: 6
+  , sharedOverrides: []
   , switches:
       [ { label: "Ht Loop",  longName: "Habit Loop Toggle",     toToggle: true,  messages: ccToggleMessages 15 24 }
       , { label: "Ht Clear", longName: "Habit Clear",           toToggle: false, messages: ccMomentaryMessages 15 26 }

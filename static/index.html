@@ -2639,6 +2639,35 @@ body {
 .controls-bank-switch-verb { font-size: 10px; color: var(--fg-muted); text-transform: uppercase; letter-spacing: .04em; }
 .controls-bank-switch-observed { font-size: 10px; color: #be123c; margin-top: 2px; }
 
+/* Shared switches: instrument furniture, marked wherever it appears. */
+.controls-shared-mark { font-size: 12px; color: var(--accent); font-weight: 700; }
+.controls-override-mark { font-size: 11px; color: #be123c; font-weight: 700; }
+.controls-bank-switch.shared { background: #f7f9fc; }
+.controls-bank-switch.overridden { border-style: dashed; }
+
+.controls-shared-banner {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 6px 10px; margin-bottom: 10px; border-radius: var(--radius);
+  font-size: 12px;
+}
+.controls-shared-banner.shared { background: #eef4fb; border-left: 3px solid var(--accent); }
+.controls-shared-banner.overridden { background: #fdf0f2; border-left: 3px solid #be123c; }
+.controls-shared-banner.plain { background: var(--bg-section); border-left: 3px solid var(--border); }
+.controls-shared-text { flex: 1 1 320px; }
+
+.controls-shared-list { padding: 0 12px 12px; }
+.controls-shared-list h4 {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--fg-muted); margin: 0 0 6px;
+}
+.controls-shared-row {
+  display: flex; align-items: baseline; gap: 8px;
+  font-size: 12px; padding: 2px 0; border-bottom: 1px solid var(--border-light);
+}
+.controls-shared-slot { font-weight: 700; width: 1.4em; }
+.controls-shared-label { flex: 1; }
+.controls-shared-count { color: var(--fg-light); font-size: 11px; font-variant-numeric: tabular-nums; }
+
 .controls-bank-empty { max-width: 62ch; }
 .controls-bank-empty p { font-size: 13px; margin: 0 0 8px; }
 .controls-observed-names { color: var(--fg-muted); font-variant-numeric: tabular-nums; }

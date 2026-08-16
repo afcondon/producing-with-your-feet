@@ -20,6 +20,7 @@ import Data.MC6.ControlBank as ControlBank
 import Data.MC6.Message as MC6Msg
 import Data.MC6.Types (MC6Action(..))
 import Data.MC6.Read as Read
+import Data.MC6.Shared as Shared
 import Data.MC6.Survey as Survey
 import Data.MC6.Verb as Verb
 import Data.Tuple (Tuple(..))
@@ -380,6 +381,35 @@ main = do
   -- Silence rather than a clean bill: nothing to compare means Nothing.
   assert "with nothing to compare, agreement is Nothing"
     (Array.all (\c -> c.agrees == Nothing) (Array.filter (\c -> c.bankNumber /= 20) readCards))
+
+  log ""
+  log "Running shared-switch tests..."
+
+  let bankA = ControlBank.exampleControlBank
+      bankB = bankA { id = "b", mc6BankNumber = 21, sharedOverrides = [ 6 ] }
+      backSwitch =
+        { id: "shared-6", slot: 6, label: "< Back", longName: "Back to Board Bank"
+        , toToggle: false, messages: [ MC6Msg.bankJumpMessage 1 ActionPress ] }
+
+  -- Applied on the way out, not stored: the authored page keeps saying what its
+  -- author wrote.
+  assert "a shared switch fills its slot"
+    (map _.label (Array.index (Shared.applyShared [ backSwitch ] bankA).switches 6)
+      == Just "< Back")
+  assert "and does not disturb the others"
+    (map _.label (Array.index (Shared.applyShared [ backSwitch ] bankA).switches 0)
+      == map _.label (Array.index bankA.switches 0))
+  assert "an overriding page keeps its own switch"
+    (map _.label (Array.index (Shared.applyShared [ backSwitch ] bankB).switches 6)
+      == map _.label (Array.index bankB.switches 6))
+  assert "applying nothing changes nothing"
+    (Shared.applyShared [] bankA == bankA)
+  -- "On every page" is a claim; the count is the fact.
+  assert "page count excludes overriding pages"
+    (Shared.pageCount [ bankA, bankB ] backSwitch == 1)
+  assert "sharedAt finds by slot, not by index"
+    (map _.label (Shared.sharedAt [ backSwitch ] 6) == Just "< Back"
+      && Shared.sharedAt [ backSwitch ] 5 == Nothing)
 
   log ""
   log "Running MC6 navigation-graph tests..."

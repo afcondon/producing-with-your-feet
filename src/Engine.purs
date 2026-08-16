@@ -19,6 +19,7 @@ import Prelude
 import Config.Registry (PedalRegistry)
 import Config.Registry as CRegistry
 import Config.Types (MidiRouting)
+import Data.MC6.Shared (SharedSwitch)
 import Data.MC6.ControlBank (ControlBank, exampleControlBank)
 import Data.MC6.Types (MC6NativeBank)
 import Data.Array as Array
@@ -91,6 +92,7 @@ type AppState =
   , mc6BoardBankNum :: Int
   , mc6Assignments :: Array MC6Assignment
   , controlBanks :: Array ControlBank
+  , sharedSwitches :: Array SharedSwitch
   , activeControlBankIdx :: Maybe Int
   -- Folder backup (Chrome File System Access API → Infovore path)
   -- Result of the last manual MIDI test, shown on the MIDI page.
@@ -177,6 +179,7 @@ initAppState =
   , mc6BoardBankNum: 1
   , mc6Assignments: []
   , controlBanks: [exampleControlBank]
+  , sharedSwitches: []
   , activeControlBankIdx: Just 0
   , looper: Nothing
   , looperStatus: { connected: false, everConnected: false, lastError: "", url: "" }

@@ -13,13 +13,15 @@ import Data.Const (Const)
 import Data.Foldable (for_)
 import Data.Int as Int
 import Data.Map (Map)
-import Data.Maybe (Maybe(..), fromMaybe, maybe)
+import Data.Maybe (Maybe(..), fromMaybe, isJust, maybe)
 import Data.MC6.Board as Board
 import Data.MC6.ControlBank (ControlBank, ControlBankSwitch, ccToggleMessages, ccMomentaryMessages, emptySwitch, switchCount, switchLetter)
 import Data.MC6.Survey as MC6Survey
 import Data.MC6.Types (MC6Action(..), MC6Message, MC6MsgType(..), MC6NativeBank, MC6TogglePosition(..), intToMC6Action, intToMC6MsgType, mc6ActionToInt, mc6ToggleToInt)
 import Data.Midi (unCC)
 import Data.Pedal (PedalDef, PedalId, Control(..), LabelSource(..), Section)
+import Data.MC6.Shared (SharedSwitch)
+import Data.MC6.Shared as Shared
 import Data.Preset (BoardPreset, PedalPreset, PresetId)
 import Engine (MC6Assignment)
 import Data.String as String
@@ -55,6 +57,8 @@ type Input =
   , boardPresets :: Array BoardPreset
   , presets :: Array PedalPreset
   , mc6Assignments :: Array MC6Assignment
+  -- Switches that belong to the instrument rather than to any one page.
+  , sharedSwitches :: Array SharedSwitch
   }
 
 data Output
@@ -76,6 +80,9 @@ data Output
   -- | contradiction and this one cannot.
   | AssignBoard Int Int PresetId
   | UnassignSwitch Int Int
+  -- | The instrument's shared switches, whole. Small enough to send entire, and
+  -- | sending the whole list means there is never a partial write to reconcile.
+  | SaveSharedSwitches (Array SharedSwitch)
 
 -- | Flat searchable entry for one CC control from the pedal registry
 type CCEntry =
@@ -159,6 +166,11 @@ data Action
   | ToggleElideUnknown
   | RequestRead
   | SetSwitchHolds Int String
+  -- Shared switches
+  | MakeShared Int
+  | UnshareSwitch Int
+  | OverrideShared Int
+  | UseSharedAgain Int
 
 type Slot = H.Slot (Const Void) Output
 
@@ -291,7 +303,9 @@ render state =
   HH.div [ HP.class_ (H.ClassName "controls-view") ]
     [ HH.div [ HP.class_ (H.ClassName "controls-columns") ]
         [ HH.div [ HP.class_ (H.ClassName "controls-col-instrument") ]
-            [ renderSurvey state ]
+            [ renderSurvey state
+            , renderSharedList state
+            ]
         , HH.div [ HP.class_ (H.ClassName "controls-col-work") ]
             ( case state.selectedBankNumber of
                 Nothing ->
@@ -327,6 +341,31 @@ renderSurvey state =
     , onRead: RequestRead
     }
 
+-- | The instrument's own switches, listed where the instrument is.
+-- |
+-- | Deliberately not a place to create one from nothing: a shared switch is
+-- | made by promoting a switch that already works, so this is a register of
+-- | what has been promoted rather than a form. The page count is the fact that
+-- | keeps "on every page" honest — a switch overridden everywhere reads as 0.
+renderSharedList :: forall m. State -> H.ComponentHTML Action () m
+renderSharedList state =
+  if Array.null state.input.sharedSwitches then HH.text "" else
+  HH.div [ HP.class_ (H.ClassName "controls-shared-list") ]
+    [ HH.h4_ [ HH.text "Shared switches" ]
+    , HH.div_ (map row (Array.sortWith _.slot state.input.sharedSwitches))
+    ]
+  where
+  row sh =
+    let n = Shared.pageCount state.input.controlBanks sh
+    in HH.div [ HP.class_ (H.ClassName "controls-shared-row") ]
+      [ HH.span [ HP.class_ (H.ClassName "controls-shared-slot") ]
+          [ HH.text (switchLetter sh.slot) ]
+      , HH.span [ HP.class_ (H.ClassName "controls-shared-label") ]
+          [ HH.text (if sh.label == "" then "\x2014" else sh.label) ]
+      , HH.span [ HP.class_ (H.ClassName "controls-shared-count") ]
+          [ HH.text (show n <> (if n == 1 then " page" else " pages")) ]
+      ]
+
 surveyCards :: State -> Array MC6Survey.BankCard
 surveyCards state =
   MC6Survey.survey
@@ -349,7 +388,7 @@ surveyCards state =
 renderBankZone :: forall m. State -> Int -> H.ComponentHTML Action () m
 renderBankZone state bankNum =
   let mCard = Array.find (\c -> c.bankNumber == bankNum) (surveyCards state)
-      mBank = selectedBank state
+      mBank = effectiveBank state
       meta = "bank " <> show bankNum <> " \x00b7 editor " <> show (bankNum + 1)
                <> (case mCard of
                      Just c -> " \x00b7 " <> Survey.provenanceLabel c.provenance
@@ -490,10 +529,15 @@ renderBankSwitchCell state bank mCard idx =
       observed = mCard >>= \c -> Array.index c.observedNames idx
       isSelected = state.selectedSwitchIdx == Just idx
       isReturn = bank.returnSwitchIndex == idx
+      shared = isSharedHere state bank idx
+      overridden = isJust (Shared.sharedAt state.input.sharedSwitches idx)
+                     && Shared.isOverridden bank idx
       cls = String.joinWith " "
         ([ "controls-bank-switch" ]
           <> (if isSelected then [ "selected" ] else [])
-          <> (if isReturn then [ "return" ] else []))
+          <> (if isReturn then [ "return" ] else [])
+          <> (if shared then [ "shared" ] else [])
+          <> (if overridden then [ "overridden" ] else []))
   in HH.div
     [ HP.class_ (H.ClassName cls)
     , HP.attr (HH.AttrName "style")
@@ -503,6 +547,15 @@ renderBankSwitchCell state bank mCard idx =
     [ HH.div [ HP.class_ (H.ClassName "controls-bank-switch-head") ]
         [ HH.span [ HP.class_ (H.ClassName "controls-bank-switch-letter") ]
             [ HH.text (switchLetter idx) ]
+        , if shared
+            then HH.span [ HP.class_ (H.ClassName "controls-shared-mark")
+                         , HP.title "shared across the instrument" ]
+                   [ HH.text "\x21c4" ]
+            else if overridden
+              then HH.span [ HP.class_ (H.ClassName "controls-override-mark")
+                           , HP.title "shared switch overridden on this page" ]
+                     [ HH.text "\x2718" ]
+              else HH.text ""
         , if isReturn
             then HH.span [ HP.class_ (H.ClassName "controls-sw-return-badge") ] [ HH.text "RTN" ]
             else HH.text ""
@@ -525,7 +578,7 @@ renderBankSwitchCell state bank mCard idx =
 -- ──── Zoom 3: one switch ────
 
 renderSwitchZone :: forall m. State -> Int -> H.ComponentHTML Action () m
-renderSwitchZone state idx = case selectedBank state of
+renderSwitchZone state idx = case effectiveBank state of
   Nothing -> HH.text ""
   Just bank -> case Array.index bank.switches idx of
     Nothing -> HH.text ""
@@ -542,6 +595,7 @@ renderSwitchZone state idx = case selectedBank state of
             , HH.h3_ [ HH.text ("Switch " <> switchLetter idx
                                   <> (if sw.label == "" then "" else " \x00b7 " <> sw.label)) ]
             ]
+        , renderSharedBanner state bank idx
         , renderHoldsSelector state bankNum idx mBoard
         , case mBoard of
             Just bp -> renderBoardHeld state bp
@@ -551,6 +605,43 @@ renderSwitchZone state idx = case selectedBank state of
                 , renderSearchPanel state
                 ]
         ]
+
+-- | Where this switch is defined, and how to change that.
+-- |
+-- | Shown above the holds selector because it is the prior question: editing a
+-- | shared switch changes every page, and that has to be said before the fields
+-- | rather than discovered after them.
+renderSharedBanner :: forall m. State -> ControlBank -> Int -> H.ComponentHTML Action () m
+renderSharedBanner state bank idx =
+  case Shared.sharedAt state.input.sharedSwitches idx of
+    Just sh
+      | not (Shared.isOverridden bank idx) ->
+          let n = Shared.pageCount state.input.controlBanks sh
+          in banner "shared"
+            [ HH.text ("\x21c4 Shared across the instrument \x2014 on "
+                        <> show n <> (if n == 1 then " page" else " pages")
+                        <> ". Editing here changes all of them.") ]
+            [ button "Override on this page" (OverrideShared idx)
+            , button "Stop sharing everywhere" (UnshareSwitch idx)
+            ]
+      | otherwise ->
+          banner "overridden"
+            [ HH.text ("\x2718 This page has taken "
+                        <> switchLetter idx
+                        <> " back from the shared switch \x201c" <> sh.label <> "\x201d.") ]
+            [ button "Use the shared switch again" (UseSharedAgain idx) ]
+    Nothing ->
+      banner "plain"
+        [ HH.text "Defined on this page only." ]
+        [ button "Put this on every page" (MakeShared idx) ]
+  where
+  banner kind text actions =
+    HH.div [ HP.class_ (H.ClassName ("controls-shared-banner " <> kind)) ]
+      ( [ HH.span [ HP.class_ (H.ClassName "controls-shared-text") ] text ] <> actions )
+  button label act =
+    HH.button
+      [ HP.class_ (H.ClassName "controls-btn-small"), HE.onClick \_ -> act ]
+      [ HH.text label ]
 
 -- | What this switch holds: messages you author, or a board that compiles to
 -- | them.
@@ -1160,7 +1251,63 @@ handleAction = case _ of
         then H.raise (UnassignSwitch bank.mc6BankNumber idx)
         else H.raise (AssignBoard bank.mc6BankNumber idx boardId)
 
+  -- Promote what is already on this switch. Building the thing once on a page
+  -- and then saying "this is furniture" is the workflow that actually happens;
+  -- an empty shared-switch form you have to fill in from nothing is not.
+  MakeShared idx -> do
+    st <- H.get
+    for_ (selectedBank st) \bank ->
+      for_ (Array.index bank.switches idx) \sw -> do
+        let shared :: SharedSwitch
+            shared =
+              { id: "shared-" <> show idx
+              , slot: idx
+              , label: sw.label
+              , longName: sw.longName
+              , toToggle: sw.toToggle
+              , messages: sw.messages
+              }
+        H.raise (SaveSharedSwitches
+          (Array.snoc (Array.filter (\x -> x.slot /= idx) st.input.sharedSwitches) shared))
+        -- A page that had taken this slot back would otherwise not receive the
+        -- switch it just donated.
+        setOverrides bank (Array.filter (_ /= idx) bank.sharedOverrides)
+
+  UnshareSwitch idx -> do
+    st <- H.get
+    H.raise (SaveSharedSwitches (Array.filter (\x -> x.slot /= idx) st.input.sharedSwitches))
+
+  -- Taking a slot back copies the shared content in first, so you start from
+  -- what was there rather than from nothing — an override is usually a
+  -- variation, not a fresh switch.
+  OverrideShared idx -> do
+    st <- H.get
+    for_ (Shared.sharedAt st.input.sharedSwitches idx) \sh -> do
+      -- Order matters: the slot has to stop being shared before the copy is
+      -- written, or modifySwitch would route the write straight back into the
+      -- shared definition it is trying to diverge from.
+      for_ (selectedBank st) \bank ->
+        setOverrides bank (Array.nub (Array.snoc bank.sharedOverrides idx))
+      modifySwitch idx \_ ->
+        { label: sh.label, longName: sh.longName, toToggle: sh.toToggle, messages: sh.messages }
+      save
+
+  UseSharedAgain idx -> do
+    st <- H.get
+    for_ (selectedBank st) \bank ->
+      setOverrides bank (Array.filter (_ /= idx) bank.sharedOverrides)
+
 -- ──── Helpers ────
+
+-- | Replace the selected bank's override list and save.
+setOverrides :: forall m. MonadAff m => ControlBank -> Array Int -> H.HalogenM State Action () Output m Unit
+setOverrides bank overrides = do
+  st <- H.get
+  let banks = fromMaybe st.input.controlBanks
+        (Array.updateAt st.selectedBankIdx (bank { sharedOverrides = overrides })
+          st.input.controlBanks)
+  H.modify_ _ { input = st.input { controlBanks = banks } }
+  H.raise (SaveControlBanks banks (Just st.selectedBankIdx))
 
 intToToggle :: Int -> MC6TogglePosition
 intToToggle = case _ of
@@ -1204,6 +1351,7 @@ emptyControlBank name bankNum =
   , description: ""
   , mc6BankNumber: bankNum
   , returnSwitchIndex: 6
+  , sharedOverrides: []
   , switches: Array.replicate switchCount emptySwitch
   }
 
@@ -1213,11 +1361,43 @@ modifySwitch swIdx f = do
   st <- H.get
   case Array.index st.input.controlBanks st.selectedBankIdx of
     Nothing -> pure unit
-    Just bank -> do
-      let newSwitches = fromMaybe bank.switches (Array.modifyAt swIdx f bank.switches)
-          newBank = bank { switches = newSwitches }
-          newBanks = fromMaybe st.input.controlBanks (Array.updateAt st.selectedBankIdx newBank st.input.controlBanks)
-      H.modify_ _ { input = st.input { controlBanks = newBanks } }
+    Just bank
+      -- A shared switch is edited wherever you happen to meet it, but there is
+      -- only one of it: the edit goes to the instrument's definition and lands
+      -- on every page that has not taken the slot back. Writing to this page's
+      -- copy instead would be an edit that appears to work and is discarded at
+      -- the next sync, when the shared switch overwrites it again.
+      | isSharedHere st bank swIdx ->
+          for_ (Shared.sharedAt st.input.sharedSwitches swIdx) \sh -> do
+            let edited = f
+                  { label: sh.label, longName: sh.longName
+                  , toToggle: sh.toToggle, messages: sh.messages }
+                updated = sh
+                  { label = edited.label, longName = edited.longName
+                  , toToggle = edited.toToggle, messages = edited.messages }
+                allShared = map (\x -> if x.slot == swIdx then updated else x)
+                              st.input.sharedSwitches
+            H.modify_ _ { input = st.input { sharedSwitches = allShared } }
+            H.raise (SaveSharedSwitches allShared)
+      | otherwise -> do
+          let newSwitches = fromMaybe bank.switches (Array.modifyAt swIdx f bank.switches)
+              newBank = bank { switches = newSwitches }
+              newBanks = fromMaybe st.input.controlBanks (Array.updateAt st.selectedBankIdx newBank st.input.controlBanks)
+          H.modify_ _ { input = st.input { controlBanks = newBanks } }
+
+-- | Is this slot filled by the instrument rather than by this page?
+isSharedHere :: State -> ControlBank -> Int -> Boolean
+isSharedHere st bank slot =
+  isJust (Shared.sharedAt st.input.sharedSwitches slot)
+    && not (Shared.isOverridden bank slot)
+
+-- | The page as it will actually reach the device: shared switches written in.
+-- |
+-- | Rendering goes through this and mutation goes through `selectedBank`, which
+-- | is the whole trick — what you see is the compiled page, what you edit is
+-- | whichever source owns that slot.
+effectiveBank :: State -> Maybe ControlBank
+effectiveBank st = Shared.applyShared st.input.sharedSwitches <$> selectedBank st
 
 -- | Modify messages of a specific switch
 modifySwitchMessages :: forall m. MonadAff m => Int -> (Array MC6Message -> Array MC6Message) -> H.HalogenM State Action () Output m Unit

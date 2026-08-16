@@ -15,6 +15,7 @@ import Data.Argonaut.Parser (jsonParser)
 import Data.Looper as Looper
 import Data.MC6.Backup as Backup
 import Data.MC6.ControlBank as ControlBank
+import Data.MC6.Shared as Shared
 import Data.MC6.Diagnostics as Diagnostics
 import Data.MC6.Message as MC6Msg
 import Data.MC6.SysEx as SysEx
@@ -207,6 +208,7 @@ render state = case state.configError of
             , boardPresets: state.boardPresets
             , presets: state.presets
             , mc6Assignments: state.mc6Assignments
+            , sharedSwitches: state.sharedSwitches
             }
             HandleControls
         FilesView -> renderFilesView state
@@ -789,7 +791,8 @@ handleAction = case _ of
         -- switches gain the other three without a migration step.
         controlBanks <- map (map ControlBank.padSwitches)
           (liftEffect $ Storage.loadControlBanksParsed currentSt.controlBanks)
-        H.modify_ _ { presets = presets, boardPresets = boardPresets, mc6Assignments = mc6Assignments, controlBanks = controlBanks }
+        sharedSwitches <- liftEffect Storage.loadSharedSwitchesParsed
+        H.modify_ _ { presets = presets, boardPresets = boardPresets, mc6Assignments = mc6Assignments, controlBanks = controlBanks, sharedSwitches = sharedSwitches }
         st <- H.get
         liftEffect do
           w <- window
@@ -1143,7 +1146,8 @@ handleAction = case _ of
         H.modify_ _ { midiTest = Just ("programming " <> show (Array.length banks) <> " bank(s)...") }
         withEditorSession output do
           for_ banks \cb -> do
-            let presets = ControlBank.controlBankToPresets st.mc6BoardBankNum cb
+            let presets = ControlBank.controlBankToPresets st.mc6BoardBankNum
+                      (Shared.applyShared st.sharedSwitches cb)
             for_ presets \pr -> do
               let bytes = SysEx.sysexPresetData cb.mc6BankNumber pr.switchIndex
                             pr.shortName pr.longName pr.toToggle pr.messages
@@ -1316,6 +1320,10 @@ handleAction = case _ of
       handleAssignBoardToSwitch bankNum boardId switchIdx
     ControlsView.UnassignSwitch bankNum switchIdx ->
       handleUnassignSwitch bankNum switchIdx
+    ControlsView.SaveSharedSwitches shared -> do
+      H.modify_ _ { sharedSwitches = shared }
+      liftEffect $ Storage.saveSharedSwitches shared
+      liftEffect FolderBackup.scheduleBackup
 
   ExportAllPresetsAction -> handleExportAllPresets
   ExportAllBoardsAction -> handleExportAllBoards
@@ -1981,7 +1989,8 @@ syncControlBankToMC6 cb = do
   case st.connections.mc6Output of
     Nothing -> pure unit
     Just output -> do
-      let presets = ControlBank.controlBankToPresets st.mc6BoardBankNum cb
+      let presets = ControlBank.controlBankToPresets st.mc6BoardBankNum
+                      (Shared.applyShared st.sharedSwitches cb)
       liftEffect $ Console.log $ "MC6 SysEx: syncing control bank '" <> cb.name <> "' to MC6 bank " <> show cb.mc6BankNumber
       withEditorSession output do
         for_ presets \p -> do
