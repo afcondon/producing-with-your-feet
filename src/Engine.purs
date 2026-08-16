@@ -104,6 +104,11 @@ type AppState =
   -- Result of the last looper-bank programming run, shown on the Looper page.
   , looperProgramStatus :: Maybe String
   , midiTest :: Maybe String
+  -- | What the MC6 said when last asked (`Data.MC6.Read`). Bank numbers are
+  -- | wire numbers, i.e. 0-based; the editor shows them one higher.
+  , mc6BankNames :: Map Int String
+  , mc6BankSwitches :: Map Int (Array String)
+  , mc6ReadStatus :: Maybe String
   -- | Outcome of the last baseline sweep, shown on the pedal card that
   -- | triggered it. Separate from `midiTest` because that changes on every CC
   -- | from anywhere and would flicker noise into the card.
@@ -178,6 +183,9 @@ initAppState =
   , mc6LooperBankNum: 21
   , looperProgramStatus: Nothing
   , midiTest: Nothing
+  , mc6BankNames: Map.empty
+  , mc6BankSwitches: Map.empty
+  , mc6ReadStatus: Nothing
   , baselineStatus: Nothing
   , testCh: 3
   , testCC: 1

@@ -635,6 +635,19 @@ body {
 
 .preset-actions input[type="file"] { display: none; }
 
+/* The MC6 read-back table. Both numberings are shown deliberately: internal
+   code is 0-based, the Morningstar editor is 1-based. */
+.mc6-readout { margin: 20px 0; }
+.mc6-readout h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em;
+                  color: var(--fg-muted); margin: 0 0 6px; }
+.mc6-readout-table { border-collapse: collapse; font-size: 12px; width: 100%; max-width: 760px; }
+.mc6-readout-table th { text-align: left; font-weight: 600; color: var(--fg-muted);
+                        padding: 4px 10px 4px 0; border-bottom: 1px solid var(--border); }
+.mc6-readout-table td { padding: 4px 10px 4px 0; border-bottom: 1px solid var(--border-light);
+                        font-variant-numeric: tabular-nums; }
+.mc6-readout-table td:nth-child(3) { font-weight: 600; }
+.mc6-readout-table td:nth-child(4) { color: var(--fg-muted); font-variant-numeric: normal; }
+
 /* Baseline sits apart from Save/Reference: those record what the pedal is
    doing, this one asserts it. Pushed to the right so it is not clicked by
    reflex on the way to the other two. */

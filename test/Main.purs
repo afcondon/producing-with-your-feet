@@ -4,6 +4,7 @@ import Prelude
 
 import Data.Argonaut.Core (stringify)
 import Data.Array as Array
+import Data.Int.Bits (xor)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), isJust, isNothing, maybe)
 import Data.Midi (makeCC, makeMidiValue, makeProgramNumber)
@@ -18,6 +19,7 @@ import Data.MC6.Board as Board
 import Data.MC6.ControlBank as ControlBank
 import Data.MC6.Message as MC6Msg
 import Data.MC6.Types (MC6Action(..))
+import Data.MC6.Read as Read
 import Data.MC6.Survey as Survey
 import Data.MC6.Verb as Verb
 import Data.Tuple (Tuple(..))
@@ -35,6 +37,26 @@ presetsFixture = """[{"id":"preset-1","pedalId":"mood","name":"Ambient Wash","de
 
 boardPresetsFixture :: String
 boardPresetsFixture = """[{"id":"board-1","name":"Full Board","description":"All pedals on","notes":"","pedals":{"mood":{"presetId":"preset-1","engage":"on"},"flint":{"presetId":null,"engage":"off"},"onward":{"presetId":null,"engage":"no-change"}},"created":"2025-01-20T12:00:00Z","modified":"2025-01-20T12:00:00Z"}]"""
+
+-- | One frame the MC6 actually sent, from the editor-handshake capture:
+-- | the twelve switch names of wire bank 19. Kept verbatim so the decoder is
+-- | tested against the device rather than against our own encoder.
+capturedBankSwitchesFrame :: Array Int
+capturedBankSwitchesFrame =
+  [ 240, 0, 33, 36, 3, 3, 9, 1, 19, 0, 0, 0
+  , 0, 0, 1, 22, 127, 0, 8, 82, 101, 99, 32, 32
+  , 32, 32, 32, 127, 1, 8, 77, 117, 108, 116, 105, 112
+  , 108, 121, 127, 2, 8, 84, 97, 107, 101, 32, 32, 32
+  , 32, 127, 3, 8, 85, 110, 100, 111, 32, 32, 32, 32
+  , 127, 4, 8, 67, 108, 101, 97, 114, 32, 32, 32, 127
+  , 5, 8, 60, 32, 66, 97, 99, 107, 32, 32, 127, 6
+  , 8, 67, 108, 105, 99, 107, 32, 32, 32, 127, 7, 8
+  , 77, 111, 110, 105, 116, 111, 114, 32, 127, 8, 8, 32
+  , 32, 32, 32, 32, 32, 32, 32, 127, 9, 8, 32, 32
+  , 32, 32, 32, 32, 32, 32, 127, 10, 8, 32, 32, 32
+  , 32, 32, 32, 32, 32, 127, 11, 8, 32, 32, 32, 32
+  , 32, 32, 32, 32, 102, 247
+  ]
 
 assert :: String -> Boolean -> Effect Unit
 assert label ok = log $ (if ok then "PASS" else "FAIL") <> " - " <> label
@@ -338,6 +360,50 @@ main = do
     (Array.null (Survey.navigationEdges
       [ { bankNumber: 5, name: "", provenance: Survey.Unknown
         , slots: [ Verb.Navigation (Verb.ToBank 3) ] } ]))
+
+  log ""
+  log "Running MC6 read-protocol tests..."
+
+  -- Decoded against a real frame the device sent, lifted verbatim out of
+  -- test/mc6-editor-handshake-20260816.json. Testing the decoder on invented
+  -- bytes would only prove it agrees with the encoder we also wrote.
+  case Read.decodeReply capturedBankSwitchesFrame of
+    Just (Read.BankSwitches wireBank names) -> do
+      assert "the captured frame reports wire bank 19 (editor 20)" (wireBank == 19)
+      assert "and carries all twelve switch names" (Array.length names == 12)
+      assert "which are our looper transport"
+        (Array.take 6 names == [ "Rec", "Multiply", "Take", "Undo", "Clear", "< Back" ])
+      assert "trailing empty switches come back empty, not spaces"
+        (Array.drop 8 names == [ "", "", "", "" ])
+    _ -> assert "captured frame decodes as BankSwitches" false
+
+  assert "a non-Morningstar SysEx frame is rejected"
+    (Read.decodeReply [ 0xF0, 0x7E, 0x00, 0x06, 0x01, 0xF7 ] == Nothing)
+  assert "an undecoded function code is named rather than dropped"
+    (Read.decodeReply [ 0xF0, 0x00, 0x21, 0x24, 0x03, 0x03, 0x06, 0x01
+                      , 0, 0, 0, 0, 0, 0, 0, 18, 0, 0xF7 ]
+      == Just (Read.OtherReply 0x06 0x01))
+
+  -- Requests are 18 bytes with a correct checksum and self-declared length,
+  -- both rules taken from the captured replies.
+  let checkFrame label f =
+        let n = Array.length f
+            declared = case Array.index f 14, Array.index f 15 of
+              Just hi, Just lo -> hi * 128 + lo
+              _, _ -> -1
+            body = Array.dropEnd 2 f
+            cs = Array.foldl xor 0 body `mod` 128
+        in do
+          assert (label <> ": 18 bytes") (n == 18)
+          assert (label <> ": declares its own length") (declared == n)
+          assert (label <> ": checksum is right")
+            (Array.index f 14 /= Nothing && Array.index f (n - 2) == Just cs)
+          assert (label <> ": terminated") (Array.index f (n - 1) == Just 0xF7)
+
+  checkFrame "bank-names request" Read.requestBankNames
+  checkFrame "bank-switches request" (Read.requestBankSwitches 19)
+  assert "the bank number rides in F3, 0-based"
+    (Array.index (Read.requestBankSwitches 19) 8 == Just 19)
 
   log ""
   log "Done."
