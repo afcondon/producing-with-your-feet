@@ -317,7 +317,7 @@ main = do
   log ""
   log "Running MC6 survey tests..."
 
-  let cards = Survey.survey reg 1 [ ControlBank.exampleControlBank ] []
+  let cards = Survey.survey reg 1 [ ControlBank.exampleControlBank ] [] Map.empty Map.empty
 
   assert "the survey covers all 30 banks" (Array.length cards == Survey.bankCount)
   assert "a known bank has 12 slots"
@@ -352,13 +352,33 @@ main = do
 
   let navCard =
         { bankNumber: 1, name: "Boards", provenance: Survey.Authored
-        , slots: [ Verb.Navigation (Verb.ToBank 20), Verb.Blank ] }
+        , slots: [ Verb.Navigation (Verb.ToBank 20), Verb.Blank ]
+        , observedNames: [], agrees: Nothing }
   assert "a bank jump becomes a graph edge"
     (Survey.navigationEdges [ navCard ] == [ Tuple 1 20 ])
   assert "unknown banks contribute no edges"
     (Array.null (Survey.navigationEdges
       [ { bankNumber: 5, name: "", provenance: Survey.Unknown
-        , slots: [ Verb.Navigation (Verb.ToBank 3) ] } ]))
+        , slots: [ Verb.Navigation (Verb.ToBank 3) ]
+        , observedNames: [], agrees: Nothing } ]))
+
+  log ""
+  -- Reading the device outranks anything we merely believe.
+  let readNames = Map.fromFoldable [ Tuple 11 "LoopyPro", Tuple 19 "Ableton" ]
+      readSwitches = Map.singleton 19 [ "Rec", "Multiply", "Take" ]
+      readCards = Survey.survey reg 1 [ ControlBank.exampleControlBank ] [] readNames readSwitches
+      at n = Array.filter (\c -> c.bankNumber == n) readCards
+  assert "a bank the device named is Observed, not Unknown"
+    (map _.provenance (at 11) == [ Survey.Observed ])
+  assert "and takes its name from the device"
+    (map _.name (at 11) == [ "LoopyPro" ])
+  assert "reading lifts three banks out of Unknown"
+    (Array.length (Survey.knownBanks readCards) == 3)
+  assert "an unread, unauthored bank stays Unknown"
+    (map _.provenance (at 5) == [ Survey.Unknown ])
+  -- Silence rather than a clean bill: nothing to compare means Nothing.
+  assert "with nothing to compare, agreement is Nothing"
+    (Array.all (\c -> c.agrees == Nothing) (Array.filter (\c -> c.bankNumber /= 20) readCards))
 
   log ""
   log "Running MC6 read-protocol tests..."

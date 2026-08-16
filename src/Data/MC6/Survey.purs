@@ -28,7 +28,9 @@ import Data.Array as Array
 import Data.MC6.ControlBank (ControlBank)
 import Data.MC6.Types (MC6NativeBank)
 import Data.MC6.Verb (NavTarget(..), Verb(..), classify)
-import Data.Maybe (Maybe(..))
+import Data.Map (Map)
+import Data.Map as Map
+import Data.Maybe (Maybe(..), fromMaybe, isJust)
 import Data.Tuple (Tuple(..))
 
 -- | How the MC6 MKII numbers its banks, taken from the device's own backup
@@ -36,9 +38,10 @@ import Data.Tuple (Tuple(..))
 bankCount :: Int
 bankCount = 30
 
--- | Where our picture of a bank came from, worst-known last.
+-- | Where our picture of a bank came from, best first.
 data Provenance
-  = Authored   -- ^ this app wrote it, so we know exactly what is there
+  = Observed   -- ^ the device itself said so. The only one that is not a belief.
+  | Authored   -- ^ this app wrote it, and nothing has checked since
   | Declared   -- ^ described in the controller config; may be stale
   | Unknown    -- ^ never looked. Not the same as empty.
 
@@ -49,6 +52,14 @@ type BankCard =
   , name :: String
   , provenance :: Provenance
   , slots :: Array Verb
+  -- | The switch names the device reports, when it has been read. These are
+  -- | separate from `slots` on purpose: `slots` is what we *meant* a switch to
+  -- | do and comes from what we authored, while this is what the hardware says
+  -- | is on it. Holding both is what makes disagreement visible at all.
+  , observedNames :: Array String
+  -- | `Nothing` where there is nothing to compare — the bank was never authored
+  -- | here, or never read from there. Silence rather than a false clean bill.
+  , agrees :: Maybe Boolean
   }
 
 -- | Build a card for every bank the device has.
@@ -58,29 +69,49 @@ type BankCard =
 -- | guessed at.
 survey
   :: PedalRegistry
-  -> Int                      -- ^ the app's board-recall channel
-  -> Array ControlBank        -- ^ pages this app authored
-  -> Array MC6NativeBank      -- ^ whatever the controller config declares
+  -> Int                       -- ^ the app's board-recall channel
+  -> Array ControlBank         -- ^ pages this app authored
+  -> Array MC6NativeBank       -- ^ whatever the controller config declares
+  -> Map Int String            -- ^ bank names the device reported
+  -> Map Int (Array String)    -- ^ switch names the device reported, per bank
   -> Array BankCard
-survey registry boardRecallChannel controlBanks nativeBanks =
+survey registry boardRecallChannel controlBanks nativeBanks readNames readSwitches =
   map card (Array.range 0 (bankCount - 1))
   where
-  card n = case Array.find (\cb -> cb.mc6BankNumber == n) controlBanks of
-    Just cb ->
-      { bankNumber: n
-      , name: cb.name
-      , provenance: Authored
-      , slots: pad (map (\sw -> classify registry boardRecallChannel sw.messages) cb.switches)
-      }
-    Nothing -> case Array.find (\nb -> nb.bankNumber == n) nativeBanks of
-      Just nb ->
-        { bankNumber: n
-        , name: nb.bankName
-        , provenance: Declared
-        , slots: pad (map (\p -> classify registry boardRecallChannel p.messages) nb.presets)
-        }
-      Nothing ->
-        { bankNumber: n, name: "", provenance: Unknown, slots: [] }
+  card n =
+    let observedName = Map.lookup n readNames
+        observed = fromMaybe [] (Map.lookup n readSwitches)
+        authored = Array.find (\cb -> cb.mc6BankNumber == n) controlBanks
+        declared = Array.find (\nb -> nb.bankNumber == n) nativeBanks
+
+        slots = case authored, declared of
+          Just cb, _ -> pad (map (\sw -> classify registry boardRecallChannel sw.messages) cb.switches)
+          _, Just nb -> pad (map (\p -> classify registry boardRecallChannel p.messages) nb.presets)
+          _, _ -> []
+
+        -- A read beats anything we merely believe, and a bank the device named
+        -- is known even when we have no idea what is on its switches.
+        provenance
+          | not (Array.null observed) = Observed
+          | isJust observedName = Observed
+          | isJust authored = Authored
+          | isJust declared = Declared
+          | otherwise = Unknown
+
+        name = case observedName, authored, declared of
+          Just nm, _, _ | nm /= "" -> nm
+          _, Just cb, _ -> cb.name
+          _, _, Just nb -> nb.bankName
+          _, _, _ -> ""
+
+        -- Compare the labels we intended against the labels the device reports.
+        -- Only meaningful when both exist; anything else is Nothing rather than
+        -- a clean bill we cannot justify.
+        agrees = case authored, Array.null observed of
+          Just cb, false ->
+            Just (map _.label cb.switches == Array.take (Array.length cb.switches) observed)
+          _, _ -> Nothing
+    in { bankNumber: n, name, provenance, slots, observedNames: observed, agrees }
 
   -- Twelve slots per bank: six on the MC6 itself plus two FS3X's worth.
   pad vs = Array.take 12 (vs <> Array.replicate 12 Blank)
