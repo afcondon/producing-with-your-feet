@@ -1138,7 +1138,7 @@ handleAction = case _ of
     modifySwitchMessages swIdx \msgs -> msgs <> [newMessage msgType]
     save
   AddCCToggle swIdx -> do
-    modifySwitchMessages swIdx \msgs -> msgs <> ccToggleMessages 1 0
+    addMessages swIdx true (ccToggleMessages 1 0)
     save
   AddCCMomentary swIdx -> do
     modifySwitchMessages swIdx \msgs -> msgs <> ccMomentaryMessages 1 0
@@ -1185,8 +1185,12 @@ handleAction = case _ of
     Nothing -> pure unit
   AddFromBrowser ch cc isToggle -> do
     st <- H.get
-    let msgs = if isToggle then ccToggleMessages ch cc else ccMomentaryMessages ch cc
-    modifySwitchMessages st.browserTargetSwitch \existing -> existing <> msgs
+    -- The browser lives inside the switch you are editing now, so that is the
+    -- target; browserTargetSwitch is only still consulted for the dictionary
+    -- overlay, which can be opened without a switch selected.
+    let target = fromMaybe st.browserTargetSwitch st.selectedSwitchIdx
+    addMessages target isToggle
+      (if isToggle then ccToggleMessages ch cc else ccMomentaryMessages ch cc)
     save
 
   SyncToMC6 -> do
@@ -1398,6 +1402,24 @@ isSharedHere st bank slot =
 -- | whichever source owns that slot.
 effectiveBank :: State -> Maybe ControlBank
 effectiveBank st = Shared.applyShared st.input.sharedSwitches <$> selectedBank st
+
+-- | Append messages to a switch, putting it into toggle mode if they need it.
+-- |
+-- | A CC toggle pair is two messages carrying Tg On and Tg Off, and the MC6
+-- | alternates between them **only if the preset is in toggle mode**. Adding
+-- | the pair without setting the flag produced a switch that looked correct in
+-- | the editor and sent both messages on every press — 127 then 0 — so the
+-- | pedal ended up back where it started and the switch appeared to do nothing.
+-- | Silent, and exactly the failure this app exists to stop.
+-- |
+-- | Never clears the flag: a switch can carry several messages and one toggle
+-- | pair among them is enough to need the mode.
+addMessages :: forall m. MonadAff m => Int -> Boolean -> Array MC6Message -> H.HalogenM State Action () Output m Unit
+addMessages swIdx needsToggle msgs =
+  modifySwitch swIdx \sw -> sw
+    { messages = reindexMessages (sw.messages <> msgs)
+    , toToggle = sw.toToggle || needsToggle
+    }
 
 -- | Modify messages of a specific switch
 modifySwitchMessages :: forall m. MonadAff m => Int -> (Array MC6Message -> Array MC6Message) -> H.HalogenM State Action () Output m Unit
