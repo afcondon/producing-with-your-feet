@@ -15,6 +15,10 @@ import Config.Registry as CRegistry
 import Engine (initEngineFromPedals, pedalsOnChannel)
 import Engine.Storage (engineToJson, parseEngine, parseCardOrder, parsePresets, parseBoardPresets, parseEngageState)
 import Data.MC6.Board as Board
+import Data.MC6.ControlBank as ControlBank
+import Data.MC6.Message as MC6Msg
+import Data.MC6.Types (MC6Action(..))
+import Data.MC6.Verb as Verb
 import Data.Tuple (Tuple(..))
 import Pedals.Registry as Registry
 
@@ -234,6 +238,59 @@ main = do
   let channels = map (\p -> p.meta.defaultChannel) Registry.pedals
   assert "all pedal channels are distinct"
     (Array.length (Array.nub channels) == Array.length channels)
+
+  log ""
+  log "Running verb classification tests..."
+
+  -- The point of classification is that nothing has to be re-authored to
+  -- benefit, so the test subject is the control bank as it already exists.
+  let bank = ControlBank.exampleControlBank
+      verbOf sw = Verb.classify reg 1 sw.messages
+      verbs = map verbOf bank.switches
+
+  assert "every switch in the default bank classifies"
+    (Array.length verbs == Array.length bank.switches)
+
+  -- Eight of the nine are pedal actions; the ninth is the empty return switch,
+  -- which only becomes a bank jump when the bank is compiled.
+  let actions = Array.filter (case _ of
+        Verb.Action _ -> true
+        _ -> false) verbs
+  assert "8 of the 9 default switches are pedal actions" (Array.length actions == 8)
+  assert "nothing in the default bank is unclassifiable"
+    (Array.null (Array.filter (_ == Verb.Raw) verbs))
+
+  -- Toggle and momentary must not be confused: reading them backwards would
+  -- turn a hold into a latch.
+  let shapesOf s = Array.filter (case _ of
+        Verb.Action a -> a.shape == s
+        _ -> false) verbs
+  assert "6 toggling actions" (Array.length (shapesOf Verb.Toggling) == 6)
+  assert "2 momentary actions" (Array.length (shapesOf Verb.Momentary) == 2)
+
+  -- Actions are the only timing-critical verb, which is what forces them onto
+  -- a short press (DESIGN-CONTROLS §2).
+  assert "actions are timing-critical, navigation is not"
+    (Verb.isTimingCritical (Verb.Action { pedalId: PedalId "mood", cc: 105, shape: Verb.Toggling })
+      && not (Verb.isTimingCritical (Verb.Navigation (Verb.ToBank 1))))
+
+  -- Scope orders the ladder, which is what a colour legend reads.
+  assert "verb scope rises with reach"
+    (Verb.verbScope Verb.Blank
+       < Verb.verbScope (Verb.Navigation Verb.BankUp)
+       && Verb.verbScope (Verb.Navigation Verb.BankUp)
+            < Verb.verbScope (Verb.Action { pedalId: PedalId "mood", cc: 1, shape: Verb.OneShot })
+       && Verb.verbScope (Verb.Action { pedalId: PedalId "mood", cc: 1, shape: Verb.OneShot })
+            < Verb.verbScope (Verb.PedalPreset { pedalId: PedalId "mood", program: 3 })
+       && Verb.verbScope (Verb.PedalPreset { pedalId: PedalId "mood", program: 3 })
+            < Verb.verbScope (Verb.Scene { cc: 20 }))
+
+  assert "an empty switch is Blank, not Raw"
+    (Verb.classify reg 1 [] == Verb.Blank)
+  assert "a bank jump classifies as navigation"
+    (Verb.classify reg 1 [ MC6Msg.bankJumpMessage 22 ActionPress ] == Verb.Navigation (Verb.ToBank 22))
+  assert "a CC on the relay channel is a scene, not a pedal action"
+    (Verb.classify reg 1 [ MC6Msg.ccMessage 1 20 127 ActionPress ] == Verb.Scene { cc: 20 })
 
   log ""
   log "Done."
