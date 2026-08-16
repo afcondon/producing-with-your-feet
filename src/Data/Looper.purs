@@ -27,6 +27,8 @@ module Data.Looper
 import Prelude
 
 import Data.Array as Array
+import Data.MC6.Message as MC6Msg
+import Data.MC6.Types (MC6Action(..))
 import Data.MC6.ControlBank (ControlBank, ControlBankSwitch, ccMomentaryMessages, ccToggleMessages)
 import Data.Midi (CC, MidiValue, unCC, unMidiValue)
 import Data.Pedal (PedalId(..))
@@ -136,8 +138,8 @@ isMomentary theCC = case unCC theCC of
 -- |
 -- | Presets 0–5 are the MC6's own switches A–F; 6–8 are the first FS3X as
 -- | G/H/I; 9–11 would be a second one.
-looperBank :: Int -> ControlBank
-looperBank bankNum =
+looperBank :: Int -> Int -> ControlBank
+looperBank bankNum returnBankNum =
   { id: "itajara"
   , name: "Itajara"
   , description: "Looper transport on channel " <> show itajaraChannel
@@ -156,8 +158,12 @@ looperBank bankNum =
     2 -> gesture "Take" "Looper Take" 5
     3 -> gesture "Undo" "Looper Undo Layer" 3
     4 -> gesture "Clear" "Looper Clear All" 6
+    -- Carries the jump itself. It used to be an empty switch that the
+    -- compiler filled in, which meant the generated bank did not say what one
+    -- of its six switches did.
     5 -> { label: "< Back", longName: "Back to Board Bank"
-         , toToggle: false, messages: [] }   -- replaced with the bank jump
+         , toToggle: false
+         , messages: [ MC6Msg.bankJumpMessage returnBankNum ActionPress ] }
     6 -> latching "Click" "Looper Click" 81
     7 -> latching "Monitor" "Looper Input Monitor" 83
     -- Written blank rather than left alone, so reprogramming leaves no

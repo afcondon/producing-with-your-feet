@@ -27,14 +27,19 @@ module Data.MC6.Shared
   , sharedAt
   , isOverridden
   , pageCount
+  , migrateReturns
   ) where
 
 import Prelude
 
 import Data.Array as Array
+import Data.Foldable (maximumBy)
+import Data.Map as Map
 import Data.MC6.ControlBank (ControlBank)
-import Data.MC6.Types (MC6Message)
-import Data.Maybe (Maybe(..))
+import Data.MC6.Message as MC6Msg
+import Data.MC6.Types (MC6Action(..), MC6Message)
+import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Tuple (Tuple(..), fst, snd)
 
 type SharedSwitch =
   { id :: String
@@ -77,3 +82,76 @@ applyShared shared cb = cb { switches = Array.mapWithIndex fill cb.switches }
     Just s | not (isOverridden cb idx) ->
       { label: s.label, longName: s.longName, toToggle: s.toToggle, messages: s.messages }
     _ -> sw
+
+-- | Turn the old hardcoded return switch into an ordinary shared switch.
+-- |
+-- | `returnSwitchIndex` was this idea with the generality taken out: one
+-- | behaviour, defined app-wide, placed per page, and the compiler substituted
+-- | its messages at sync. As a shared switch it is just a bank jump that
+-- | happens to be on every page — and it gains the thing the hardcoded version
+-- | could not do, which is to be removed from *one* bank without dropping back
+-- | to authoring it thirty times.
+-- |
+-- | **Behaviour-preserving by construction.** The shared switch goes at the slot
+-- | most pages already use. A page that had its return somewhere else keeps it
+-- | exactly where it was — the jump is written into that page's own slot, and
+-- | the shared slot is overridden there so the page does not quietly grow a
+-- | second way back.
+-- |
+-- | Runs once, when there are no shared switches yet. After that the shared
+-- | switch is ordinary and `returnSwitchIndex` means nothing.
+migrateReturns
+  :: Int                  -- ^ the bank a return jumps to
+  -> Array ControlBank
+  -> { shared :: Array SharedSwitch, banks :: Array ControlBank }
+migrateReturns targetBank banks = case modalSlot of
+  Nothing -> { shared: [], banks }
+  Just slot ->
+    { shared:
+        [ { id: "shared-return"
+          , slot
+          , label: labelAt slot
+          , longName: "Back to Board Bank"
+          , toToggle: false
+          , messages: [ jump ]
+          }
+        ]
+    , banks: map (relocate slot) banks
+    }
+  where
+  jump :: MC6Message
+  jump = MC6Msg.bankJumpMessage targetBank ActionPress
+
+  -- Where most pages already keep the way back. Ties go to the lowest index so
+  -- the result does not depend on array order.
+  modalSlot :: Maybe Int
+  modalSlot =
+    map fst
+      (maximumBy (\a b -> compare (snd a) (snd b) <> compare (fst b) (fst a))
+        (Map.toUnfoldable counts :: Array (Tuple Int Int)))
+
+  counts = Map.fromFoldableWith (+) (map (\cb -> Tuple cb.returnSwitchIndex 1) banks)
+
+  -- Whatever a page called it, preferring a page that bothered to name it.
+  labelAt slot = fromMaybe "< Back" do
+    cb <- Array.find (\b -> b.returnSwitchIndex == slot
+                              && maybe false (_ /= "") (map _.label (Array.index b.switches slot)))
+            banks
+    sw <- Array.index cb.switches slot
+    pure sw.label
+    where maybe d f = case _ of
+            Nothing -> d
+            Just x -> f x
+
+  relocate slot cb
+    | cb.returnSwitchIndex == slot = cb
+    | otherwise = cb
+        { switches = fromMaybe cb.switches
+            (Array.modifyAt cb.returnSwitchIndex
+              (\sw -> sw { label = if sw.label == "" then "< Back" else sw.label
+                         , longName = "Back to Board Bank"
+                         , toToggle = false
+                         , messages = [ jump ]
+                         }) cb.switches)
+        , sharedOverrides = Array.nub (Array.snoc cb.sharedOverrides slot)
+        }

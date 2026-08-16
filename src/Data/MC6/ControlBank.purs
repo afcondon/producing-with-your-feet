@@ -30,6 +30,10 @@ type ControlBank =
   , name :: String
   , description :: String
   , mc6BankNumber :: Int
+  -- | Where this page used to keep its way back, before that became an
+  -- | ordinary shared switch. Read once by `Shared.migrateReturns` and
+  -- | meaningless afterwards; kept only so the migration can still run on a
+  -- | store that has not seen it yet.
   , returnSwitchIndex :: Int
   , switches :: Array ControlBankSwitch
   -- | Slots this page keeps for itself, refusing the instrument-wide shared
@@ -90,30 +94,25 @@ ccMomentaryMessages ch cc =
   , MC6Msg.ccMessage ch cc 0 ActionRelease
   ]
 
--- | Convert a ControlBank to an array of preset records ready for SysEx programming.
--- | Injects a BankJump "back" message at the returnSwitchIndex.
+-- | Compile a page into the preset records SysEx wants.
+-- |
+-- | It used to substitute a bank jump into whichever switch the page declared
+-- | as its return, which made one switch on every page mean something the page
+-- | itself did not say. A shared switch (`Data.MC6.Shared`) does that job now
+-- | and says so, so this compiles what is there and nothing else.
 controlBankToPresets
-  :: Int  -- ^ board bank number to jump back to
-  -> ControlBank
+  :: ControlBank
   -> Array { switchIndex :: Int, shortName :: String, longName :: String, toToggle :: Boolean, messages :: Array MC6Message }
-controlBankToPresets returnBankNum cb =
+controlBankToPresets cb =
   Array.mapWithIndex toPreset cb.switches
   where
-  toPreset idx sw
-    | idx == cb.returnSwitchIndex =
-        { switchIndex: idx
-        , shortName: sw.label
-        , longName: sw.longName
-        , toToggle: false
-        , messages: indexMessages [ MC6Msg.bankJumpMessage returnBankNum ActionPress ]
-        }
-    | otherwise =
-        { switchIndex: idx
-        , shortName: sw.label
-        , longName: sw.longName
-        , toToggle: sw.toToggle
-        , messages: indexMessages sw.messages
-        }
+  toPreset idx sw =
+    { switchIndex: idx
+    , shortName: sw.label
+    , longName: sw.longName
+    , toToggle: sw.toToggle
+    , messages: indexMessages sw.messages
+    }
 
   indexMessages :: Array MC6Message -> Array MC6Message
   indexMessages msgs = Array.mapWithIndex (\i m -> m { msgIndex = i }) msgs

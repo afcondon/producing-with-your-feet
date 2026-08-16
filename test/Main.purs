@@ -411,6 +411,30 @@ main = do
     (map _.label (Shared.sharedAt [ backSwitch ] 6) == Just "< Back"
       && Shared.sharedAt [ backSwitch ] 5 == Nothing)
 
+  -- The migration off the hardcoded return switch. Modelled on the real store:
+  -- four pages agreeing on slot 6, one keeping its way back on slot 0.
+  let mig = Shared.migrateReturns 1
+        [ bankA
+        , bankA { id = "b", mc6BankNumber = 1, sharedOverrides = [] }
+        , bankA { id = "c", mc6BankNumber = 2, sharedOverrides = [] }
+        , bankA { id = "d", mc6BankNumber = 3, returnSwitchIndex = 0, sharedOverrides = [] }
+        ]
+  assert "the shared return lands on the slot most pages use"
+    (map _.slot (Array.head mig.shared) == Just 6)
+  assert "and keeps the name a page gave it"
+    (map _.label (Array.head mig.shared) == Just "< Back")
+  assert "a page that agreed is left alone"
+    (map _.sharedOverrides (Array.index mig.banks 0) == Just [])
+  -- Behaviour-preserving: the odd page keeps its way back exactly where it was,
+  -- and does not quietly grow a second one at the shared slot.
+  assert "a page with its return elsewhere keeps it there"
+    (map (\sw -> Array.length sw.messages)
+      (Array.index mig.banks 3 >>= \b -> Array.index b.switches 0) == Just 1)
+  assert "and overrides the shared slot rather than gaining a second way back"
+    (map _.sharedOverrides (Array.index mig.banks 3) == Just [ 6 ])
+  assert "migration of nothing produces nothing"
+    (Array.null (Shared.migrateReturns 1 []).shared)
+
   log ""
   log "Running MC6 navigation-graph tests..."
 

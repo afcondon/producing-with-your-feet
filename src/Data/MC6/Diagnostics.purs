@@ -18,8 +18,9 @@ import Prelude
 
 import Config.Registry (PedalRegistry, registryPedals)
 import Data.Array as Array
+import Data.MC6.Message as MC6Msg
 import Data.MC6.ControlBank (ControlBank, ControlBankSwitch, ccToggleMessages)
-import Data.MC6.Types (MC6Message)
+import Data.MC6.Types (MC6Action(..), MC6Message)
 import Data.Midi (unCC)
 import Data.Pedal (PedalDef)
 import Data.Pedal.Engage (EngageConfig(..))
@@ -42,8 +43,8 @@ pedalsPerBank = returnIndex
 -- | Every switch is a toggle: press to bypass, press again to re-engage. That
 -- | is the useful shape for a sweep, because you can walk the row and leave
 -- | the board as you found it.
-bypassBanks :: Int -> PedalRegistry -> Array ControlBank
-bypassBanks firstBank reg =
+bypassBanks :: Int -> Int -> PedalRegistry -> Array ControlBank
+bypassBanks firstBank returnBankNum reg =
   Array.mapWithIndex toBank (chunk pedalsPerBank (registryPedals reg))
   where
   toBank i pedals =
@@ -64,8 +65,11 @@ bypassBanks firstBank reg =
       <> [ backSwitch ]
 
   blank = { label: "", longName: "", toToggle: false, messages: [] }
+  -- Carries its own jump rather than relying on the compiler to fill it in, so
+  -- a generated bank says what all nine of its switches do.
   backSwitch =
-    { label: "< Back", longName: "Back to board bank", toToggle: false, messages: [] }
+    { label: "< Back", longName: "Back to board bank", toToggle: false
+    , messages: [ MC6Msg.bankJumpMessage returnBankNum ActionPress ] }
 
 pedalSwitch :: PedalDef -> ControlBankSwitch
 pedalSwitch def =

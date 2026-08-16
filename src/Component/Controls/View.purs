@@ -420,14 +420,7 @@ renderBankZone state bankNum =
               , HH.span [ HP.class_ (H.ClassName "controls-zone-sub") ] [ HH.text meta ]
               ]
           , HH.div [ HP.class_ (H.ClassName "controls-bank-bar") ]
-              [ HH.label_ [ HH.text "Return" ]
-              , HH.select
-                  [ HP.value (show state.editReturnSwitch)
-                  , HE.onValueChange UpdateReturnSwitch
-                  ]
-                  (Array.range 0 (switchCount - 1) <#> \i ->
-                    HH.option [ HP.value (show i) ] [ HH.text (switchLetter i) ])
-              , HH.input
+              [ HH.input
                   [ HP.type_ HP.InputText
                   , HP.class_ (H.ClassName "controls-bank-notes-input")
                   , HP.value state.editBankDescription
@@ -528,14 +521,12 @@ renderBankSwitchCell state bank mCard idx =
       verb = mCard >>= \c -> Array.index c.slots idx
       observed = mCard >>= \c -> Array.index c.observedNames idx
       isSelected = state.selectedSwitchIdx == Just idx
-      isReturn = bank.returnSwitchIndex == idx
       shared = isSharedHere state bank idx
       overridden = isJust (Shared.sharedAt state.input.sharedSwitches idx)
                      && Shared.isOverridden bank idx
       cls = String.joinWith " "
         ([ "controls-bank-switch" ]
           <> (if isSelected then [ "selected" ] else [])
-          <> (if isReturn then [ "return" ] else [])
           <> (if shared then [ "shared" ] else [])
           <> (if overridden then [ "overridden" ] else []))
   in HH.div
@@ -556,9 +547,6 @@ renderBankSwitchCell state bank mCard idx =
                            , HP.title "shared switch overridden on this page" ]
                      [ HH.text "\x2718" ]
               else HH.text ""
-        , if isReturn
-            then HH.span [ HP.class_ (H.ClassName "controls-sw-return-badge") ] [ HH.text "RTN" ]
-            else HH.text ""
         ]
     , HH.div [ HP.class_ (H.ClassName "controls-bank-switch-label") ]
         [ HH.text (fromMaybe "" (mSw <#> _.label)) ]
@@ -601,7 +589,7 @@ renderSwitchZone state idx = case effectiveBank state of
             Just bp -> renderBoardHeld state bp
             Nothing ->
               HH.div [ HP.class_ (H.ClassName "controls-switch-body") ]
-                [ renderSwitchSection (bankColor state.selectedBankIdx) bank.returnSwitchIndex idx sw
+                [ renderSwitchSection (bankColor state.selectedBankIdx) idx sw
                 , renderSearchPanel state
                 ]
         ]
@@ -705,10 +693,9 @@ renderBoardHeld state bp =
               else [])
     )
 
-renderSwitchSection :: forall m. String -> Int -> Int -> ControlBankSwitch -> H.ComponentHTML Action () m
-renderSwitchSection bankCol returnIdx swIdx sw =
-  let isReturn = swIdx == returnIdx
-      swColor = switchColor swIdx
+renderSwitchSection :: forall m. String -> Int -> ControlBankSwitch -> H.ComponentHTML Action () m
+renderSwitchSection bankCol swIdx sw =
+  let swColor = switchColor swIdx
   in HH.div
     [ HP.class_ (H.ClassName "controls-sw-section")
     , HP.attr (HH.AttrName "style") ("border-left: 3px solid " <> swColor)
@@ -747,9 +734,6 @@ renderSwitchSection bankCol returnIdx swIdx sw =
                 ]
             , HH.text " Loop"
             ]
-        , if isReturn
-            then HH.span [ HP.class_ (H.ClassName "controls-sw-return-badge") ] [ HH.text "RTN" ]
-            else HH.text ""
         ]
     , let indexed = Array.mapWithIndex (\i msg -> { idx: i, msg }) sw.messages
           visible = Array.filter (\r -> r.msg.msgType /= MsgLooperMode) indexed

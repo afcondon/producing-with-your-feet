@@ -530,7 +530,7 @@ renderLooperView state =
               <> show state.mc6LooperBankNum <> "."
           ]
       , HH.table [ HP.class_ (H.ClassName "docs-table") ]
-          [ HH.tbody_ (map bankRow (Looper.looperBank state.mc6LooperBankNum).switches) ]
+          [ HH.tbody_ (map bankRow (Looper.looperBank state.mc6LooperBankNum state.mc6BoardBankNum).switches) ]
       , HH.button
           [ HP.class_ (H.ClassName "files-btn")
           , HP.disabled (isNothing state.connections.mc6Output)
@@ -791,8 +791,23 @@ handleAction = case _ of
         -- switches gain the other three without a migration step.
         controlBanks <- map (map ControlBank.padSwitches)
           (liftEffect $ Storage.loadControlBanksParsed currentSt.controlBanks)
-        sharedSwitches <- liftEffect Storage.loadSharedSwitchesParsed
-        H.modify_ _ { presets = presets, boardPresets = boardPresets, mc6Assignments = mc6Assignments, controlBanks = controlBanks, sharedSwitches = sharedSwitches }
+        loadedShared <- liftEffect Storage.loadSharedSwitchesParsed
+        -- The return switch used to be substituted in by the compiler. It is an
+        -- ordinary shared switch now, so a store that has not seen one yet gets
+        -- the conversion here — once, and preserving where each page kept it.
+        let migrated =
+              if Array.null loadedShared && not (Array.null controlBanks)
+                then Shared.migrateReturns currentSt.mc6BoardBankNum controlBanks
+                else { shared: loadedShared, banks: controlBanks }
+            sharedSwitches = migrated.shared
+            banksAfter = migrated.banks
+        when (Array.null loadedShared && not (Array.null sharedSwitches)) do
+          liftEffect $ Storage.saveSharedSwitches sharedSwitches
+          liftEffect $ Storage.saveControlBanks banksAfter
+          liftEffect $ Console.log
+            ("Migrated return switches to a shared switch on slot "
+              <> show (map _.slot (Array.head sharedSwitches)))
+        H.modify_ _ { presets = presets, boardPresets = boardPresets, mc6Assignments = mc6Assignments, controlBanks = banksAfter, sharedSwitches = sharedSwitches }
         st <- H.get
         liftEffect do
           w <- window
@@ -1142,11 +1157,11 @@ handleAction = case _ of
       Nothing ->
         H.modify_ _ { midiTest = Just "no MC6 SysEx output selected" }
       Just output -> do
-        let banks = Diagnostics.bypassBanks st.mc6DiagBankNum st.registry
+        let banks = Diagnostics.bypassBanks st.mc6DiagBankNum st.mc6BoardBankNum st.registry
         H.modify_ _ { midiTest = Just ("programming " <> show (Array.length banks) <> " bank(s)...") }
         withEditorSession output do
           for_ banks \cb -> do
-            let presets = ControlBank.controlBankToPresets st.mc6BoardBankNum
+            let presets = ControlBank.controlBankToPresets
                       (Shared.applyShared st.sharedSwitches cb)
             for_ presets \pr -> do
               let bytes = SysEx.sysexPresetData cb.mc6BankNumber pr.switchIndex
@@ -1168,8 +1183,8 @@ handleAction = case _ of
       Nothing ->
         H.modify_ _ { looperProgramStatus = Just "No MC6 SysEx output selected — pick one on the Connect page." }
       Just output -> do
-        let cb = Looper.looperBank st.mc6LooperBankNum
-            presets = ControlBank.controlBankToPresets st.mc6BoardBankNum cb
+        let cb = Looper.looperBank st.mc6LooperBankNum st.mc6BoardBankNum
+            presets = ControlBank.controlBankToPresets cb
         H.modify_ _ { looperProgramStatus = Just "Programming…" }
         withEditorSession output do
           for_ presets \pr -> do
@@ -1989,7 +2004,7 @@ syncControlBankToMC6 cb = do
   case st.connections.mc6Output of
     Nothing -> pure unit
     Just output -> do
-      let presets = ControlBank.controlBankToPresets st.mc6BoardBankNum
+      let presets = ControlBank.controlBankToPresets
                       (Shared.applyShared st.sharedSwitches cb)
       liftEffect $ Console.log $ "MC6 SysEx: syncing control bank '" <> cb.name <> "' to MC6 bank " <> show cb.mc6BankNumber
       withEditorSession output do
