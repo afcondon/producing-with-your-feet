@@ -30,6 +30,10 @@ module Component.Controls.Survey
   ( SurveyProps
   , render
   , verbColor
+  , verbName
+  , verbDetail
+  , provenanceLabel
+  , physicalOrder
   ) where
 
 import Prelude
@@ -38,7 +42,7 @@ import Data.Array as Array
 import Data.Int as Int
 import Data.MC6.Survey (BankCard, NavEdge, Provenance(..), bankCount, deadEnds, knownBanks, navEdges, reachableFrom, stranded, universalEdges)
 import Data.MC6.Verb (ActionShape(..), NavTarget(..), Verb(..))
-import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Maybe (Maybe(..))
 import Data.Pedal (PedalId(..))
 import Data.Set (Set)
 import Data.Set as Set
@@ -74,10 +78,15 @@ type SurveyProps i =
   , homeBank :: Int
   , readStatus :: Maybe String
   , elideUnknown :: Boolean
-  , expanded :: Maybe Int
+  -- | The bank currently being worked on, if any. The survey does not own the
+  -- | detail view any more — selecting a card hands off to the bank zone below
+  -- | it — so all this does is mark which card you are inside of.
+  , selected :: Maybe Int
+  -- | Shrink to a strip. Once you are inside a bank the instrument is context
+  -- | rather than subject, and it should stop competing for the page.
+  , compact :: Boolean
   , onToggleElide :: i
-  , onExpand :: Int -> i
-  , onCollapse :: i
+  , onSelect :: Int -> i
   , onRead :: i
   }
 
@@ -143,17 +152,17 @@ physicalOrder = [ 3, 4, 5, 0, 1, 2, 6, 7, 8, 9, 10, 11 ]
 
 render :: forall w i. SurveyProps i -> HH.HTML w i
 render props =
-  HH.div [ HP.class_ (H.ClassName "survey") ]
-    [ renderHeader props
-    , renderLegend
-    , HH.div [ HP.class_ (H.ClassName "survey-grid") ]
-        (map (renderCard props) (visible props))
-    , renderNavMap props
-    , renderWarnings props
-    , case props.expanded >>= \n -> Array.find (\c -> c.bankNumber == n) props.cards of
-        Nothing -> HH.text ""
-        Just card -> renderExpanded props card
-    ]
+  HH.div [ HP.class_ (H.ClassName ("survey" <> if props.compact then " compact" else "")) ]
+    ( [ renderHeader props
+      , HH.div [ HP.class_ (H.ClassName "survey-grid") ]
+          (map (renderCard props) (visible props))
+      ]
+      -- The legend, the graph and the warnings are about the instrument as a
+      -- whole. Once you are inside one bank they are no longer what you are
+      -- looking at, and keeping them would push the actual work below the fold.
+      <> if props.compact then [] else
+           [ renderLegend, renderNavMap props, renderWarnings props ]
+    )
 
 -- | Which cards to draw. Eliding hides only the *unknown* ones — a bank we have
 -- | read and found empty stays visible, because "read, and empty" is a fact
@@ -228,7 +237,7 @@ renderLegend =
 renderCard :: forall w i. SurveyProps i -> BankCard -> HH.HTML w i
 renderCard props card =
   let isHome = card.bankNumber == props.homeBank
-      isOpen = props.expanded == Just card.bankNumber
+      isOpen = props.selected == Just card.bankNumber
       classes = String.joinWith " "
         ([ "survey-card" ]
           <> (if card.provenance == Unknown then [ "unknown" ] else [])
@@ -237,7 +246,7 @@ renderCard props card =
       outgoing = map _.to (Array.filter (\e -> e.from == card.bankNumber) (navEdges props.cards))
   in HH.div
     [ HP.class_ (H.ClassName classes)
-    , HE.onClick \_ -> if isOpen then props.onCollapse else props.onExpand card.bankNumber
+    , HE.onClick \_ -> props.onSelect card.bankNumber
     , HP.title (provenanceLabel card.provenance)
     ]
     [ HH.div [ HP.class_ (H.ClassName "survey-card-head") ]
@@ -451,56 +460,7 @@ renderWarnings props =
               ])
       )
 
--- ──── One bank, opened ────
-
-renderExpanded :: forall w i. SurveyProps i -> BankCard -> HH.HTML w i
-renderExpanded props card =
-  HH.div [ HP.class_ (H.ClassName "survey-expanded") ]
-    [ HH.div [ HP.class_ (H.ClassName "survey-expanded-head") ]
-        [ HH.h4_
-            [ HH.text ("Bank " <> show card.bankNumber
-                        <> " (editor " <> show (card.bankNumber + 1) <> ")"
-                        <> (if card.name == "" then "" else " \x2014 " <> card.name)) ]
-        , HH.span [ HP.class_ (H.ClassName "survey-expanded-prov") ]
-            [ HH.text (provenanceLabel card.provenance) ]
-        , HH.button
-            [ HP.class_ (H.ClassName "controls-btn-small")
-            , HE.onClick \_ -> props.onCollapse
-            ]
-            [ HH.text "Close" ]
-        ]
-    , if Array.null card.slots
-        then HH.p [ HP.class_ (H.ClassName "survey-expanded-unread") ]
-          [ HH.text "This bank has never been read or authored here. It is not empty \x2014 it is unknown, and the difference is the whole reason this view exists. Read the MC6 to find out." ]
-        else HH.table [ HP.class_ (H.ClassName "survey-expanded-table") ]
-          [ HH.thead_
-              [ HH.tr_
-                  [ HH.th_ [ HH.text "switch" ]
-                  , HH.th_ [ HH.text "means" ]
-                  , HH.th_ [ HH.text "detail" ]
-                  , HH.th_ [ HH.text "device says" ]
-                  ]
-              ]
-          , HH.tbody_ (Array.mapWithIndex (expandedRow card) card.slots)
-          ]
-    ]
-
-expandedRow :: forall w i. BankCard -> Int -> Verb -> HH.HTML w i
-expandedRow card idx verb =
-  let observed = fromMaybe "" (Array.index card.observedNames idx)
-  in HH.tr_
-    [ HH.td_ [ HH.text (show (idx + 1)) ]
-    , HH.td_
-        [ HH.span
-            [ HP.class_ (H.ClassName "survey-slot inline")
-            , HP.style ("background: " <> verbColor verb)
-            ] []
-        , HH.text (verbName verb)
-        ]
-    , HH.td_ [ HH.text (verbDetail verb) ]
-    , HH.td_ [ HH.text (if observed == "" then "\x2014" else observed) ]
-    ]
-
+-- | The verb in one word, for a column heading's worth of space.
 verbName :: Verb -> String
 verbName = case _ of
   Blank -> "empty"

@@ -12,13 +12,14 @@ import Data.Array as Array
 import Data.Const (Const)
 import Data.Int as Int
 import Data.Map (Map)
-import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.MC6.Board as Board
 import Data.MC6.ControlBank (ControlBank, ControlBankSwitch, ccToggleMessages, ccMomentaryMessages)
 import Data.MC6.Survey as MC6Survey
 import Data.MC6.Types (MC6Action(..), MC6Message, MC6MsgType(..), MC6NativeBank, MC6TogglePosition(..), intToMC6Action, intToMC6MsgType, mc6ActionToInt, mc6ToggleToInt)
 import Data.Midi (unCC)
 import Data.Pedal (PedalDef, PedalId, Control(..), LabelSource(..), Section)
+import Data.String as String
 import Data.String.CodeUnits (contains)
 import Data.String.Common (toLower)
 import Data.String.Pattern (Pattern(..))
@@ -54,16 +55,6 @@ data Output
   -- | then go looking for the result of.
   | ReadMC6
 
--- | Which half of the Controls page you are on.
--- |
--- | The distinction is scope, and it matters enough to be a mode rather than a
--- | scroll: the editor works on one bank in detail, the survey works on the
--- | whole device and never edits anything. Mixing them is what makes
--- | Morningstar's own editor so hard to hold in your head.
-data Pane = BankEditor | Instrument
-
-derive instance Eq Pane
-
 -- | Flat searchable entry for one CC control from the pedal registry
 type CCEntry =
   { pedalId :: PedalId
@@ -85,16 +76,19 @@ type State =
   , editBankNumber :: String
   , editBankDescription :: String
   , editReturnSwitch :: Int
-  , showNewBankForm :: Boolean
-  , newBankName :: String
   , ccIndex :: Array CCEntry
   , searchQuery :: String
   , expandedPedals :: Array PedalId
   , browserTargetSwitch :: Int
   , showDictionary :: Boolean
-  , pane :: Pane
+  -- The selection cascade. `selectedBankNumber` is a wire bank number and is
+  -- the thing the survey grid sets; `selectedBankIdx` is where that bank lives
+  -- in `controlBanks`, or -1 when the bank exists on the device but has never
+  -- been authored here. Keeping both means every existing edit handler, which
+  -- works by index, is untouched.
+  , selectedBankNumber :: Maybe Int
+  , selectedSwitchIdx :: Maybe Int
   , elideUnknown :: Boolean
-  , expandedBank :: Maybe Int
   }
 
 data Action
@@ -106,10 +100,6 @@ data Action
   | UpdateBankDescription String
   | UpdateReturnSwitch String
   -- Bank CRUD
-  | NewBank
-  | CommitNewBank
-  | CancelNewBank
-  | UpdateNewBankName String
   | DuplicateBank
   | DeleteBank
   -- Switch editing (switchIdx, value)
@@ -138,11 +128,13 @@ data Action
   | AddFromBrowser Int Int Boolean  -- channel, cc, isToggle
   -- Sync
   | SyncToMC6
-  -- Instrument survey
-  | SetPane Pane
+  -- The selection cascade
+  | SelectBankNumber Int
+  | ClearBankSelection
+  | SelectSwitch Int
+  | ClearSwitchSelection
+  | CreatePageHere Int
   | ToggleElideUnknown
-  | ExpandBank Int
-  | CollapseBank
   | RequestRead
 
 type Slot = H.Slot (Const Void) Output
@@ -167,16 +159,14 @@ initialState i =
      , editBankNumber: fromMaybe "" (bank <#> \b -> show b.mc6BankNumber)
      , editBankDescription: fromMaybe "" (bank <#> _.description)
      , editReturnSwitch: fromMaybe 6 (bank <#> _.returnSwitchIndex)
-     , showNewBankForm: false
-     , newBankName: ""
      , ccIndex: buildCCIndex i.registry
      , searchQuery: ""
      , expandedPedals: []
      , browserTargetSwitch: 0
      , showDictionary: false
-     , pane: BankEditor
+     , selectedBankNumber: Nothing
+     , selectedSwitchIdx: Nothing
      , elideUnknown: false
-     , expandedBank: Nothing
      }
 
 -- | Flatten the entire pedal registry into a searchable array of CC entries
@@ -233,10 +223,6 @@ bankColor idx = case idx `mod` 8 of
   7 -> "#6d28d9"
   _ -> "#1a1a1a"
 
--- | Physical MC6 layout: top row DEF (3,4,5), middle ABC (0,1,2), bottom GHI (6,7,8)
-switchGridOrder :: Array Int
-switchGridOrder = [3, 4, 5, 0, 1, 2, 6, 7, 8]
-
 -- | Per-switch accent colors (muted, distinguishable)
 switchColor :: Int -> String
 switchColor = case _ of
@@ -285,37 +271,15 @@ mc6MsgTypeLabel = case _ of
 render :: forall m. State -> H.ComponentHTML Action () m
 render state =
   HH.div [ HP.class_ (H.ClassName "controls-view") ]
-    [ renderPaneTabs state
-    , case state.pane of
-        Instrument -> renderSurvey state
-        BankEditor -> HH.div_
-          [ HH.div [ HP.class_ (H.ClassName "controls-top-row") ]
-              [ HH.div [ HP.class_ (H.ClassName "controls-bank-col") ]
-                  [ renderBankList state
-                  , renderSwitchGrid state
-                  ]
-              , renderBankPropsCol state
-              , renderSearchPanel state
-              ]
-          , HH.div [ HP.class_ (H.ClassName "controls-bottom-row") ]
-              [ renderAllSwitches state ]
-          ]
-    , if state.showDictionary then renderDictionaryOverlay state else HH.text ""
-    ]
-
-renderPaneTabs :: forall m. State -> H.ComponentHTML Action () m
-renderPaneTabs state =
-  HH.div [ HP.class_ (H.ClassName "controls-pane-tabs") ]
-    [ tab BankEditor "Bank"
-    , tab Instrument "Instrument"
-    ]
-  where
-  tab p label =
-    HH.button
-      [ HP.class_ (H.ClassName ("controls-pane-tab" <> if state.pane == p then " active" else ""))
-      , HE.onClick \_ -> SetPane p
-      ]
-      [ HH.text label ]
+    ( [ renderSurvey state ]
+        <> (case state.selectedBankNumber of
+              Nothing -> []
+              Just n -> [ renderBankZone state n ])
+        <> (case state.selectedBankNumber, state.selectedSwitchIdx of
+              Just _, Just i -> [ renderSwitchZone state i ]
+              _, _ -> [])
+        <> [ if state.showDictionary then renderDictionaryOverlay state else HH.text "" ]
+    )
 
 -- | The whole device, built fresh from the four sources the survey merges.
 -- |
@@ -326,147 +290,197 @@ renderPaneTabs state =
 renderSurvey :: forall m. State -> H.ComponentHTML Action () m
 renderSurvey state =
   Survey.render
-    { cards: MC6Survey.survey
-        state.input.registry
-        Board.boardRecallChannel
-        state.input.controlBanks
-        state.input.mc6NativeBanks
-        state.input.mc6BankNames
-        state.input.mc6BankSwitches
+    { cards: surveyCards state
     , homeBank: state.input.mc6BoardBankNum
     , readStatus: state.input.mc6ReadStatus
     , elideUnknown: state.elideUnknown
-    , expanded: state.expandedBank
+    , selected: state.selectedBankNumber
+    , compact: state.selectedBankNumber /= Nothing
     , onToggleElide: ToggleElideUnknown
-    , onExpand: ExpandBank
-    , onCollapse: CollapseBank
+    , onSelect: SelectBankNumber
     , onRead: RequestRead
     }
 
-renderBankList :: forall m. State -> H.ComponentHTML Action () m
-renderBankList state =
-  HH.div [ HP.class_ (H.ClassName "controls-bank-list") ]
-    [ if state.showNewBankForm
-        then renderNewBankForm state
-        else HH.text ""
-    , HH.div [ HP.class_ (H.ClassName "controls-bank-items") ]
-        (Array.mapWithIndex (renderBankItem state) state.input.controlBanks)
-    ]
+surveyCards :: State -> Array MC6Survey.BankCard
+surveyCards state =
+  MC6Survey.survey
+    state.input.registry
+    Board.boardRecallChannel
+    state.input.controlBanks
+    state.input.mc6NativeBanks
+    state.input.mc6BankNames
+    state.input.mc6BankSwitches
 
-renderNewBankForm :: forall m. State -> H.ComponentHTML Action () m
-renderNewBankForm state =
-  HH.div [ HP.class_ (H.ClassName "controls-new-bank-form") ]
-    [ HH.input
-        [ HP.type_ HP.InputText
-        , HP.placeholder "Bank name"
-        , HP.value state.newBankName
-        , HE.onValueInput UpdateNewBankName
-        ]
-    , HH.div [ HP.class_ (H.ClassName "controls-form-buttons") ]
+-- ──── Zoom 2: one bank ────
+
+-- | What a bank is, once you are inside it.
+-- |
+-- | Three things share the space, and they are three different kinds of claim:
+-- | the switches we authored, what the device says is there, and the page's own
+-- | properties. Where the first two disagree the switch says so, because a
+-- | disagreement discovered here is free and the same disagreement discovered
+-- | mid-set is not.
+renderBankZone :: forall m. State -> Int -> H.ComponentHTML Action () m
+renderBankZone state bankNum =
+  let mCard = Array.find (\c -> c.bankNumber == bankNum) (surveyCards state)
+      mBank = selectedBank state
+  in HH.div [ HP.class_ (H.ClassName "controls-zone controls-zone-bank") ]
+    [ HH.div [ HP.class_ (H.ClassName "controls-zone-head") ]
         [ HH.button
-            [ HP.class_ (H.ClassName "controls-btn-small")
-            , HE.onClick \_ -> CommitNewBank
+            [ HP.class_ (H.ClassName "controls-zone-back")
+            , HE.onClick \_ -> ClearBankSelection
             ]
-            [ HH.text "Create" ]
-        , HH.button
-            [ HP.class_ (H.ClassName "controls-btn-small")
-            , HE.onClick \_ -> CancelNewBank
-            ]
-            [ HH.text "Cancel" ]
+            [ HH.text "\x2190 instrument" ]
+        , HH.h3_
+            [ HH.text ("Bank " <> show bankNum <> " \x00b7 editor " <> show (bankNum + 1)) ]
+        , HH.span [ HP.class_ (H.ClassName "controls-zone-sub") ]
+            [ HH.text (case mCard of
+                Just c -> Survey.provenanceLabel c.provenance
+                Nothing -> "") ]
         ]
-    ]
-
-renderBankItem :: forall m. State -> Int -> ControlBank -> H.ComponentHTML Action () m
-renderBankItem state idx bank =
-  let isSelected = idx == state.selectedBankIdx
-      color = bankColor idx
-      headerStyle = if isSelected then "background: " <> color else ""
-  in HH.div [ HP.class_ (H.ClassName ("controls-bank-item" <> if isSelected then " selected" else "")) ]
-    [ HH.div
-        [ HP.class_ (H.ClassName "controls-bank-item-header")
-        , HP.attr (HH.AttrName "style") headerStyle
-        , HE.onClick \_ -> SelectBank idx
-        ]
-        ( if isSelected
-            then
-              [ HH.input
-                  [ HP.type_ HP.InputText
-                  , HP.class_ (H.ClassName "controls-bank-name-input")
-                  , HP.value state.editBankName
-                  , HE.onValueInput UpdateBankName
-                  ]
-              , HH.div [ HP.class_ (H.ClassName "controls-bank-item-num") ]
-                  [ HH.text "Bank "
-                  , HH.input
-                      [ HP.type_ HP.InputNumber
-                      , HP.class_ (H.ClassName "controls-bank-num-input")
-                      , HP.value state.editBankNumber
-                      , HE.onValueInput UpdateBankNumber
-                      , HP.attr (HH.AttrName "min") "0"
-                      , HP.attr (HH.AttrName "max") "29"
+    , case mBank of
+        Nothing -> renderUnauthoredBank mCard bankNum
+        Just bank -> HH.div [ HP.class_ (H.ClassName "controls-bank-body") ]
+          [ HH.div [ HP.class_ (H.ClassName "controls-bank-switches") ]
+              (map (renderBankSwitchCell state bank mCard) Survey.physicalOrder)
+          , HH.div [ HP.class_ (H.ClassName "controls-bank-side") ]
+              [ renderBankIdentity state
+              , renderBankProperties state
+              , HH.div [ HP.class_ (H.ClassName "controls-bank-actions") ]
+                  [ HH.button
+                      [ HP.class_ (H.ClassName "controls-btn controls-btn-accent")
+                      , HE.onClick \_ -> SyncToMC6
                       ]
+                      [ HH.text "Sync to MC6" ]
+                  , HH.button
+                      [ HP.class_ (H.ClassName "controls-btn-small")
+                      , HE.onClick \_ -> DuplicateBank
+                      ]
+                      [ HH.text "Duplicate" ]
+                  , HH.button
+                      [ HP.class_ (H.ClassName "controls-btn-small controls-btn-danger")
+                      , HE.onClick \_ -> DeleteBank
+                      ]
+                      [ HH.text "Delete" ]
                   ]
               ]
-            else
-              [ HH.div [ HP.class_ (H.ClassName "controls-bank-item-name") ] [ HH.text bank.name ]
-              , HH.div [ HP.class_ (H.ClassName "controls-bank-item-num") ] [ HH.text ("Bank " <> show bank.mc6BankNumber) ]
-              ]
-        )
-    ]
-
-renderBankPropsCol :: forall m. State -> H.ComponentHTML Action () m
-renderBankPropsCol state = case selectedBank state of
-  Nothing -> HH.text ""
-  Just _ ->
-    HH.div [ HP.class_ (H.ClassName "controls-props-col") ]
-      [ renderBankProperties state
-      , HH.div [ HP.class_ (H.ClassName "controls-bank-actions") ]
-          [ HH.button
-              [ HP.class_ (H.ClassName "controls-btn-small")
-              , HE.onClick \_ -> NewBank
-              ]
-              [ HH.text "+ New" ]
-          , HH.button
-              [ HP.class_ (H.ClassName "controls-btn controls-btn-accent")
-              , HP.attr (HH.AttrName "style") ("background: " <> bankColor state.selectedBankIdx <> "; border-color: " <> bankColor state.selectedBankIdx)
-              , HE.onClick \_ -> SyncToMC6
-              ]
-              [ HH.text "Sync" ]
-          , HH.button
-              [ HP.class_ (H.ClassName "controls-btn-small")
-              , HE.onClick \_ -> DuplicateBank
-              ]
-              [ HH.text "Dup" ]
-          , HH.button
-              [ HP.class_ (H.ClassName "controls-btn-small controls-btn-danger")
-              , HE.onClick \_ -> DeleteBank
-              ]
-              [ HH.text "Del" ]
           ]
-      ]
-
-renderSwitchGrid :: forall m. State -> H.ComponentHTML Action () m
-renderSwitchGrid state =
-  HH.div [ HP.class_ (H.ClassName "controls-switch-panel") ]
-    [ HH.div [ HP.class_ (H.ClassName "controls-switch-grid") ]
-        (map (renderSwitchCell state) switchGridOrder)
     ]
 
-renderSwitchCell :: forall m. State -> Int -> H.ComponentHTML Action () m
-renderSwitchCell state idx =
-  let mBank = selectedBank state
-      mSw = mBank >>= \b -> Array.index b.switches idx
-      label = fromMaybe "" (mSw <#> _.label)
-      isReturn = fromMaybe false (mBank <#> \b -> b.returnSwitchIndex == idx)
-      cls = "controls-switch" <> (if isReturn then " return" else "")
-      color = switchColor idx
+renderBankIdentity :: forall m. State -> H.ComponentHTML Action () m
+renderBankIdentity state =
+  HH.div [ HP.class_ (H.ClassName "controls-field-row") ]
+    [ HH.label_ [ HH.text "Name" ]
+    , HH.input
+        [ HP.type_ HP.InputText
+        , HP.value state.editBankName
+        , HE.onValueInput UpdateBankName
+        ]
+    ]
+
+-- | A bank the device has but this app has never written.
+-- |
+-- | The offer to author here is deliberately guarded rather than a plain
+-- | button. Now that reads work we can tell the difference between "bank 11 is
+-- | free" and "bank 11 is somebody's LoopyPro page", and syncing over the
+-- | second is the kind of loss that has already happened once — a generated
+-- | looper bank landed on a hand-built one and kept its name, so nothing looked
+-- | wrong.
+renderUnauthoredBank
+  :: forall m. Maybe MC6Survey.BankCard -> Int -> H.ComponentHTML Action () m
+renderUnauthoredBank mCard bankNum =
+  let occupied = case mCard of
+        Just c -> c.name /= "" || not (Array.null (Array.filter (_ /= "") c.observedNames))
+        Nothing -> false
+  in HH.div [ HP.class_ (H.ClassName "controls-bank-empty") ]
+    ( [ HH.p_ [ HH.text "This app has never written this bank." ] ]
+        <> (case mCard of
+              Just c | not (Array.null c.observedNames) ->
+                [ HH.p [ HP.class_ (H.ClassName "controls-observed-names") ]
+                    [ HH.text ("The device says: "
+                        <> String.joinWith "  \x00b7  "
+                             (Array.filter (_ /= "") c.observedNames)) ]
+                ]
+              _ -> [])
+        <> (if occupied
+              then [ HH.p [ HP.class_ (H.ClassName "controls-warn") ]
+                       [ HH.text "Something is already here. Authoring a page at this number and syncing would replace it, and the device will not warn you." ]
+                   ]
+              else [])
+        <> [ HH.button
+               [ HP.class_ (H.ClassName ("controls-btn-small" <> if occupied then " controls-btn-danger" else ""))
+               , HE.onClick \_ -> CreatePageHere bankNum
+               ]
+               [ HH.text (if occupied then "Author a page here anyway" else "Author a page here") ]
+           ]
+    )
+
+-- | One switch as it sits underfoot: our label, and the device's if it differs.
+renderBankSwitchCell
+  :: forall m. State -> ControlBank -> Maybe MC6Survey.BankCard -> Int
+  -> H.ComponentHTML Action () m
+renderBankSwitchCell state bank mCard idx =
+  let mSw = Array.index bank.switches idx
+      verb = mCard >>= \c -> Array.index c.slots idx
+      observed = mCard >>= \c -> Array.index c.observedNames idx
+      isSelected = state.selectedSwitchIdx == Just idx
+      isReturn = bank.returnSwitchIndex == idx
+      -- Authored pages carry nine switches; the device has twelve. The last
+      -- three are not empty, they are simply never written, and a blank cell
+      -- would claim otherwise.
+      unwritable = idx >= Array.length bank.switches
+      cls = String.joinWith " "
+        ([ "controls-bank-switch" ]
+          <> (if isSelected then [ "selected" ] else [])
+          <> (if isReturn then [ "return" ] else [])
+          <> (if unwritable then [ "unwritable" ] else []))
   in HH.div
     [ HP.class_ (H.ClassName cls)
-    , HP.attr (HH.AttrName "style") ("border-left: 3px solid " <> color)
+    , HP.attr (HH.AttrName "style")
+        ("border-left: 3px solid " <> maybe "#e6e6ea" Survey.verbColor verb)
+    , HE.onClick \_ -> if unwritable then ClearSwitchSelection else SelectSwitch idx
     ]
-    [ HH.div [ HP.class_ (H.ClassName "controls-switch-letter"), HP.attr (HH.AttrName "style") ("color: " <> color) ] [ HH.text (switchLetter idx) ]
-    , HH.div [ HP.class_ (H.ClassName "controls-switch-label") ] [ HH.text label ]
+    [ HH.div [ HP.class_ (H.ClassName "controls-bank-switch-head") ]
+        [ HH.span [ HP.class_ (H.ClassName "controls-bank-switch-letter") ]
+            [ HH.text (switchLetter idx) ]
+        , if isReturn
+            then HH.span [ HP.class_ (H.ClassName "controls-sw-return-badge") ] [ HH.text "RTN" ]
+            else HH.text ""
+        ]
+    , HH.div [ HP.class_ (H.ClassName "controls-bank-switch-label") ]
+        [ HH.text (if unwritable then "not written" else fromMaybe "" (mSw <#> _.label)) ]
+    , HH.div [ HP.class_ (H.ClassName "controls-bank-switch-verb") ]
+        [ HH.text (maybe "" Survey.verbName verb) ]
+    , case observed of
+        Just nm | nm /= "" && Just nm /= (mSw <#> _.label) ->
+          HH.div [ HP.class_ (H.ClassName "controls-bank-switch-observed") ]
+            [ HH.text ("device: " <> nm) ]
+        _ -> HH.text ""
     ]
+
+-- ──── Zoom 3: one switch ────
+
+renderSwitchZone :: forall m. State -> Int -> H.ComponentHTML Action () m
+renderSwitchZone state idx = case selectedBank state of
+  Nothing -> HH.text ""
+  Just bank -> case Array.index bank.switches idx of
+    Nothing -> HH.text ""
+    Just sw ->
+      HH.div [ HP.class_ (H.ClassName "controls-zone controls-zone-switch") ]
+        [ HH.div [ HP.class_ (H.ClassName "controls-zone-head") ]
+            [ HH.button
+                [ HP.class_ (H.ClassName "controls-zone-back")
+                , HE.onClick \_ -> ClearSwitchSelection
+                ]
+                [ HH.text "\x2190 bank" ]
+            , HH.h3_ [ HH.text ("Switch " <> switchLetter idx
+                                  <> (if sw.label == "" then "" else " \x00b7 " <> sw.label)) ]
+            ]
+        , HH.div [ HP.class_ (H.ClassName "controls-switch-body") ]
+            [ renderSwitchSection (bankColor state.selectedBankIdx) bank.returnSwitchIndex idx sw
+            , renderSearchPanel state
+            ]
+        ]
 
 renderBankProperties :: forall m. State -> H.ComponentHTML Action () m
 renderBankProperties state =
@@ -493,21 +507,6 @@ renderBankProperties state =
     ]
 
 -- ──── All Switches Panel (right column) ────
-
-renderAllSwitches :: forall m. State -> H.ComponentHTML Action () m
-renderAllSwitches state = case selectedBank state of
-  Nothing ->
-    HH.div [ HP.class_ (H.ClassName "controls-message-editor") ]
-      [ HH.p [ HP.class_ (H.ClassName "controls-empty") ] [ HH.text "Select a bank" ] ]
-  Just bank ->
-    let color = bankColor state.selectedBankIdx
-        renderIdx i = case Array.index bank.switches i of
-          Nothing -> HH.text ""
-          Just sw -> renderSwitchSection color bank.returnSwitchIndex i sw
-    in HH.div [ HP.class_ (H.ClassName "controls-message-editor") ]
-      [ HH.div [ HP.class_ (H.ClassName "controls-sw-grid") ]
-          (map renderIdx switchGridOrder)
-      ]
 
 renderSwitchSection :: forall m. String -> Int -> Int -> ControlBankSwitch -> H.ComponentHTML Action () m
 renderSwitchSection bankCol returnIdx swIdx sw =
@@ -873,6 +872,8 @@ handleAction = case _ of
     H.modify_ \st ->
       let mBank = Array.index st.input.controlBanks idx
       in st { selectedBankIdx = idx
+            , selectedBankNumber = mBank <#> _.mc6BankNumber
+            , selectedSwitchIdx = Nothing
             , editBankName = fromMaybe "" (mBank <#> _.name)
             , editBankNumber = fromMaybe "" (mBank <#> \b -> show b.mc6BankNumber)
             , editBankDescription = fromMaybe "" (mBank <#> _.description)
@@ -896,22 +897,6 @@ handleAction = case _ of
       commitBankProps
 
   -- Bank CRUD
-  NewBank -> H.modify_ _ { showNewBankForm = true, newBankName = "" }
-  CancelNewBank -> H.modify_ _ { showNewBankForm = false }
-  UpdateNewBankName s -> H.modify_ _ { newBankName = s }
-  CommitNewBank -> do
-    st <- H.get
-    when (st.newBankName /= "") do
-      let nextBankNum = case Array.last st.input.controlBanks of
-            Just cb -> cb.mc6BankNumber + 1
-            Nothing -> 20
-          newBank = emptyControlBank st.newBankName nextBankNum
-          banks = st.input.controlBanks <> [newBank]
-          newIdx = Array.length banks - 1
-      H.modify_ _ { showNewBankForm = false }
-      H.raise (SaveControlBanks banks (Just newIdx))
-      handleAction (SelectBank newIdx)
-
   DuplicateBank -> do
     st <- H.get
     case selectedBank st of
@@ -1011,20 +996,53 @@ handleAction = case _ of
     commitBankProps
     H.raise SyncControlBankToMC6
 
-  -- Leaving the editor commits whatever was half-typed into the bank property
-  -- fields. Without this, switching to the survey to check something silently
+  -- Moving between zoom levels commits whatever was half-typed into the bank
+  -- property fields. Without this, stepping out to check something silently
   -- discards a rename, and the survey then shows the old name — which reads as
   -- a device disagreement rather than as unsaved input.
-  SetPane p -> do
+  SelectBankNumber n -> do
+    commitBankProps
     st <- H.get
-    when (st.pane /= p) commitBankProps
-    H.modify_ _ { pane = p }
+    let idx = fromMaybe (-1)
+          (Array.findIndex (\b -> b.mc6BankNumber == n) st.input.controlBanks)
+        mBank = Array.index st.input.controlBanks idx
+    H.modify_ _
+      { selectedBankNumber = Just n
+      , selectedSwitchIdx = Nothing
+      , selectedBankIdx = idx
+      , editBankName = fromMaybe "" (mBank <#> _.name)
+      , editBankNumber = fromMaybe (show n) (mBank <#> \b -> show b.mc6BankNumber)
+      , editBankDescription = fromMaybe "" (mBank <#> _.description)
+      , editReturnSwitch = fromMaybe 6 (mBank <#> _.returnSwitchIndex)
+      }
+
+  ClearBankSelection -> do
+    commitBankProps
+    H.modify_ _ { selectedBankNumber = Nothing, selectedSwitchIdx = Nothing }
+
+  -- The CC browser adds to whatever switch you are inside of, so the separate
+  -- "add to" target selector no longer has anything to disambiguate.
+  SelectSwitch i -> H.modify_ _ { selectedSwitchIdx = Just i, browserTargetSwitch = i }
+
+  ClearSwitchSelection -> H.modify_ _ { selectedSwitchIdx = Nothing }
+
+  CreatePageHere n -> do
+    st <- H.get
+    let newBank = emptyControlBank ("Bank " <> show n) n
+        banks = Array.snoc st.input.controlBanks newBank
+        newIdx = Array.length banks - 1
+    H.raise (SaveControlBanks banks (Just newIdx))
+    H.modify_ _
+      { selectedBankIdx = newIdx
+      , selectedBankNumber = Just n
+      , selectedSwitchIdx = Nothing
+      , editBankName = newBank.name
+      , editBankNumber = show n
+      , editBankDescription = newBank.description
+      , editReturnSwitch = newBank.returnSwitchIndex
+      }
 
   ToggleElideUnknown -> H.modify_ \st -> st { elideUnknown = not st.elideUnknown }
-
-  ExpandBank n -> H.modify_ _ { expandedBank = Just n }
-
-  CollapseBank -> H.modify_ _ { expandedBank = Nothing }
 
   RequestRead -> H.raise ReadMC6
 

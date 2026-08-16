@@ -2568,36 +2568,74 @@ body {
   min-height: calc(100vh - 80px);
 }
 
-/* ──── Controls: Bank / Instrument panes ──── */
+/* ──── Controls: instrument → bank → switch ──── */
 
-.controls-pane-tabs {
-  display: flex;
-  gap: 2px;
-  padding: 8px 12px 0;
-  border-bottom: 1px solid var(--border);
+.controls-zone {
+  border-top: 1px solid var(--border);
+  padding: 12px;
 }
 
-.controls-pane-tab {
-  background: none;
-  border: 1px solid transparent;
-  border-bottom: none;
-  border-radius: var(--radius) var(--radius) 0 0;
-  padding: 6px 14px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  color: var(--fg-muted);
+.controls-zone-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px; }
+.controls-zone-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.controls-zone-sub { font-size: 11px; color: var(--fg-muted); }
+.controls-zone-back {
+  background: none; border: none; cursor: pointer;
+  font-size: 11px; color: var(--fg-muted); padding: 0;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.controls-zone-back:hover { color: var(--accent); }
+
+.controls-bank-body { display: flex; gap: 20px; align-items: flex-start; }
+
+/* Four rows of three, matching the survey card and the pedal underfoot. */
+.controls-bank-switches {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 160px));
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.controls-bank-side { flex: 1; min-width: 220px; max-width: 380px; }
+
+.controls-bank-switch {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 8px;
   cursor: pointer;
+  background: #fff;
+  min-height: 58px;
 }
-.controls-pane-tab:hover { color: var(--fg); }
-.controls-pane-tab.active {
-  color: var(--fg);
-  border-color: var(--border);
-  background: var(--bg);
-  margin-bottom: -1px;
-  padding-bottom: 7px;
+.controls-bank-switch:hover { border-color: var(--fg-light); }
+.controls-bank-switch.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.controls-bank-switch.return { background: var(--bg-section); }
+/* Never written, not empty: the device has a switch here that authored pages
+   cannot reach, and a blank cell would claim otherwise. */
+.controls-bank-switch.unwritable {
+  cursor: default;
+  background: repeating-linear-gradient(45deg, #fafafa, #fafafa 5px, #f1f1f3 5px, #f1f1f3 10px);
+  border-style: dashed;
 }
+.controls-bank-switch-head { display: flex; align-items: center; gap: 6px; }
+.controls-bank-switch-letter { font-size: 13px; font-weight: 700; }
+.controls-bank-switch-label { font-size: 12px; font-weight: 600; margin-top: 2px; }
+.controls-bank-switch-verb { font-size: 10px; color: var(--fg-muted); text-transform: uppercase; letter-spacing: .04em; }
+.controls-bank-switch-observed { font-size: 10px; color: #be123c; margin-top: 2px; }
+
+.controls-bank-empty { max-width: 62ch; }
+.controls-bank-empty p { font-size: 13px; margin: 0 0 8px; }
+.controls-observed-names { color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.controls-warn { color: #be123c; font-weight: 600; }
+
+.controls-switch-body { display: flex; gap: 20px; align-items: flex-start; }
+.controls-switch-body > *:first-child { flex: 1; min-width: 340px; }
+.controls-switch-body > .controls-search-panel { flex: 0 0 320px; }
+
+/* Once you are inside a bank the instrument is context, not subject. */
+.survey.compact { padding-bottom: 4px; }
+.survey.compact .survey-grid { grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); }
+.survey.compact .survey-card { padding: 4px 5px 5px; }
+.survey.compact .survey-card-name { display: none; }
+.survey.compact .survey-card-jumps { display: none; }
+.survey.compact .survey-slot { height: 6px; }
 
 /* ──── The instrument survey ──── */
 
