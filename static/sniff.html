@@ -43,6 +43,12 @@
   .tag { display: inline-block; padding: 0 6px; border-radius: 8px; font-size: 10px;
          font-weight: 600; background: #eee; color: #555; }
   .tag.sysex { background: #e7f0ed; color: var(--accent); }
+  .probe { border: 1px solid var(--border); border-radius: 8px; background: var(--panel);
+           padding: 14px 16px; margin-bottom: 16px; }
+  .probe .row { margin-bottom: 8px; }
+  .probe button { font-size: 12px; padding: 5px 10px; }
+  #raw { font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+         padding: 6px 9px; border: 1px solid var(--border); border-radius: 6px; }
 </style>
 </head>
 <body>
@@ -60,8 +66,25 @@
 <div class="row">
   <label for="port">Input</label>
   <select id="port"></select>
+  <label for="outport">Output</label>
+  <select id="outport"></select>
   <button id="clear">Clear</button>
   <button id="dump" class="primary">Download capture</button>
+</div>
+
+<div class="probe">
+  <p class="sub" style="margin:0 0 10px">
+    Send a request and watch for the reply below. The device answered these
+    function codes unprompted when the editor connected; what is not yet known
+    is what the editor <em>asked</em> to get them. Each button is one guess at
+    the request. Nothing here writes to the device — these are questions.
+  </p>
+  <div class="row" id="probes"></div>
+  <div class="row">
+    <label for="raw">Raw</label>
+    <input id="raw" placeholder="f0 00 21 24 03 00 11 05 …  (checksum + f7 added if omitted)" style="flex:1;min-width:340px">
+    <button id="sendRaw">Send</button>
+  </div>
 </div>
 
 <div class="row">
@@ -159,12 +182,87 @@ navigator.requestMIDIAccess({ sysex: true }).then(a => {
     if (preferred) sel.value = preferred;
     return preferred || (sel.options[0] && sel.options[0].value);
   };
+  const fillOut = () => {
+    const os = $('outport'); os.innerHTML = '';
+    let pref = null;
+    a.outputs.forEach(o => {
+      const el = document.createElement('option');
+      el.value = o.id; el.textContent = o.name;
+      os.appendChild(el);
+      if (/morningstar|mc6/i.test(o.name) && !pref) pref = o.id;
+    });
+    if (pref) os.value = pref;
+  };
+  fillOut();
   const pick = fill();
   if (!pick) { setStatus('MIDI is available but no inputs are present.', 'bad'); return; }
   listen(pick);
   sel.onchange = () => listen(sel.value);
-  a.onstatechange = () => { const p = fill(); if (p) listen(p); };
+  a.onstatechange = () => { fillOut(); const p = fill(); if (p) listen(p); };
 }).catch(e => setStatus('No MIDI access: ' + e.message, 'bad'));
+
+// ---- sending ------------------------------------------------------------
+// Frames are built here rather than in the app so a variant can be tried in a
+// second instead of a rebuild. The unknown is the *request*: the capture only
+// heard the device's side.
+const MAN = [0x00, 0x21, 0x24];
+
+function frame(dev, b5, fn, withLength) {
+  const f = (fn.concat([0,0,0,0,0,0])).slice(0, 6);
+  const total = 18;
+  const body = [0xF0, ...MAN, dev, b5, ...f, 0, 0,
+                withLength ? (total >> 7) & 0x7F : 0,
+                withLength ? total & 0x7F : 0];
+  let cs = 0; for (const x of body) cs ^= x;
+  return [...body, cs & 0x7F, 0xF7];
+}
+
+function send(label, bytes) {
+  const id = $('outport').value;
+  const out = access && access.outputs.get(id);
+  if (!out) { setStatus('No MIDI output selected.', 'bad'); return; }
+  out.send(bytes);
+  const tr = document.createElement('tr');
+  tr.innerHTML =
+    `<td class="n">→</td><td><span class="tag">sent</span></td>` +
+    `<td class="n">${bytes.length}</td>` +
+    `<td class="mono">${bytes.map(hex).join(' ')}</td><td>${label}</td>`;
+  $('log').insertBefore(tr, $('log').firstChild);
+}
+
+// Ordered cheapest-hypothesis-first. The connect probe is the important one:
+// the device sent 00 7d twice at editor startup, so if our connect provokes it
+// we learn that request and reply codes differ, and by how much.
+const PROBES = [
+  ['connect (00 1b)',        () => frame(0x00, 0x00, [0x00, 0x1B], false)],
+  ['bank names, as app',     () => frame(0x03, 0x00, [0x11, 0x05], true)],
+  ['bank names, b5=03',      () => frame(0x03, 0x03, [0x11, 0x05], true)],
+  ['bank names, len=0',      () => frame(0x03, 0x00, [0x11, 0x05], false)],
+  ['bank names, dev=00',     () => frame(0x00, 0x00, [0x11, 0x05], true)],
+  ['bank names, F2=04',      () => frame(0x03, 0x00, [0x11, 0x04], true)],
+  ['bank 19 switches',       () => frame(0x03, 0x00, [0x09, 0x01, 19], true)],
+  ['bank 19, F2=00',         () => frame(0x03, 0x00, [0x09, 0x00, 19], true)],
+  ['disconnect (00 1c)',     () => frame(0x00, 0x00, [0x00, 0x1C], false)],
+];
+
+const probeRow = $('probes');
+PROBES.forEach(([label, build]) => {
+  const b = document.createElement('button');
+  b.textContent = label;
+  b.onclick = () => send(label, build());
+  probeRow.appendChild(b);
+});
+
+$('sendRaw').onclick = () => {
+  const parts = $('raw').value.trim().split(/[\s,]+/).filter(Boolean).map(x => parseInt(x, 16));
+  if (!parts.length || parts.some(isNaN)) { setStatus('Could not parse those hex bytes.', 'bad'); return; }
+  let b = parts;
+  if (b[b.length - 1] !== 0xF7) {
+    let cs = 0; for (const x of b) cs ^= x;
+    b = [...b, cs & 0x7F, 0xF7];
+  }
+  send('raw', b);
+};
 
 $('clear').onclick = () => {
   window.__cap = []; sysexN = 0; byteN = 0;

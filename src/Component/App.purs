@@ -875,7 +875,15 @@ handleAction = case _ of
   -- | that stomping did nothing — indistinguishable from a wrong bank, a wrong
   -- | channel, or a dead daemon, all of which we chased today.
   MidiPortChanged change -> do
-    handleAction RescanMIDI
+    st0 <- H.get
+    -- `statechange` fires for *connection* changes as well as device ones, and
+    -- sending on an output opens it — so a burst of thirty SysEx requests fires
+    -- thirty of these, each triggering a full port enumeration. Only a port we
+    -- have not seen before, or one going away, can actually change the lists.
+    let knownPort =
+          Array.any (\p -> p.id == change.id)
+            (st0.connections.availableInputs <> st0.connections.availableOutputs)
+    when (not knownPort || change.state == "disconnected") $ handleAction RescanMIDI
     st <- H.get
     let matches sel = sel == Just change.id
     if change.state == "disconnected"
@@ -898,7 +906,9 @@ handleAction = case _ of
           H.modify_ _ { connections { twisterOutput = Nothing } }
         H.modify_ _ { midiTest = Just (change.name <> " disconnected") }
       else when (change.state == "connected") do
-        liftEffect $ Console.log $ "MIDI port back: " <> change.name
+        -- Only worth saying when it is news; see the rescan note above.
+        when (not knownPort) $
+          liftEffect $ Console.log $ "MIDI port back: " <> change.name
         -- Re-open only what was selected and is currently dead. Re-opening a
         -- working port would tear down its subscription and could drop a
         -- message in the gap.
