@@ -230,6 +230,12 @@ editor and both are exactly the mistakes that bite when your hands are full.
 collapses the view to something you can hold in your head, and shows where the
 next thing should go.
 
+**A page can also act on arrival.** Confirmed from the device backup: alongside
+each preset's sixteen messages there is a *separate* sixteen-slot bank-level
+array, fired on entering the bank. Nothing uses it yet. It is the natural home
+for anything a page should do the moment you land on it — arm a target, set a
+tempo, put the looper in a mode — without spending one of the twelve switches.
+
 ---
 
 ## 7. Readback is load-bearing

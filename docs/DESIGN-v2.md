@@ -258,8 +258,21 @@ while the app is running, no added latency, no MC6 reprogramming, and the board
 still works when the app does not. It also picks up switches programmed by hand
 in the Morningstar editor, which mediation never would.
 
-`MC6MidiReceived` currently interprets channel 1 (board recall) and channel 13
-(Itajara) and drops the rest on the floor. The work is to decode the rest
+*Implemented 2026-08-16.* `MC6MidiReceived` now decodes every channel: a CC on
+a pedal's channel updates that pedal's values, and a Program Change adopts the
+values of the captured preset flashed to that slot — twelve knobs from one
+message, the largest belief update available anywhere in the app. A slot
+reference records only the number, since that is all we ever knew.
+
+Two things it deliberately does not do. It never transmits: the pedal already
+had the message directly from the MC6, so re-sending would be redundant at best
+and a loop at worst — which is why it cannot go through `SetValue`. And it skips
+writes whose value is already held, because every write re-renders and a board
+recall arrives as a burst of a dozen messages.
+
+The original text follows. `MC6MidiReceived` interpreted channel 1 (board
+recall) and channel 13 (Itajara) and dropped the rest on the floor. The work was
+to decode the rest
 against the registry — every pedal declares its channel and its CCs, so the
 mapping already exists.
 
@@ -301,6 +314,13 @@ thing. In practice most MC6 switches will be live controls.
 An MC6 MKII preset carries **at most 16 messages**. With twelve pedals that is
 the binding constraint on what a board preset can express.
 
+*Confirmed 2026-08-16* against the device's own backup: all 360 presets (30
+banks x 12) carry exactly 16 message slots, so this is firmware rather than an
+artefact of our reverse-engineering. The same file shows a **separate 16-slot
+bank-level message array** — messages that fire on *entering* a bank, which the
+pages design in `DESIGN-CONTROLS.md` has not yet spent. And for scale: the most
+messages any hand-built preset on the device actually uses is eleven.
+
 **The rule v2 adopts:** a board changes *at most one thing per pedal* — either
 a bypass **or** a program change.
 
@@ -340,6 +360,14 @@ Two things to get right before treating it as free:
 The mechanism: `DualEngage { a, b }` gains an optional `both :: Maybe CC`, and
 the compiler emits the single message where it is declared and two where it is
 not — so an unverified pedal stays correct-but-expensive rather than wrong.
+*Done 2026-08-16*, declared for Flint and MOOD. Onward and Lost + Found appear
+to have no such message, so they remain at two.
+
+**The escape hatch, if a board still will not fit.** Treat the *tone* pedals —
+Iridium, Riverside, Clean — as a separate concern from the rest, and let a board
+address one group or the other. A board that leaves the tone stack alone is
+three to five messages cheaper, and the split is musically natural: the tone
+pedals are what the guitar sounds like, the others are what happens to it.
 
 This is what makes flashing (§3) necessary rather than merely an optimisation.
 Sending a preset as parameters costs one message per changed CC, which blows

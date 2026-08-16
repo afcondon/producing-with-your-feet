@@ -24,7 +24,7 @@ import Data.Foldable (any, for_)
 import Data.Map as Map
 import Data.Int as Int
 import Data.Maybe (Maybe(..), fromMaybe, isNothing)
-import Data.Midi (CC, MidiValue, ProgramNumber, makeCC, makeChannel, makeMidiValue, unCC, unChannel, unMidiValue, unProgramNumber, unsafeCC, unsafeMidiValue)
+import Data.Midi (CC, MidiValue, ProgramNumber, makeCC, makeChannel, makeMidiValue, makeProgramNumber, unCC, unChannel, unMidiValue, unProgramNumber, unsafeCC, unsafeMidiValue)
 import Data.Pedal (PedalDef, PedalId)
 import Pedals.Registry as PsRegistry
 import Data.Pedal.Engage (EngageConfig(..), EngageState(..), engageCCs)
@@ -43,7 +43,7 @@ import Effect.Exception as Exception
 import Config.Decode as Decode
 import Data.Either (Either(..))
 import Data.String.CodeUnits as SCU
-import Engine (AppState, EngineState, MC6Assignment, PedalState, View(..), initAppState, initEngineFromPedals)
+import Engine (AppState, EngineState, MC6Assignment, PedalState, View(..), getValue, initAppState, initEngineFromPedals, pedalsOnChannel)
 import Config.Preset as CPreset
 import Engine.Storage as Storage
 import Engine.Twister as Twister
@@ -1309,6 +1309,16 @@ handleAction = case _ of
       [status, ccNum, 127] | status == 0xB0 ->
         handleBoardRecallFromMC6 ccNum
 
+      -- Everything else the MC6 sends is aimed at a pedal, and we are only
+      -- overhearing it. See DESIGN-v2 §3: the MC6 mirrors its pedal-bound
+      -- messages to USB as well as DIN, which is what lets the app stay in step
+      -- without standing in the signal path.
+      [status, d1, d2] | status >= 0xB0 && status <= 0xBF ->
+        observePedalCC (status - 0xB0 + 1) d1 d2
+
+      [status, pc] | status >= 0xC0 && status <= 0xCF ->
+        observePedalPC (status - 0xC0 + 1) pc
+
       _ -> pure unit
 
   -- | Pull the newest snapshot the socket is holding.
@@ -1641,6 +1651,67 @@ handleUnassignBoard boardId = do
   -- Auto-sync: clear each affected switch on MC6
   for_ boardAssignments \a ->
     syncSwitchToMC6 a.bankNumber a.switchIndex Nothing
+
+-- | Overhearing the MC6 talk to a pedal.
+-- |
+-- | This is the whole of DESIGN-v2 §3 in two functions. Pedal state is a belief
+-- | the app cannot verify by asking, so the next best thing is to watch every
+-- | change go past. The MC6 sends its pedal messages to USB as well as DIN, so
+-- | a footswitch that toggles MOOD's freeze is visible here — and without this,
+-- | the app's picture silently diverges the moment a foot touches the board.
+-- |
+-- | Note what these deliberately do *not* do: they never transmit. The pedal
+-- | already got the message directly from the MC6; re-sending it would be at
+-- | best redundant and at worst a feedback loop. So they write state and stop,
+-- | which is also why they cannot go through `SetValue`.
+observePedalCC :: forall o m. MonadAff m => Int -> Int -> Int -> H.HalogenM AppState Action Slots o m Unit
+observePedalCC channel ccNum val = do
+  st <- H.get
+  case makeCC ccNum, makeMidiValue val of
+    Just c, Just v -> do
+      -- Only write when the value actually changed. Every `modify_` renders the
+      -- whole tree, and a board recall arrives as a burst of a dozen messages;
+      -- re-rendering for a value we already hold is the same waste that once
+      -- made the Overview's footswitches unclickable.
+      let targets = Array.filter
+            (\pid -> getValue pid c st.engine /= Just v)
+            (pedalsOnChannel channel st.engine)
+      for_ targets \pid ->
+        H.modify_ \s -> s
+          { engine = Map.update (\ps -> Just ps { values = Map.insert c v ps.values }) pid s.engine }
+      unless (Array.null targets) $
+        liftEffect $ Console.log $
+          "MC6 observed: ch " <> show channel <> " cc " <> show ccNum <> " = " <> show val
+            <> " -> " <> show targets
+    _, _ -> pure unit
+
+-- | A Program Change on a pedal's channel means a preset was recalled.
+-- |
+-- | If we hold a captured preset flashed to that slot we can adopt its values
+-- | wholesale, which is the single largest belief update available anywhere in
+-- | the app — twelve knobs at once from one message. A slot reference tells us
+-- | only the number, so the slot is recorded and the values left alone rather
+-- | than pretending to knowledge we never had.
+observePedalPC :: forall o m. MonadAff m => Int -> Int -> H.HalogenM AppState Action Slots o m Unit
+observePedalPC channel pc = do
+  st <- H.get
+  for_ (pedalsOnChannel channel st.engine) \pid ->
+    for_ (makeProgramNumber pc) \pn -> do
+      let match = Array.find
+            (\p -> p.pedalId == pid && p.savedSlot == Just pn && not (Preset.isSlotRef p))
+            st.presets
+      case match of
+        Just preset -> do
+          H.modify_ \s -> s
+            { engine = Map.update
+                (\ps -> Just ps { values = preset.values, info = preset.info }) pid s.engine }
+          liftEffect $ Console.log $
+            "MC6 observed: " <> show pid <> " recalled slot " <> show pc
+              <> " (\"" <> preset.name <> "\") - adopted its values"
+        Nothing ->
+          liftEffect $ Console.log $
+            "MC6 observed: " <> show pid <> " recalled slot " <> show pc
+              <> " - no captured preset for that slot, values now unknown"
 
 handleBoardRecallFromMC6 :: forall o m. MonadAff m => Int -> H.HalogenM AppState Action Slots o m Unit
 handleBoardRecallFromMC6 ccNum = do

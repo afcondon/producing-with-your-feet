@@ -12,7 +12,7 @@ import Data.Pedal.Engage (EngageConfig(..), EngageState(..), bypassCCs)
 import Effect (Effect)
 import Effect.Console (log)
 import Config.Registry as CRegistry
-import Engine (initEngineFromPedals)
+import Engine (initEngineFromPedals, pedalsOnChannel)
 import Engine.Storage (engineToJson, parseEngine, parseCardOrder, parsePresets, parseBoardPresets, parseEngageState)
 import Data.MC6.Board as Board
 import Data.Tuple (Tuple(..))
@@ -207,6 +207,33 @@ main = do
     (allOffCost <= Board.messageLimit)
   assert "boardFits agrees with the count"
     (Board.boardFits reg [] (Just 20) allOffBoard == (allOffCost <= Board.messageLimit))
+
+  -- Observing the MC6 (DESIGN-v2 §3).
+  --
+  -- The app keeps its picture of the pedals true by overhearing what the MC6
+  -- sends them, and the whole mechanism turns on mapping a MIDI channel back to
+  -- a pedal. Getting that wrong is invisible: nothing errors, the belief just
+  -- quietly stops matching the rig.
+  let liveEngine = initEngineFromPedals Registry.pedals
+  assert "every pedal is reachable by its own channel"
+    (Array.all
+      (\p -> Array.elem p.meta.id (pedalsOnChannel p.meta.defaultChannel liveEngine))
+      Registry.pedals)
+
+  -- Channel 1 is the app's own board-recall relay and channel 13 is Itajara's;
+  -- a hardware pedal appearing on either would have its CCs swallowed by an
+  -- earlier branch of the handler and never observed.
+  assert "no hardware pedal sits on the board-recall channel (1)"
+    (Array.all (_ == PedalId "itajara") (pedalsOnChannel 1 liveEngine))
+  assert "channel 13 belongs to Itajara alone"
+    (pedalsOnChannel 13 liveEngine == [ PedalId "itajara" ])
+
+  assert "an unused channel matches nothing" (Array.null (pedalsOnChannel 9 liveEngine))
+
+  -- Every pedal on a distinct channel, or observation cannot tell them apart.
+  let channels = map (\p -> p.meta.defaultChannel) Registry.pedals
+  assert "all pedal channels are distinct"
+    (Array.length (Array.nub channels) == Array.length channels)
 
   log ""
   log "Done."

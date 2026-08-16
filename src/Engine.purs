@@ -10,6 +10,7 @@ module Engine
   , getValue
   , getInfo
   , pedalState
+  , pedalsOnChannel
   , defaultPedalState
   ) where
 
@@ -20,6 +21,7 @@ import Config.Registry as CRegistry
 import Config.Types (MidiRouting)
 import Data.MC6.ControlBank (ControlBank, exampleControlBank)
 import Data.MC6.Types (MC6NativeBank)
+import Data.Array as Array
 import Data.Map (Map)
 import Halogen as H
 import Data.Map as Map
@@ -197,3 +199,18 @@ getInfo pid key engine = do
 
 pedalState :: PedalId -> EngineState -> Maybe PedalState
 pedalState = Map.lookup
+
+-- | Which pedals answer on this MIDI channel.
+-- |
+-- | Reads the engine rather than the registry's declared default, because a
+-- | pedal's channel can be changed at runtime and callers of this are matching
+-- | against what the hardware is actually doing.
+-- |
+-- | Returns an array because nothing forbids two pedals sharing a channel.
+-- | Silently picking one would be a bug that only ever shows up on the rig,
+-- | which is the worst place to find it.
+pedalsOnChannel :: Int -> EngineState -> Array PedalId
+pedalsOnChannel channel engine =
+  Array.mapMaybe
+    (\(Tuple pid ps) -> if ps.channel == channel then Just pid else Nothing)
+    (Map.toUnfoldable engine)
