@@ -59,7 +59,12 @@ type Input =
 
 data Output
   = SaveControlBanks (Array ControlBank) (Maybe Int)
-  | SyncControlBankToMC6
+  -- | Sync *this* bank. Carries the bank rather than leaving the app to look up
+  -- | whichever one it last recorded as active: selecting a bank in the survey
+  -- | does not itself save anything, so the app's idea of "active" could lag a
+  -- | page behind what you are looking at — and a sync that writes the wrong
+  -- | bank number is the one mistake on this page with no undo.
+  | SyncControlBankToMC6 ControlBank
   -- | Ask the app to open a session with the MC6 and listen to what it
   -- | volunteers. Raised here because the survey is where you look at the
   -- | answer, and a read button somewhere else would be a button you press and
@@ -1095,7 +1100,8 @@ handleAction = case _ of
 
   SyncToMC6 -> do
     commitBankProps
-    H.raise SyncControlBankToMC6
+    st <- H.get
+    for_ (selectedBank st) (H.raise <<< SyncControlBankToMC6)
 
   -- Moving between zoom levels commits whatever was half-typed into the bank
   -- property fields. Without this, stepping out to check something silently

@@ -1308,8 +1308,8 @@ handleAction = case _ of
       liftEffect $ Storage.saveControlBanks st.controlBanks
       liftEffect FolderBackup.scheduleBackup
       pushSnapshot
-    ControlsView.SyncControlBankToMC6 ->
-      syncControlBankToMC6
+    ControlsView.SyncControlBankToMC6 cb ->
+      syncControlBankToMC6 cb
     ControlsView.ReadMC6 ->
       handleAction ReadMC6Banks
     ControlsView.AssignBoard bankNum switchIdx boardId ->
@@ -1964,26 +1964,30 @@ syncSwitchToMC6 bankNum switchIdx mBoard = do
               withEditorSession output do
                 sendSysExLogged ("preset-" <> show switchIdx) output sysexBytes
                 H.liftAff (delay (Milliseconds 200.0))
-      -- Also sync the control bank to its dedicated MC6 bank
-      syncControlBankToMC6
+      -- The control page carries the jump back to this board bank, so a board
+      -- landing on a switch can change what its return switch should say.
+      for_ (st.activeControlBankIdx >>= Array.index st.controlBanks) syncControlBankToMC6
 
--- | Program all 9 switches of the active control bank to its MC6 bank.
--- | Skips if no control bank is active or MC6 output not connected.
-syncControlBankToMC6 :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
-syncControlBankToMC6 = do
+-- | Write one authored page to its MC6 bank.
+-- |
+-- | Takes the bank rather than resolving `activeControlBankIdx`, which is set by
+-- | saving and so could name a different page than the one on screen. Writing a
+-- | page to the wrong bank number is unrecoverable from the app's side: the
+-- | bank it lands on is overwritten, and nothing on the device says what used
+-- | to be there.
+syncControlBankToMC6 :: forall o m. MonadAff m => ControlBank.ControlBank -> H.HalogenM AppState Action Slots o m Unit
+syncControlBankToMC6 cb = do
   st <- H.get
-  case st.activeControlBankIdx >>= Array.index st.controlBanks of
+  case st.connections.mc6Output of
     Nothing -> pure unit
-    Just cb -> case st.connections.mc6Output of
-      Nothing -> pure unit
-      Just output -> do
-        let presets = ControlBank.controlBankToPresets st.mc6BoardBankNum cb
-        liftEffect $ Console.log $ "MC6 SysEx: syncing control bank '" <> cb.name <> "' to MC6 bank " <> show cb.mc6BankNumber
-        withEditorSession output do
-          for_ presets \p -> do
-            let sysexBytes = SysEx.sysexPresetData cb.mc6BankNumber p.switchIndex p.shortName p.longName p.toToggle p.messages
-            sendSysExLogged ("ctrl-" <> show p.switchIndex) output sysexBytes
-            H.liftAff (delay (Milliseconds 100.0))
+    Just output -> do
+      let presets = ControlBank.controlBankToPresets st.mc6BoardBankNum cb
+      liftEffect $ Console.log $ "MC6 SysEx: syncing control bank '" <> cb.name <> "' to MC6 bank " <> show cb.mc6BankNumber
+      withEditorSession output do
+        for_ presets \p -> do
+          let sysexBytes = SysEx.sysexPresetData cb.mc6BankNumber p.switchIndex p.shortName p.longName p.toToggle p.messages
+          sendSysExLogged ("ctrl-" <> show p.switchIndex) output sysexBytes
+          H.liftAff (delay (Milliseconds 100.0))
 
 -- | Inject board-recall trigger messages into mc6Banks for export
 injectBoardTriggers :: Array MC6Assignment -> Array BoardPreset -> Array MC6NativeBank -> Array MC6NativeBank
