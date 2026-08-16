@@ -2585,14 +2585,40 @@ body {
 }
 .controls-zone-back:hover { color: var(--accent); }
 
+/* The bank's own facts, as a header strip rather than a side panel: the name
+   is the heading, the number is identification beside it, and the grid gets
+   the full width underneath. */
+.controls-bank-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.controls-bank-name-input {
+  font-size: 16px; font-weight: 600; padding: 3px 6px;
+  border: 1px solid transparent; border-radius: var(--radius);
+  background: transparent; min-width: 220px; flex: 0 1 320px;
+}
+.controls-bank-name-input:hover { border-color: var(--border); }
+.controls-bank-name-input:focus { border-color: var(--accent); background: #fff; outline: none; }
+
+.controls-bank-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 8px; margin-bottom: 12px;
+  background: var(--bg-section); border-radius: var(--radius);
+}
+.controls-bank-bar label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--fg-muted); font-weight: 600;
+}
+.controls-bank-notes-input {
+  flex: 1 1 240px; min-width: 0; font-size: 12px; padding: 3px 6px;
+}
+.controls-bank-bar .controls-btn-danger { margin-left: 0; }
+
 .controls-bank-body { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
 
 /* Four rows of three, matching the survey card and the pedal underfoot. */
 .controls-bank-switches {
   display: grid;
-  grid-template-columns: repeat(3, minmax(108px, 150px));
+  grid-template-columns: repeat(3, minmax(120px, 200px));
   gap: 6px;
-  flex: 0 0 auto;
+  max-width: 640px;
 }
 .controls-bank-side { flex: 1; min-width: 220px; max-width: 380px; }
 

@@ -345,59 +345,98 @@ renderBankZone :: forall m. State -> Int -> H.ComponentHTML Action () m
 renderBankZone state bankNum =
   let mCard = Array.find (\c -> c.bankNumber == bankNum) (surveyCards state)
       mBank = selectedBank state
+      meta = "bank " <> show bankNum <> " \x00b7 editor " <> show (bankNum + 1)
+               <> (case mCard of
+                     Just c -> " \x00b7 " <> Survey.provenanceLabel c.provenance
+                     Nothing -> "")
   in HH.div [ HP.class_ (H.ClassName "controls-zone controls-zone-bank") ]
-    [ HH.div [ HP.class_ (H.ClassName "controls-zone-head") ]
-        [ HH.button
-            [ HP.class_ (H.ClassName "controls-zone-back")
-            , HE.onClick \_ -> ClearBankSelection
-            ]
-            [ HH.text "\x2190 instrument" ]
-        , HH.h3_
-            [ HH.text ("Bank " <> show bankNum <> " \x00b7 editor " <> show (bankNum + 1)) ]
-        , HH.span [ HP.class_ (H.ClassName "controls-zone-sub") ]
-            [ HH.text (case mCard of
-                Just c -> Survey.provenanceLabel c.provenance
-                Nothing -> "") ]
-        ]
-    , case mBank of
-        Nothing -> renderUnauthoredBank mCard bankNum
-        Just bank -> HH.div [ HP.class_ (H.ClassName "controls-bank-body") ]
-          [ HH.div [ HP.class_ (H.ClassName "controls-bank-switches") ]
-              (map (renderBankSwitchCell state bank mCard) Survey.physicalOrder)
-          , HH.div [ HP.class_ (H.ClassName "controls-bank-side") ]
-              [ renderBankIdentity state
-              , renderBankProperties state
-              , HH.div [ HP.class_ (H.ClassName "controls-bank-actions") ]
-                  [ HH.button
-                      [ HP.class_ (H.ClassName "controls-btn controls-btn-accent")
-                      , HE.onClick \_ -> SyncToMC6
-                      ]
-                      [ HH.text "Sync to MC6" ]
-                  , HH.button
-                      [ HP.class_ (H.ClassName "controls-btn-small")
-                      , HE.onClick \_ -> DuplicateBank
-                      ]
-                      [ HH.text "Duplicate" ]
-                  , HH.button
-                      [ HP.class_ (H.ClassName "controls-btn-small controls-btn-danger")
-                      , HE.onClick \_ -> DeleteBank
-                      ]
-                      [ HH.text "Delete" ]
-                  ]
+    ( case mBank of
+        Nothing ->
+          [ HH.div [ HP.class_ (H.ClassName "controls-zone-head") ]
+              [ backToInstrument
+              , HH.h3_ [ HH.text ("Bank " <> show bankNum) ]
+              , HH.span [ HP.class_ (H.ClassName "controls-zone-sub") ] [ HH.text meta ]
               ]
+          , renderUnauthoredBank mCard bankNum
           ]
-    ]
+        Just bank ->
+          [ HH.div [ HP.class_ (H.ClassName "controls-bank-head") ]
+              [ backToInstrument
+              -- The bank's name IS its heading. A separate title line saying
+              -- "Bank 22" alongside a field containing "Default Controls" was
+              -- the smaller of the two facts taking the larger of the two
+              -- sizes; the number is identification, not a name.
+              , HH.input
+                  [ HP.type_ HP.InputText
+                  , HP.class_ (H.ClassName "controls-bank-name-input")
+                  , HP.value state.editBankName
+                  , HP.placeholder "Bank name"
+                  , HE.onValueInput UpdateBankName
+                  ]
+              , HH.span [ HP.class_ (H.ClassName "controls-zone-sub") ] [ HH.text meta ]
+              ]
+          , HH.div [ HP.class_ (H.ClassName "controls-bank-bar") ]
+              [ HH.label_ [ HH.text "Return" ]
+              , HH.select
+                  [ HP.value (show state.editReturnSwitch)
+                  , HE.onValueChange UpdateReturnSwitch
+                  ]
+                  (Array.range 0 (switchCount - 1) <#> \i ->
+                    HH.option [ HP.value (show i) ] [ HH.text (switchLetter i) ])
+              , HH.input
+                  [ HP.type_ HP.InputText
+                  , HP.class_ (H.ClassName "controls-bank-notes-input")
+                  , HP.value state.editBankDescription
+                  , HP.placeholder "What this page is for"
+                  , HE.onValueInput UpdateBankDescription
+                  ]
+              , HH.button
+                  [ HP.class_ (H.ClassName "controls-btn controls-btn-accent")
+                  , HE.onClick \_ -> SyncToMC6
+                  ]
+                  [ HH.text "Sync to MC6" ]
+              , HH.button
+                  [ HP.class_ (H.ClassName "controls-btn-small")
+                  , HE.onClick \_ -> DuplicateBank
+                  ]
+                  [ HH.text "Duplicate" ]
+              , HH.button
+                  [ HP.class_ (H.ClassName "controls-btn-small controls-btn-danger")
+                  , HE.onClick \_ -> DeleteBank
+                  ]
+                  [ HH.text "Delete" ]
+              ]
+          , HH.div [ HP.class_ (H.ClassName "controls-bank-switches") ]
+              (map (renderBankSwitchCell state bank mCard) Survey.physicalOrder)
+          ]
+    )
 
-renderBankIdentity :: forall m. State -> H.ComponentHTML Action () m
-renderBankIdentity state =
-  HH.div [ HP.class_ (H.ClassName "controls-field-row") ]
-    [ HH.label_ [ HH.text "Name" ]
-    , HH.input
-        [ HP.type_ HP.InputText
-        , HP.value state.editBankName
-        , HE.onValueInput UpdateBankName
-        ]
+backToInstrument :: forall m. H.ComponentHTML Action () m
+backToInstrument =
+  HH.button
+    [ HP.class_ (H.ClassName "controls-zone-back")
+    , HE.onClick \_ -> ClearBankSelection
     ]
+    [ HH.text "\x2190 instrument" ]
+
+assignedBoard :: State -> Int -> Int -> Maybe BoardPreset
+assignedBoard state bankNum idx = do
+  a <- Array.find (\x -> x.bankNumber == bankNum && x.switchIndex == idx)
+         state.input.mc6Assignments
+  Array.find (\b -> b.id == a.boardPresetId) state.input.boardPresets
+
+-- | How many messages a board compiles to.
+-- |
+-- | Derived exactly as the sync path derives it, including the return jump, so
+-- | the number shown is the number sent. A budget display that disagrees with
+-- | the transmission is worse than none.
+boardBudget :: State -> BoardPreset -> Int
+boardBudget state bp =
+  Board.boardMessageCount state.input.registry state.input.presets
+    (state.input.activeControlBankIdx
+      >>= Array.index state.input.controlBanks
+      <#> _.mc6BankNumber)
+    bp
 
 -- | A bank the device has but this app has never written.
 -- |
@@ -477,26 +516,6 @@ renderBankSwitchCell state bank mCard idx =
             [ HH.text ("device: " <> nm) ]
         _ -> HH.text ""
     ]
-
--- | The board assigned to a switch, if any.
-assignedBoard :: State -> Int -> Int -> Maybe BoardPreset
-assignedBoard state bankNum idx = do
-  a <- Array.find (\x -> x.bankNumber == bankNum && x.switchIndex == idx)
-         state.input.mc6Assignments
-  Array.find (\b -> b.id == a.boardPresetId) state.input.boardPresets
-
--- | How many messages a board compiles to.
--- |
--- | Derived exactly as the sync path derives it, including the return jump, so
--- | the number shown is the number sent. A budget display that disagrees with
--- | the transmission is worse than none.
-boardBudget :: State -> BoardPreset -> Int
-boardBudget state bp =
-  Board.boardMessageCount state.input.registry state.input.presets
-    (state.input.activeControlBankIdx
-      >>= Array.index state.input.controlBanks
-      <#> _.mc6BankNumber)
-    bp
 
 -- ──── Zoom 3: one switch ────
 
@@ -589,32 +608,6 @@ renderBoardHeld state bp =
                    ]
               else [])
     )
-
-renderBankProperties :: forall m. State -> H.ComponentHTML Action () m
-renderBankProperties state =
-  HH.div [ HP.class_ (H.ClassName "controls-bank-props") ]
-    [ HH.div [ HP.class_ (H.ClassName "controls-field-row") ]
-        [ HH.label_ [ HH.text "Return Sw" ]
-        , HH.select
-            [ HP.value (show state.editReturnSwitch)
-            , HE.onValueChange UpdateReturnSwitch
-            ]
-            (Array.range 0 (switchCount - 1) <#> \i ->
-              HH.option [ HP.value (show i) ] [ HH.text (switchLetter i) ]
-            )
-        ]
-    , HH.div [ HP.class_ (H.ClassName "controls-field-row controls-field-row-top") ]
-        [ HH.label_ [ HH.text "Notes" ]
-        , HH.textarea
-            [ HP.value state.editBankDescription
-            , HP.placeholder "Description"
-            , HP.rows 3
-            , HE.onValueInput UpdateBankDescription
-            ]
-        ]
-    ]
-
--- ──── All Switches Panel (right column) ────
 
 renderSwitchSection :: forall m. String -> Int -> Int -> ControlBankSwitch -> H.ComponentHTML Action () m
 renderSwitchSection bankCol returnIdx swIdx sw =
