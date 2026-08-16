@@ -256,6 +256,64 @@ What it does is run the ceremony that tells the owner to hold the footswitch.
 So the lock intercepts a human action, not a transmission, and its whole job is
 to be read before the foot goes down.
 
+### A preset is a line, not a point
+
+Discovered from the Meris libraries, then checked across the board: **a preset
+on these pedals has two ends.** Meris stores every parameter twice, as
+`_ToeUp` / `_ToeDown`; Strymon calls it EXP and saves a heel and a toe value per
+assigned parameter inside the preset; Chase Bliss does the same through its ramp
+and expression assignments. Every pedal on the board except Habit declares an
+expression CC — the Strymons two of them, CC 100 and CC 60. This is not a Meris
+quirk to be normalised away; it is how the whole board works.
+
+So the model is wrong in a shape-of-the-data way, not a missing-field way. A
+preset is currently a point in parameter space. It is really a **line segment**:
+two points and a position along it, and the expression pedal is the position.
+
+The change to the type is small:
+
+```purescript
+, values :: Map CC MidiValue        -- the heel; unchanged
+, toe    :: Maybe (Map CC MidiValue) -- the far end, where there is one
+```
+
+`Maybe`, and sparse — only the CCs that actually move. Two reasons, both the
+same reason as everywhere else in this document. "This preset has no expression
+programmed" and "this preset's expression happens to do nothing" are different
+claims, and defaulting the toe to the heel manufactures the second out of the
+first. And a sparse map *is* the interesting fact: the parameters listed are
+precisely the ones the sweep touches.
+
+Three levels, which should not be conflated because they cost wildly different
+amounts:
+
+1. **Record.** Store both ends. Free, and immediately useful — the Meris import
+   currently drops the toe half of thirty-six presets, and the data is still
+   sitting in the app bundle waiting for somewhere to go.
+2. **Recall.** Send the heel, and let the UI say the preset has a sweep. Also
+   nearly free.
+3. **Morph.** Interpolate between the ends ourselves and stream the result.
+
+Level 3 deserves care, because there is a trap in it. We cannot *author* a
+Strymon's heel/toe assignment over MIDI — that lives in the pedal's saved
+preset, set by the pedal's own EXP-assign ceremony, and CC 100 only moves the
+position along an assignment already stored there. So sending a heel/toe pair
+to a pedal is not a thing. What we can do instead is perform the morph in the
+app: given both ends and a position, interpolate every differing parameter and
+transmit. That works identically on every pedal, needs no per-pedal EXP
+assignment, and can be driven by a single CC from the MC6 into the app rather
+than into the pedal — which is the observe-don't-mediate posture below, used for
+something more than watching.
+
+The cost is message rate, and it is the same cost the baseline sweep hit: eight
+parameters morphing at any useful resolution is a lot of CCs, and it would have
+to use the direct-transmit path rather than `SetValue`, or Halogen will re-render
+between every byte.
+
+There is a UI payoff worth naming. A donut knob showing a heel and a toe is a
+two-ended arc — "it sits here, and it travels to there" — which the existing
+donut idiom renders naturally and no knob on the actual pedal can show at all.
+
 ### Keeping the belief synced: observe, don't mediate
 
 *Confirmed empirically 2026-08-16.* The MC6 mirrors its pedal-bound messages to
