@@ -218,13 +218,28 @@ value. This is a per-parameter, eyes-on-the-pedal procedure with no MIDI
 readback, so it cannot be automated and is only worth doing for a sound that
 matters. Noted so nobody re-derives it.)
 
-**Meris is a different case, and possibly a solved one.** Its sixteen presets
-are held in the Meris editor app, not only in the pedal — which means the values
-and the names may both be exportable. If that library can be read, Meris slot
-references become captured presets carrying their real names, and the problem
-that motivated slot references in the first place disappears for this brand.
-Worth investigating before building anything else here. Unresolved: what format
-the editor writes, and whether it round-trips.
+**Meris is a different case, and it is half solved.** `HedraEdit.app` and
+`Mercury7Edit.app` are Kivy apps, and each ships its factory library as plain
+JSON inside the bundle — names, descriptions, and every parameter by name.
+Every one of those parameters maps onto a CC we already declare, so
+`import-meris-library.js` turns them into thirty-six ordinary captured presets
+(seventeen Hedra, nineteen Mercury7). Meris sounds now arrive with real names
+and real values rather than as bare numbers.
+
+What it does *not* give us is the pedals' own sixteen slots. The library is
+what Meris shipped; the slots were filled by hand, years ago, from among those
+sounds and others. The descriptions name a factory slot number and the import
+deliberately does not turn that into a `savedSlot` — asserting slot 9 holds
+`SubTerra` would be precisely the unfounded belief §2 exists to prevent. So
+slot references remain the right mechanism for these pedals; they simply now
+sit alongside a library worth auditioning.
+
+Two details worth keeping. Meris stores every parameter twice, as a
+ToeUp/ToeDown pair bracketing an expression sweep; we take the heel and drop
+the toe, since this app has one value per CC. And the editors keep *no* user
+library on disk — nothing under Application Support, Documents or Preferences —
+so a patch you saved in the editor lives in the pedal and in the editor's own
+window, and nowhere we can read.
 
 Two shapes share the mechanism and should not be conflated:
 
