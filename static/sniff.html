@@ -85,6 +85,19 @@
     <input id="raw" placeholder="f0 00 21 24 03 00 11 05 …  (checksum + f7 added if omitted)" style="flex:1;min-width:340px">
     <button id="sendRaw">Send</button>
   </div>
+  <div class="row">
+    <button id="sweepF1">Sweep F1 · F2=11 F3=05</button>
+    <button id="sweepF2">Sweep F2 · F1=11</button>
+    <button id="sweepB5">Sweep byte 5</button>
+    <span id="sweepNote" style="color:var(--muted);font-size:12px"></span>
+  </div>
+  <p class="sub" style="margin:6px 0 0">
+    Sweeps walk one byte at a time and watch for any answer, which is faster and
+    more reliable than guessing. <strong>F1 = 0x07 is skipped</strong> — that is
+    the upload family, the one range known to write. Everything else is
+    presumed-but-not-proven harmless, so take a fresh backup from the Morningstar
+    editor before running these.
+  </p>
 </div>
 
 <div class="row">
@@ -252,6 +265,59 @@ PROBES.forEach(([label, build]) => {
   b.onclick = () => send(label, build());
   probeRow.appendChild(b);
 });
+
+// ---- sweeps -------------------------------------------------------------
+// The device answers `00 1b` (connect) and acts on `00 1c` (disconnect) — the
+// latter demonstrably drops the official editor's session — so session control
+// is understood and it is only the *read* opcode that is not. Rather than guess
+// it one button at a time, walk a byte and watch for any answer.
+//
+// Each sweep brackets itself with connect/disconnect, because a device that
+// only answers questions inside a session would otherwise look silent for the
+// wrong reason.
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function sweep(label, frames) {
+  const note = $('sweepNote');
+  const before = window.__cap.length;
+  send('connect (session for sweep)', frame(0x00, 0x00, [0x00, 0x1B], false));
+  await sleep(300);
+  for (let i = 0; i < frames.length; i++) {
+    const { desc, bytes } = frames[i];
+    note.textContent = `${label}: ${i + 1}/${frames.length} — ${desc}`;
+    send(desc, bytes);
+    await sleep(120);
+  }
+  await sleep(400);
+  send('disconnect', frame(0x00, 0x00, [0x00, 0x1C], false));
+  const gained = window.__cap.length - before;
+  note.textContent = `${label}: done. ${gained} message${gained === 1 ? '' : 's'} received during the sweep.`;
+}
+
+$('sweepF1').onclick = () => {
+  const frames = [];
+  for (let f1 = 0x00; f1 <= 0x1F; f1++) {
+    if (f1 === 0x07) continue;                       // the upload family: writes
+    frames.push({ desc: `F1=${hex(f1)} F2=11 F3=05`, bytes: frame(0x03, 0x00, [f1, 0x11, 0x05], true) });
+  }
+  sweep('F1 sweep', frames);
+};
+
+$('sweepF2').onclick = () => {
+  const frames = [];
+  for (let f2 = 0x00; f2 <= 0x1F; f2++) {
+    frames.push({ desc: `F1=11 F2=${hex(f2)}`, bytes: frame(0x03, 0x00, [0x11, f2], true) });
+  }
+  sweep('F2 sweep', frames);
+};
+
+$('sweepB5').onclick = () => {
+  const frames = [];
+  for (let b5 = 0x00; b5 <= 0x0F; b5++) {
+    frames.push({ desc: `byte5=${hex(b5)} F1=11 F2=05`, bytes: frame(0x03, b5, [0x11, 0x05], true) });
+  }
+  sweep('byte-5 sweep', frames);
+};
 
 $('sendRaw').onclick = () => {
   const parts = $('raw').value.trim().split(/[\s,]+/).filter(Boolean).map(x => parseInt(x, 16));
