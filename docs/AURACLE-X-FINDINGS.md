@@ -37,27 +37,55 @@ work is likely confirmation rather than discovery.
 
 ## The cheap way in: the backup is a .syx file
 
-The Presets pane has Backup and Restore, and both use a file filter of
-`Sysex File|.syx`. A backup is therefore a dump of the device's own wire
-messages, not an app-specific format — exactly the position the MC6 backup file
-put us in, only more direct.
+There is a Backup/Restore pair in the Presets pane that writes a
+`Sysex File|.syx` — a dump of the device's own wire messages rather than an app
+format, which would have been the MC6 backup file all over again.
 
-**So the first move is one click in Auracle**: Presets → Backup, save a `.syx`,
-and decode it offline. That yields the message framing and the layout of
-everything a preset contains, with no guessing and nothing sent to the device.
+**It is not available to us.** The whole fieldset is guarded:
 
-Nothing of the sort exists on disk yet — no user library, no saved backup, and
-`~/Library/Application Support/Auracle X/` holds only a CEF cache, a firmware
-folder, and a log full of RTP-MIDI interface churn.
+```js
+this.device.isSysEx2() && createElement("fieldset", …, legend "Backup/Restore", …)
+```
 
-## The fast way to learn a single call: their own DevTools
+and the Audio4c is SysEx1, so Auracle simply does not render it. (The
+"Currently Loaded: (n) name" heading above it is gated the same way, which is
+why the pane looks sparser here than in iConnectivity's screenshots.) There is
+no file route to the Audio4c's configuration, and nothing of the sort exists on
+disk — no user library, no saved backup, and `~/Library/Application Support/
+Auracle X/` holds only a CEF cache, a firmware folder, and a log full of
+RTP-MIDI interface churn.
 
-`window.libiConnectivity.ShowDevTools` is in the API. With the console open in
-Auracle, any of the 207 operations can be invoked by hand while our own sniffer
-(`static/sniff.html`) listens to the device. CoreMIDI delivers a source's data
-to every connected client, so we would see the device's replies to Auracle even
-though we cannot see Auracle's requests — and a reply generally carries the
-command code that provoked it.
+What the Audio4c's Presets pane does have is Save/Load, and both are device
+operations, not file operations:
+
+```js
+Save: setPresetName(name) -> savePreset(presetNo)
+Load: restorePreset(presetNo)
+```
+
+So a "preset" here is a numbered slot **inside the interface**, holding the
+whole configuration — routing, filters, remaps, mixer. It is not saved anywhere
+on the Mac, which is why the app never says where it went.
+
+That is a familiar shape: the Audio4c's presets are in the same position as the
+pedals' presets, addressable by number and not by content. The difference, and
+the reason this is worth doing at all, is that this device can be *read back*.
+
+## So the way in is their own DevTools
+
+With no file to decode, the route is the live protocol — and Auracle hands us a
+console onto it. `window.libiConnectivity.ShowDevTools()` is called
+unconditionally in the root component's `render`, so DevTools is either already
+available in the running app or one right-click away.
+
+From that console every one of the 207 operations can be invoked by hand, with
+`window.libiConnectivity.GetPortRoute(id, cb, port)` and friends, while our own
+sniffer (`static/sniff.html`) listens to the device. CoreMIDI delivers a
+source's data to every connected client, so we see the device's replies to
+Auracle even though we cannot see Auracle's requests — and a reply generally
+carries the command code that provoked it. One operation at a time, deliberately
+triggered, with the reply captured: that is a cleaner correlation than the MC6
+sweep ever gave us.
 
 ## What would actually be worth having
 
