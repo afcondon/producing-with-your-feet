@@ -1,6 +1,10 @@
 module Data.MC6.ControlBank
   ( ControlBank
   , ControlBankSwitch
+  , switchCount
+  , switchLetter
+  , emptySwitch
+  , padSwitches
   , exampleControlBank
   , ccToggleMessages
   , ccMomentaryMessages
@@ -10,6 +14,7 @@ module Data.MC6.ControlBank
 import Prelude
 
 import Data.Array as Array
+import Data.Maybe (Maybe(..))
 import Data.MC6.Message as MC6Msg
 import Data.MC6.Types (MC6Action(..), MC6Message, MC6MsgType(..), MC6TogglePosition(..))
 
@@ -28,6 +33,38 @@ type ControlBank =
   , returnSwitchIndex :: Int
   , switches :: Array ControlBankSwitch
   }
+
+-- | How many switches a bank has.
+-- |
+-- | Twelve, because that is what an MC6 bank holds: six on the unit and two
+-- | FS3X's worth. Authored pages carried nine for a long time, which meant a
+-- | quarter of every page was unreachable from this app — and the space is
+-- | worth having whether or not a second FS3X is plugged in, since a page swap
+-- | on one of the six brings the rest within reach anyway.
+switchCount :: Int
+switchCount = 12
+
+-- | A B C … L, in index order. Physical position is a separate question and is
+-- | answered by the view's `physicalOrder`.
+switchLetter :: Int -> String
+switchLetter i = case Array.index letters i of
+  Just l -> l
+  Nothing -> "?"
+  where
+  letters = [ "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L" ]
+
+emptySwitch :: ControlBankSwitch
+emptySwitch = { label: "", longName: "", toToggle: false, messages: [] }
+
+-- | Bring a bank up to the full twelve without disturbing what is there.
+-- |
+-- | Applied where banks are read back in, so pages authored when a bank had
+-- | nine switches gain the other three rather than needing a migration. Takes
+-- | rather than errors on an over-long array, since the device would only
+-- | ignore the excess anyway.
+padSwitches :: ControlBank -> ControlBank
+padSwitches cb = cb
+  { switches = Array.take switchCount (cb.switches <> Array.replicate switchCount emptySwitch) }
 
 -- | CC toggle pair: ToggleOn sends val 127, ToggleOff sends val 0.
 -- | MC6 native toggle mode handles the state; we just provide both positions.
@@ -94,5 +131,8 @@ exampleControlBank =
       , { label: "< Back",   longName: "Back to Board Bank",    toToggle: false, messages: [] }  -- replaced by controlBankToPresets
       , { label: "Lx Speed", longName: "Lex Speed Toggle",      toToggle: true,  messages: ccToggleMessages 8 22 }
       , { label: "Br Tap",   longName: "Brig Tap Tempo",        toToggle: false, messages: ccMomentaryMessages 14 93 }
+      , emptySwitch
+      , emptySwitch
+      , emptySwitch
       ]
   }

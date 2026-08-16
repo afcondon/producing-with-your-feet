@@ -30,6 +30,7 @@ import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Config.Registry (PedalRegistry)
 import Config.Registry as CRegistry
+import Data.MC6.ControlBank (switchLetter)
 import Data.MC6.Types (MC6NativeBank)
 import Data.MC6.Board as Board
 
@@ -381,18 +382,6 @@ renderEditForm state bp =
         ]
     ]
 
-switchLetter :: Int -> String
-switchLetter = case _ of
-  0 -> "A"
-  1 -> "B"
-  2 -> "C"
-  3 -> "D"
-  4 -> "E"
-  5 -> "F"
-  6 -> "G"
-  7 -> "H"
-  8 -> "I"
-  _ -> "?"
 
 boardSummary :: PedalRegistry -> BoardPreset -> Array PedalPreset -> String
 boardSummary reg bp allPresets =

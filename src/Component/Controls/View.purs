@@ -15,7 +15,7 @@ import Data.Int as Int
 import Data.Map (Map)
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.MC6.Board as Board
-import Data.MC6.ControlBank (ControlBank, ControlBankSwitch, ccToggleMessages, ccMomentaryMessages)
+import Data.MC6.ControlBank (ControlBank, ControlBankSwitch, ccToggleMessages, ccMomentaryMessages, emptySwitch, switchCount, switchLetter)
 import Data.MC6.Survey as MC6Survey
 import Data.MC6.Types (MC6Action(..), MC6Message, MC6MsgType(..), MC6NativeBank, MC6TogglePosition(..), intToMC6Action, intToMC6MsgType, mc6ActionToInt, mc6ToggleToInt)
 import Data.Midi (unCC)
@@ -255,19 +255,6 @@ switchColor = case _ of
   8 -> "#dc2626"  -- I red
   _ -> "#666"
 
-switchLetter :: Int -> String
-switchLetter = case _ of
-  0 -> "A"
-  1 -> "B"
-  2 -> "C"
-  3 -> "D"
-  4 -> "E"
-  5 -> "F"
-  6 -> "G"
-  7 -> "H"
-  8 -> "I"
-  _ -> "?"
-
 mc6MsgTypeLabel :: MC6MsgType -> String
 mc6MsgTypeLabel = case _ of
   MsgEmpty -> "Empty"
@@ -286,18 +273,34 @@ mc6MsgTypeLabel = case _ of
 
 -- ──── Render ────
 
+-- | Two columns: the instrument on the left, what you are working on to the
+-- | right.
+-- |
+-- | Stacked, the thirty cards pushed the actual work below the fold and the
+-- | page only ever got shorter as you went deeper. Side by side, the selection
+-- | cascade runs top-to-bottom in the right column while the instrument stays
+-- | put — you can see which page you are on without scrolling back for it,
+-- | which is the whole reason for drawing all thirty in the first place.
 render :: forall m. State -> H.ComponentHTML Action () m
 render state =
   HH.div [ HP.class_ (H.ClassName "controls-view") ]
-    ( [ renderSurvey state ]
-        <> (case state.selectedBankNumber of
-              Nothing -> []
-              Just n -> [ renderBankZone state n ])
-        <> (case state.selectedBankNumber, state.selectedSwitchIdx of
-              Just _, Just i -> [ renderSwitchZone state i ]
-              _, _ -> [])
-        <> [ if state.showDictionary then renderDictionaryOverlay state else HH.text "" ]
-    )
+    [ HH.div [ HP.class_ (H.ClassName "controls-columns") ]
+        [ HH.div [ HP.class_ (H.ClassName "controls-col-instrument") ]
+            [ renderSurvey state ]
+        , HH.div [ HP.class_ (H.ClassName "controls-col-work") ]
+            ( case state.selectedBankNumber of
+                Nothing ->
+                  [ HH.p [ HP.class_ (H.ClassName "controls-empty") ]
+                      [ HH.text "Pick a bank." ] ]
+                Just n ->
+                  [ renderBankZone state n ]
+                    <> (case state.selectedSwitchIdx of
+                          Just i -> [ renderSwitchZone state i ]
+                          Nothing -> [])
+            )
+        ]
+    , if state.showDictionary then renderDictionaryOverlay state else HH.text ""
+    ]
 
 -- | The whole device, built fresh from the four sources the survey merges.
 -- |
@@ -443,20 +446,15 @@ renderBankSwitchCell state bank mCard idx =
       observed = mCard >>= \c -> Array.index c.observedNames idx
       isSelected = state.selectedSwitchIdx == Just idx
       isReturn = bank.returnSwitchIndex == idx
-      -- Authored pages carry nine switches; the device has twelve. The last
-      -- three are not empty, they are simply never written, and a blank cell
-      -- would claim otherwise.
-      unwritable = idx >= Array.length bank.switches
       cls = String.joinWith " "
         ([ "controls-bank-switch" ]
           <> (if isSelected then [ "selected" ] else [])
-          <> (if isReturn then [ "return" ] else [])
-          <> (if unwritable then [ "unwritable" ] else []))
+          <> (if isReturn then [ "return" ] else []))
   in HH.div
     [ HP.class_ (H.ClassName cls)
     , HP.attr (HH.AttrName "style")
         ("border-left: 3px solid " <> maybe "#e6e6ea" Survey.verbColor verb)
-    , HE.onClick \_ -> if unwritable then ClearSwitchSelection else SelectSwitch idx
+    , HE.onClick \_ -> SelectSwitch idx
     ]
     [ HH.div [ HP.class_ (H.ClassName "controls-bank-switch-head") ]
         [ HH.span [ HP.class_ (H.ClassName "controls-bank-switch-letter") ]
@@ -466,7 +464,7 @@ renderBankSwitchCell state bank mCard idx =
             else HH.text ""
         ]
     , HH.div [ HP.class_ (H.ClassName "controls-bank-switch-label") ]
-        [ HH.text (if unwritable then "not written" else fromMaybe "" (mSw <#> _.label)) ]
+        [ HH.text (fromMaybe "" (mSw <#> _.label)) ]
     , case assignedBoard state bank.mc6BankNumber idx of
         Just bp -> HH.div [ HP.class_ (H.ClassName "controls-bank-switch-board") ]
           [ HH.text (bp.name <> "  " <> show (boardBudget state bp)
@@ -601,7 +599,7 @@ renderBankProperties state =
             [ HP.value (show state.editReturnSwitch)
             , HE.onValueChange UpdateReturnSwitch
             ]
-            (Array.range 0 8 <#> \i ->
+            (Array.range 0 (switchCount - 1) <#> \i ->
               HH.option [ HP.value (show i) ] [ HH.text (switchLetter i) ]
             )
         ]
@@ -808,7 +806,7 @@ renderSearchPanel state =
                 [ HP.value (show state.browserTargetSwitch)
                 , HE.onValueChange SelectBrowserTarget
                 ]
-                (Array.range 0 8 <#> \i ->
+                (Array.range 0 (switchCount - 1) <#> \i ->
                   HH.option [ HP.value (show i) ] [ HH.text (switchLetter i) ]
                 )
             ]
@@ -1200,14 +1198,6 @@ newMessage msgType =
   , msgIndex: 0
   }
 
-emptySwitch :: ControlBankSwitch
-emptySwitch =
-  { label: ""
-  , longName: ""
-  , toToggle: false
-  , messages: []
-  }
-
 emptyControlBank :: String -> Int -> ControlBank
 emptyControlBank name bankNum =
   { id: "bank-" <> show bankNum
@@ -1215,7 +1205,7 @@ emptyControlBank name bankNum =
   , description: ""
   , mc6BankNumber: bankNum
   , returnSwitchIndex: 6
-  , switches: Array.replicate 9 emptySwitch
+  , switches: Array.replicate switchCount emptySwitch
   }
 
 -- | Modify a switch in the selected bank

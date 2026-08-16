@@ -785,7 +785,10 @@ handleAction = case _ of
         boardPresets <- liftEffect Storage.loadBoardPresetsParsed
         mc6Assignments <- liftEffect Storage.loadMC6AssignmentsParsed
         currentSt <- H.get
-        controlBanks <- liftEffect $ Storage.loadControlBanksParsed currentSt.controlBanks
+        -- Padded on the way in, so pages authored when a bank had nine
+        -- switches gain the other three without a migration step.
+        controlBanks <- map (map ControlBank.padSwitches)
+          (liftEffect $ Storage.loadControlBanksParsed currentSt.controlBanks)
         H.modify_ _ { presets = presets, boardPresets = boardPresets, mc6Assignments = mc6Assignments, controlBanks = controlBanks }
         st <- H.get
         liftEffect do
@@ -1909,13 +1912,13 @@ handleClearMC6Bank = do
   liftEffect $ Storage.saveMC6Assignments updated
   liftEffect FolderBackup.scheduleBackup
   pushSnapshot
-  -- SysEx: clear all 9 switches on MC6 hardware
+  -- SysEx: clear every switch on MC6 hardware
   case st.connections.mc6Output of
     Nothing -> liftEffect $ Console.log "MC6 SysEx: no MC6 output connected (assignments cleared locally)"
     Just output -> do
-      liftEffect $ Console.log $ "MC6 SysEx CLEAR: bank " <> show bankNum <> " switches A-I"
+      liftEffect $ Console.log $ "MC6 SysEx CLEAR: bank " <> show bankNum <> " all switches"
       withEditorSession output do
-        for_ (Array.range 0 8) \presetNum -> do
+        for_ (Array.range 0 (ControlBank.switchCount - 1)) \presetNum -> do
           let sysexBytes = SysEx.sysexClearPreset bankNum presetNum
           sendSysExLogged ("clear-" <> show presetNum) output sysexBytes
           H.liftAff (delay (Milliseconds 100.0))

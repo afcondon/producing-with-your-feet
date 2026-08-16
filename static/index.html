@@ -2585,12 +2585,12 @@ body {
 }
 .controls-zone-back:hover { color: var(--accent); }
 
-.controls-bank-body { display: flex; gap: 20px; align-items: flex-start; }
+.controls-bank-body { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
 
 /* Four rows of three, matching the survey card and the pedal underfoot. */
 .controls-bank-switches {
   display: grid;
-  grid-template-columns: repeat(3, minmax(120px, 160px));
+  grid-template-columns: repeat(3, minmax(108px, 150px));
   gap: 6px;
   flex: 0 0 auto;
 }
@@ -2607,13 +2607,6 @@ body {
 .controls-bank-switch:hover { border-color: var(--fg-light); }
 .controls-bank-switch.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .controls-bank-switch.return { background: var(--bg-section); }
-/* Never written, not empty: the device has a switch here that authored pages
-   cannot reach, and a blank cell would claim otherwise. */
-.controls-bank-switch.unwritable {
-  cursor: default;
-  background: repeating-linear-gradient(45deg, #fafafa, #fafafa 5px, #f1f1f3 5px, #f1f1f3 10px);
-  border-style: dashed;
-}
 .controls-bank-switch-head { display: flex; align-items: center; gap: 6px; }
 .controls-bank-switch-letter { font-size: 13px; font-weight: 700; }
 .controls-bank-switch-label { font-size: 12px; font-weight: 600; margin-top: 2px; }
@@ -2650,17 +2643,48 @@ body {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-.controls-switch-body { display: flex; gap: 20px; align-items: flex-start; }
-.controls-switch-body > *:first-child { flex: 1; min-width: 340px; }
-.controls-switch-body > .controls-search-panel { flex: 0 0 320px; }
+.controls-switch-body { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.controls-switch-body > *:first-child { flex: 1 1 380px; min-width: 0; }
+.controls-switch-body > .controls-search-panel { flex: 1 1 280px; min-width: 0; }
 
-/* Once you are inside a bank the instrument is context, not subject. */
-.survey.compact { padding-bottom: 4px; }
-.survey.compact .survey-grid { grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); }
+/* ──── Two columns: instrument left, work right ──── */
+
+.controls-columns {
+  display: grid;
+  grid-template-columns: minmax(280px, 30%) 1fr;
+  align-items: start;
+  min-height: calc(100vh - 90px);
+}
+.controls-col-instrument {
+  border-right: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  max-height: calc(100vh - 90px);
+  overflow-y: auto;
+}
+.controls-col-work { min-width: 0; }
+.controls-col-work > .controls-zone:first-child { border-top: none; }
+
+@media (max-width: 1100px) {
+  .controls-columns { grid-template-columns: 1fr; }
+  .controls-col-instrument {
+    border-right: none; border-bottom: 1px solid var(--border);
+    position: static; max-height: none;
+  }
+}
+
+/* In a column of its own the grid wants to be narrower and denser. Compact
+   still drops the legend, graph and warnings once a bank is chosen, so the
+   left column is a chooser rather than a second thing to read. */
+.controls-col-instrument .survey-grid {
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+}
 .survey.compact .survey-card { padding: 4px 5px 5px; }
-.survey.compact .survey-card-name { display: none; }
+.survey.compact .survey-card-name {
+  font-size: 10px; margin: 0 0 4px;
+}
 .survey.compact .survey-card-jumps { display: none; }
-.survey.compact .survey-slot { height: 6px; }
+.survey.compact .survey-slot { height: 7px; }
 
 /* ──── The instrument survey ──── */
 
