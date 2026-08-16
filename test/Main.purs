@@ -5,6 +5,7 @@ import Prelude
 import Data.Argonaut.Core (stringify)
 import Data.Array as Array
 import Data.Map as Map
+import Data.Set as Set
 import Data.Maybe (Maybe(..), isJust, isNothing, maybe)
 import Data.Midi (makeCC, makeMidiValue, makeProgramNumber)
 import Data.Pedal (PedalId(..))
@@ -379,6 +380,39 @@ main = do
   -- Silence rather than a clean bill: nothing to compare means Nothing.
   assert "with nothing to compare, agreement is Nothing"
     (Array.all (\c -> c.agrees == Nothing) (Array.filter (\c -> c.bankNumber /= 20) readCards))
+
+  log ""
+  log "Running MC6 navigation-graph tests..."
+
+  -- A small hand-built instrument, because the point of these functions is to
+  -- catch shapes that no real bank set has yet: home reaches 1 and 2, bank 7 is
+  -- programmed but nothing points at it, and bank 2 has no way out.
+  let card n slots =
+        { bankNumber: n, name: "", provenance: Survey.Authored
+        , slots, observedNames: [], agrees: Nothing }
+      jump n = Verb.Navigation (Verb.ToBank n)
+      graph =
+        [ card 0 [ jump 1, jump 2 ]
+        , card 1 [ jump 0 ]
+        , card 2 [ Verb.Blank ]
+        , card 7 [ jump 0 ]
+        ]
+
+  assert "home reaches itself and everything it jumps to"
+    (Survey.reachableFrom 0 graph == Set.fromFoldable [ 0, 1, 2 ])
+  assert "a bank nothing points at is stranded"
+    (Survey.stranded 0 graph == [ 7 ])
+  assert "a bank with no jump of its own is a dead end"
+    (Survey.deadEnds graph == [ 2 ])
+  -- Reachability must not loop forever on a cycle, which 0 <-> 1 is.
+  assert "a two-bank cycle terminates and is fully reachable"
+    (Survey.reachableFrom 1 graph == Set.fromFoldable [ 0, 1, 2 ])
+  -- The accusation only applies to banks we know something about; an unknown
+  -- bank may be reachable by a jump we have not read.
+  assert "unknown banks are never accused of being stranded"
+    (Array.null (Survey.stranded 0
+      [ { bankNumber: 9, name: "", provenance: Survey.Unknown
+        , slots: [], observedNames: [], agrees: Nothing } ]))
 
   log ""
   log "Running MC6 read-protocol tests..."

@@ -7,12 +7,16 @@ module Component.Controls.View
 
 import Prelude
 
+import Component.Controls.Survey as Survey
 import Data.Array as Array
 import Data.Const (Const)
 import Data.Int as Int
+import Data.Map (Map)
 import Data.Maybe (Maybe(..), fromMaybe)
+import Data.MC6.Board as Board
 import Data.MC6.ControlBank (ControlBank, ControlBankSwitch, ccToggleMessages, ccMomentaryMessages)
-import Data.MC6.Types (MC6Action(..), MC6Message, MC6MsgType(..), MC6TogglePosition(..), intToMC6Action, intToMC6MsgType, mc6ActionToInt, mc6ToggleToInt)
+import Data.MC6.Survey as MC6Survey
+import Data.MC6.Types (MC6Action(..), MC6Message, MC6MsgType(..), MC6NativeBank, MC6TogglePosition(..), intToMC6Action, intToMC6MsgType, mc6ActionToInt, mc6ToggleToInt)
 import Data.Midi (unCC)
 import Data.Pedal (PedalDef, PedalId, Control(..), LabelSource(..), Section)
 import Data.String.CodeUnits (contains)
@@ -31,11 +35,34 @@ type Input =
   , activeControlBankIdx :: Maybe Int
   , registry :: PedalRegistry
   , mc6BoardBankNum :: Int
+  -- Everything below is for the instrument survey: what the config declares,
+  -- and what the device itself last said. Held separately from `controlBanks`
+  -- on purpose — one is intent, the others are observation, and the survey's
+  -- whole job is to show where they disagree.
+  , mc6NativeBanks :: Array MC6NativeBank
+  , mc6BankNames :: Map Int String
+  , mc6BankSwitches :: Map Int (Array String)
+  , mc6ReadStatus :: Maybe String
   }
 
 data Output
   = SaveControlBanks (Array ControlBank) (Maybe Int)
   | SyncControlBankToMC6
+  -- | Ask the app to open a session with the MC6 and listen to what it
+  -- | volunteers. Raised here because the survey is where you look at the
+  -- | answer, and a read button somewhere else would be a button you press and
+  -- | then go looking for the result of.
+  | ReadMC6
+
+-- | Which half of the Controls page you are on.
+-- |
+-- | The distinction is scope, and it matters enough to be a mode rather than a
+-- | scroll: the editor works on one bank in detail, the survey works on the
+-- | whole device and never edits anything. Mixing them is what makes
+-- | Morningstar's own editor so hard to hold in your head.
+data Pane = BankEditor | Instrument
+
+derive instance Eq Pane
 
 -- | Flat searchable entry for one CC control from the pedal registry
 type CCEntry =
@@ -65,6 +92,9 @@ type State =
   , expandedPedals :: Array PedalId
   , browserTargetSwitch :: Int
   , showDictionary :: Boolean
+  , pane :: Pane
+  , elideUnknown :: Boolean
+  , expandedBank :: Maybe Int
   }
 
 data Action
@@ -108,6 +138,12 @@ data Action
   | AddFromBrowser Int Int Boolean  -- channel, cc, isToggle
   -- Sync
   | SyncToMC6
+  -- Instrument survey
+  | SetPane Pane
+  | ToggleElideUnknown
+  | ExpandBank Int
+  | CollapseBank
+  | RequestRead
 
 type Slot = H.Slot (Const Void) Output
 
@@ -138,6 +174,9 @@ initialState i =
      , expandedPedals: []
      , browserTargetSwitch: 0
      , showDictionary: false
+     , pane: BankEditor
+     , elideUnknown: false
+     , expandedBank: Nothing
      }
 
 -- | Flatten the entire pedal registry into a searchable array of CC entries
@@ -246,18 +285,63 @@ mc6MsgTypeLabel = case _ of
 render :: forall m. State -> H.ComponentHTML Action () m
 render state =
   HH.div [ HP.class_ (H.ClassName "controls-view") ]
-    [ HH.div [ HP.class_ (H.ClassName "controls-top-row") ]
-        [ HH.div [ HP.class_ (H.ClassName "controls-bank-col") ]
-            [ renderBankList state
-            , renderSwitchGrid state
-            ]
-        , renderBankPropsCol state
-        , renderSearchPanel state
-        ]
-    , HH.div [ HP.class_ (H.ClassName "controls-bottom-row") ]
-        [ renderAllSwitches state ]
+    [ renderPaneTabs state
+    , case state.pane of
+        Instrument -> renderSurvey state
+        BankEditor -> HH.div_
+          [ HH.div [ HP.class_ (H.ClassName "controls-top-row") ]
+              [ HH.div [ HP.class_ (H.ClassName "controls-bank-col") ]
+                  [ renderBankList state
+                  , renderSwitchGrid state
+                  ]
+              , renderBankPropsCol state
+              , renderSearchPanel state
+              ]
+          , HH.div [ HP.class_ (H.ClassName "controls-bottom-row") ]
+              [ renderAllSwitches state ]
+          ]
     , if state.showDictionary then renderDictionaryOverlay state else HH.text ""
     ]
+
+renderPaneTabs :: forall m. State -> H.ComponentHTML Action () m
+renderPaneTabs state =
+  HH.div [ HP.class_ (H.ClassName "controls-pane-tabs") ]
+    [ tab BankEditor "Bank"
+    , tab Instrument "Instrument"
+    ]
+  where
+  tab p label =
+    HH.button
+      [ HP.class_ (H.ClassName ("controls-pane-tab" <> if state.pane == p then " active" else ""))
+      , HE.onClick \_ -> SetPane p
+      ]
+      [ HH.text label ]
+
+-- | The whole device, built fresh from the four sources the survey merges.
+-- |
+-- | Rebuilt on every render rather than cached in state, deliberately: the
+-- | inputs are thirty small records and the alternative is a cache that can
+-- | disagree with the device reading that just arrived — which is the one kind
+-- | of staleness this particular view exists to expose.
+renderSurvey :: forall m. State -> H.ComponentHTML Action () m
+renderSurvey state =
+  Survey.render
+    { cards: MC6Survey.survey
+        state.input.registry
+        Board.boardRecallChannel
+        state.input.controlBanks
+        state.input.mc6NativeBanks
+        state.input.mc6BankNames
+        state.input.mc6BankSwitches
+    , homeBank: state.input.mc6BoardBankNum
+    , readStatus: state.input.mc6ReadStatus
+    , elideUnknown: state.elideUnknown
+    , expanded: state.expandedBank
+    , onToggleElide: ToggleElideUnknown
+    , onExpand: ExpandBank
+    , onCollapse: CollapseBank
+    , onRead: RequestRead
+    }
 
 renderBankList :: forall m. State -> H.ComponentHTML Action () m
 renderBankList state =
@@ -926,6 +1010,23 @@ handleAction = case _ of
   SyncToMC6 -> do
     commitBankProps
     H.raise SyncControlBankToMC6
+
+  -- Leaving the editor commits whatever was half-typed into the bank property
+  -- fields. Without this, switching to the survey to check something silently
+  -- discards a rename, and the survey then shows the old name — which reads as
+  -- a device disagreement rather than as unsaved input.
+  SetPane p -> do
+    st <- H.get
+    when (st.pane /= p) commitBankProps
+    H.modify_ _ { pane = p }
+
+  ToggleElideUnknown -> H.modify_ \st -> st { elideUnknown = not st.elideUnknown }
+
+  ExpandBank n -> H.modify_ _ { expandedBank = Just n }
+
+  CollapseBank -> H.modify_ _ { expandedBank = Nothing }
+
+  RequestRead -> H.raise ReadMC6
 
 -- ──── Helpers ────
 

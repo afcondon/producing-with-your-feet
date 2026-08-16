@@ -200,6 +200,10 @@ render state = case state.configError of
             , activeControlBankIdx: state.activeControlBankIdx
             , registry: state.registry
             , mc6BoardBankNum: state.mc6BoardBankNum
+            , mc6NativeBanks: state.mc6Banks
+            , mc6BankNames: state.mc6BankNames
+            , mc6BankSwitches: state.mc6BankSwitches
+            , mc6ReadStatus: state.mc6ReadStatus
             }
             HandleControls
         FilesView -> renderFilesView state
@@ -1302,6 +1306,8 @@ handleAction = case _ of
       pushSnapshot
     ControlsView.SyncControlBankToMC6 ->
       syncControlBankToMC6
+    ControlsView.ReadMC6 ->
+      handleAction ReadMC6Banks
 
   ExportAllPresetsAction -> handleExportAllPresets
   ExportAllBoardsAction -> handleExportAllBoards
@@ -1964,8 +1970,8 @@ injectBoardTriggers assignments boards banks = map injectBank banks
           { shortName = SCU.take 8 bp.name
           , longName = bp.name
           , messages =
-              [ MC6Msg.ccMessage 1 idx 127 ActionPress
-              , MC6Msg.ccMessage 1 idx 0 ActionRelease
+              [ MC6Msg.ccMessage Board.boardRecallChannel idx 127 ActionPress
+              , MC6Msg.ccMessage Board.boardRecallChannel idx 0 ActionRelease
               ]
           }
 

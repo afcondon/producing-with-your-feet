@@ -12,6 +12,7 @@
 -- | when a view re-implements the arithmetic.
 module Data.MC6.Board
   ( messageLimit
+  , boardRecallChannel
   , boardToMC6Messages
   , boardMessageCount
   , boardFits
@@ -37,6 +38,17 @@ import Data.Tuple (Tuple(..))
 -- | so anything past here is dropped in silence.
 messageLimit :: Int
 messageLimit = 16
+
+-- | The channel a board-recall trigger goes out on.
+-- |
+-- | No pedal answers here, which is the point: a CC on this channel is a
+-- | message to *us*, asking the app to expand one press into a whole board.
+-- | It lives here rather than as a literal at each use because two places have
+-- | to agree about it — the exporter that writes the trigger and the classifier
+-- | that recognises it — and if they ever drift, a scene silently reads as a
+-- | pedal action on whichever pedal happens to sit on channel 1.
+boardRecallChannel :: Int
+boardRecallChannel = 1
 
 -- | Compile: a Program Change per pedal that has a flashed preset, bypass CCs
 -- | for pedals being switched off, and optionally a bank jump on long press.

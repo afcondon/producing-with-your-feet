@@ -19,19 +19,25 @@ module Data.MC6.Survey
   , survey
   , knownBanks
   , navigationEdges
+  , reachableFrom
+  , stranded
+  , deadEnds
   ) where
 
 import Prelude
 
 import Config.Registry (PedalRegistry)
 import Data.Array as Array
+import Data.Foldable (any, foldr)
 import Data.MC6.ControlBank (ControlBank)
 import Data.MC6.Types (MC6NativeBank)
 import Data.MC6.Verb (NavTarget(..), Verb(..), classify)
 import Data.Map (Map)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe, isJust)
-import Data.Tuple (Tuple(..))
+import Data.Set (Set)
+import Data.Set as Set
+import Data.Tuple (Tuple(..), snd)
 
 -- | How the MC6 MKII numbers its banks, taken from the device's own backup
 -- | file, where `bankArray` runs 0 to 29.
@@ -137,3 +143,47 @@ navigationEdges cards = Array.nub do
   case v of
     Navigation (ToBank n) -> pure (Tuple c.bankNumber n)
     _ -> []
+
+-- | Every bank you can get to from `home` by pressing switches.
+-- |
+-- | Plain breadth-first search over `navigationEdges`. It is here rather than
+-- | in the view because it answers a question about the instrument, not about
+-- | a drawing of it.
+reachableFrom :: Int -> Array BankCard -> Set Int
+reachableFrom home cards = go (Set.singleton home) [ home ]
+  where
+  edges = navigationEdges cards
+  go seen frontier = case Array.uncons frontier of
+    Nothing -> seen
+    Just { head, tail } ->
+      let next = Array.filter (\n -> not (Set.member n seen))
+                   (map snd (Array.filter (\(Tuple from _) -> from == head) edges))
+      in go (foldr Set.insert seen next) (tail <> next)
+
+-- | Banks that are programmed and cannot be walked to.
+-- |
+-- | The bug this finds is quiet and expensive: you build a page, you cannot
+-- | reach it from where you actually stand, and you discover that mid-take.
+-- |
+-- | Only known banks are accused, for the usual reason — a bank nobody has
+-- | read may well be reachable by a jump we cannot see.
+stranded :: Int -> Array BankCard -> Array Int
+stranded home cards =
+  let live = reachableFrom home cards
+  in Array.filter (\n -> not (Set.member n live))
+       (map _.bankNumber (knownBanks cards))
+
+-- | Known banks carrying no bank jump of their own.
+-- |
+-- | Softer than it sounds, and the view should say so: the MC6's own bank
+-- | up/down gestures still work, so this is "no programmed way out" rather than
+-- | "trapped". It is worth surfacing because a page you have to escape by
+-- | remembering a hardware gesture is a page that will strand you when the
+-- | lights are down.
+deadEnds :: Array BankCard -> Array Int
+deadEnds cards =
+  map _.bankNumber (Array.filter (not <<< any isNav <<< _.slots) (knownBanks cards))
+  where
+  isNav = case _ of
+    Navigation _ -> true
+    _ -> false
