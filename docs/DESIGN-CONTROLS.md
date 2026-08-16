@@ -121,7 +121,7 @@ gets the short press, going home gets the long one.
 ## 3. Pages, not modes
 
 A **page** is twelve slots, each holding a verb, compiled to one MC6 bank. A page
-is usually about one thing: the pedals, the looper, Ableton, a eurorack module.
+is usually about one thing: scenes, the pedals' instant actions, or the looper.
 
 The alternative considered and rejected was a *mode*: one bank whose meaning
 changes according to which device is currently selected. Three reasons it loses.
@@ -149,15 +149,13 @@ graph LR
   H --> S2[Scenes 2]
   H --> A[Pedal actions]
   H --> L[Looper detail]
-  H --> AB[Ableton]
   S1 --> A
   S2 --> A
   A --> H
   L --> H
-  AB --> H
 ```
 
-Five or six pages, not thirty. Note the shape: the scene pages feed the action
+Four or five pages, not thirty. Note the shape: the scene pages feed the action
 page, because picking a ballpark is what you do immediately before recording.
 
 ---
@@ -190,21 +188,36 @@ reached over a MIDI channel; Itajara is one reached over a socket. This is not
 new machinery — `SetValue` already branches on `isItajara` to choose between
 them, so two transports exist today and a third is a known shape.
 
-What is missing is that only pedals have control definitions, because only
-pedals have `config/pedals/*.json`. Without a definition for LoopyPro or Ableton,
-a page aimed at them is a wall of anonymous CC numbers, and the whole-instrument
-view below is unreadable exactly where it is most useful.
+Only pedals have control definitions, because only pedals have
+`config/pedals/*.json`. A page aimed at something without one is a wall of
+anonymous CC numbers, and the whole-instrument view below would be unreadable
+exactly where it is most useful. That was the concern; scope has since removed
+it.
 
 | Target | Transport | Controls known? |
 |---|---|---|
 | The twelve pedals | MIDI channel | yes — the registry |
 | Itajara | WebSocket to the daemon | yes — `Data.Looper` |
-| LoopyPro, Ableton | MIDI channel | **no — needs authoring** |
-| Lubadh, Morphagene | ES-9 / FH-2 daemon socket | no, and the transport is unbuilt |
+| ~~LoopyPro, Ableton~~ | — | **deprecated 2026-08-16** |
+| Lubadh, Morphagene | ES-9 / FH-2 daemon socket | not yet, and the transport is unbuilt |
 
-**Open:** whether target definitions are authored in the app (name, transport,
-a list of named CCs) or hand-written as JSON beside the pedals. The former is a
-small editor and makes the rig self-describing; the latter is free today.
+**Resolved 2026-08-16: there is no authoring problem, because there is nothing
+left to author.** LoopyPro and Ableton are dropped — Itajara replaces the first,
+and the second is served by exporting loops as audio rather than by driving
+Ableton from the floor. Every remaining target is a pedal or the looper, and
+both already describe their controls. The question of an in-app target editor
+can wait until something genuinely new needs reaching, which realistically means
+the modular.
+
+Two consequences worth noting. The whole-instrument view below is legible today
+rather than after a round of data entry — nothing will classify as `Raw` merely
+for want of a definition. And three banks on the device (LoopyPro at 11, Ableton
+at 19 and 29) become reclaimable.
+
+**New requirement, on the looper rather than here:** if Ableton is reached by
+export, Itajara has to write loops as audio files. That belongs in
+`DESIGN-LOOPER.md`, and it moves up the list now that it is the only path to a
+DAW.
 
 ---
 
@@ -298,8 +311,9 @@ be durable artefacts in `pwyf-store` alongside presets and boards.
 
 ## 10. Open questions
 
-1. **Authored targets or hand-written JSON?** §5. Determines whether the
-   whole-instrument view is readable for non-pedal pages.
+1. ~~**Authored targets or hand-written JSON?**~~ Resolved: neither is needed.
+   LoopyPro and Ableton are deprecated, so every target already describes its
+   own controls. §5.
 2. **Should a scene carry a follow-on jump?** Picking a ballpark is immediately
    followed by going to the action page. "Recall this board, then go here" is one
    extra message and well inside budget — but it hard-wires a pairing.

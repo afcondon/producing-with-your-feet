@@ -785,7 +785,11 @@ Stages 1–3 are **done** (2026-08-14). Ordered so each is usable on its own:
 8. **The send** — and with it re-amping, the board as outboard FX, and the
    self-calibration of §20.
 9. **Export** — layers to disk as WAVs plus a manifest. The route into Ableton,
-   and the precondition for loop slots.
+   and the precondition for loop slots. **Promoted 2026-08-16:** driving Ableton
+   from the floor was dropped along with LoopyPro (`DESIGN-CONTROLS.md` §5), so
+   export is no longer one route into the DAW — it is the only one. Everything
+   below it in this list assumes loops leave the daemon eventually; this is
+   where that becomes true.
 10. **Reverse, half-speed, decoupled time/pitch**, global and per-layer.
 11. **Loop slots and sequences.** The 1440's move beyond the 720. Needs §15's
     storage model.
