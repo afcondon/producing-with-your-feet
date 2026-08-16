@@ -239,6 +239,14 @@ programmed and unreachable. Pages with no outgoing nav are **dead ends**: you
 stomp in and you are stranded mid-take. Neither is visible in Morningstar's
 editor and both are exactly the mistakes that bite when your hands are full.
 
+**A bank the app writes may already be occupied — and the name will not say so.**
+The capture found our generated looper transport sitting in the bank the device
+still calls *"Ableton"*: `sysexPresetData` writes presets and never writes bank
+names, so an overwritten bank keeps its old label and looks untouched. This is
+the `Unknown` provenance of §6 doing real damage rather than hypothetical —
+the app cannot warn about clobbering a bank it has never read. Reading first,
+then warning before a write lands on occupied switches, is the fix.
+
 **Emptiness is information.** With five or six pages in use, eliding empty banks
 collapses the view to something you can hold in your head, and shows where the
 next thing should go.
@@ -269,10 +277,45 @@ Two features above depend on reading:
   offer to reconcile — instead of the current push-and-hope, which is partly a
   manual button and partly a silent automatic sync with no indication of drift.
 
-Route to it: macOS permits multiple clients on one MIDI port, so the app can
-listen on `mc6Input` while Morningstar's editor starts up and capture its read
-handshake verbatim. What is missing is a request function ID and a TLV decoder;
-our writer's TLV type numbers are already annotated as matching the read format.
+**Captured 2026-08-16** — `test/mc6-editor-handshake-20260816.json`, 26 frames,
+recorded with `static/sniff.html` while the Morningstar editor connected. What
+it establishes:
+
+**Bank numbering is 0-based on the wire, and the editor displays +1.** Confirmed
+three ways: the device's own backup numbers `bankArray` 0..29; the live
+bank-name frame indexes banks 0..29 and matches that file exactly; and the bank
+the editor shows as 20 reports as `0x13` = 19. So an app constant of `21` is
+editor bank 22. This had never been written down and is easy to get wrong in
+either direction.
+
+**The reply framing is byte-identical to our writer's.** Same
+`F0 00 21 24 <dev> …` header, same `0x7F <type> <len>` TLV payloads — so the
+decoder is a mirror of `SysEx.purs`, not new machinery. (One difference: header
+byte 5 is `0x03` in replies where our writes send `0x00`.)
+
+Reply function codes seen:
+
+| F1 | F2 | Payload | What it carries |
+|---|---|---|---|
+| `0x00` | `0x7d` | — | handshake / ping |
+| `0x11` | `0x05` | 810 B | **all thirty bank names at once**, TLV-indexed by bank |
+| `0x09` | `0x01` | 132 B | **the twelve switch short-names of one bank**, F3 = bank |
+| `0x03` | `0x20` | 656 B | the owner's MIDI device nicknames (MOOD, Clean, Hedra…) |
+| `0x03` | `0x21`–`0x29` | 17–224 B | controller settings family |
+| `0x06` | `0x01`,`0x02` | 254/227 B | omniport and aux-switch configuration |
+| `0x11` | `0x00`,`0x03` | 32/19 B | small state frames |
+
+Two of those are immediately useful: `0x11 0x05` labels every card in §6 from a
+single frame, and `0x09 0x01` fills one bank's switches. **The editor reads
+per-bank and lazily** — it fetched the current bank's names as the owner
+navigated, not all thirty up front. So verification can be incremental and
+cheap rather than an all-or-nothing dump.
+
+**Still missing: the request frames.** The sniffer listens to the device's
+output, so it captured replies and not the editor's questions. Morningstar's
+protocol appears to echo the function ID, so the obvious experiment is to send
+`F1=0x11 F2=0x05` with an empty payload and see whether the bank names come
+back. A read request writes nothing, so it is safe to try.
 
 A file export is a snapshot and goes stale. The editor reads live because that
 is the only thing that is true.
