@@ -71,21 +71,91 @@ That is a familiar shape: the Audio4c's presets are in the same position as the
 pedals' presets, addressable by number and not by content. The difference, and
 the reason this is worth doing at all, is that this device can be *read back*.
 
-## So the way in is their own DevTools
+## So the way in is their own DevTools — via the debugging port
 
-With no file to decode, the route is the live protocol — and Auracle hands us a
-console onto it. `window.libiConnectivity.ShowDevTools()` is called
-unconditionally in the root component's `render`, so DevTools is either already
-available in the running app or one right-click away.
+`ShowDevTools()` is called unconditionally in the root component's `render`, but
+it does not produce anything usable: there is no right-click Inspect and no
+DevTools window. The framework, though, is stock CEF, and its bundled Chromium
+still honours the switch:
 
-From that console every one of the 207 operations can be invoked by hand, with
-`window.libiConnectivity.GetPortRoute(id, cb, port)` and friends, while our own
-sniffer (`static/sniff.html`) listens to the device. CoreMIDI delivers a
-source's data to every connected client, so we see the device's replies to
-Auracle even though we cannot see Auracle's requests — and a reply generally
-carries the command code that provoked it. One operation at a time, deliberately
-triggered, with the reply captured: that is a cleaner correlation than the MC6
-sweep ever gave us.
+```sh
+open -a "/Applications/Auracle X.app" --args --remote-debugging-port=9222
+curl -s http://127.0.0.1:9222/json          # one page target, "Chromeraptor"
+```
+
+That gives a full CDP endpoint on Chrome 116, and `Runtime.evaluate` against the
+page target reaches `window.libiConnectivity` directly — all 208 bindings, live,
+from a script. `static/auracle-probe.js` is the read-only sweep; the CDP driver
+that runs it is a dozen lines of `fetch` plus Node's global `WebSocket`.
+
+**Three things bite, and all three are worked around rather than fixed.**
+
+*The app exits when the CDP client disconnects.* Not when a call fails — a
+trivial `1+1` evaluate followed by a socket close kills it just the same. So a
+probe gets exactly one connection: do all the work in a single `Runtime.evaluate`
+and accept that the app dies when you let go.
+
+*Some bindings crash the native side on a SysEx1 device.* `GetPresetNameMax`
+takes the whole app down, and by extension the other preset-*name* calls should
+be assumed to as well. This is consistent with the UI hiding every name-related
+element behind `isSysEx2()`: on this device those calls are not merely
+unavailable, they are unimplemented.
+
+*Which makes losing the result the default.* The workaround is the useful part:
+CEF logs page `console.log` output to `~/Library/Logs/Auracle X_debug.log`, so a
+probe that logs each result as it goes survives its own crash. That is how
+`GetPresetNameMax` was identified — the log ends mid-call, and the last line
+names the culprit.
+
+## What the Audio4c is actually set to
+
+Captured 2026-08-16, `test/audio4c-config-20260816.json`. AUDIO4c, serial
+000010A8, firmware 1.0.4, hardware 1.5.
+
+**One preset slot.** `GetPresetMax` is 1 — so "Save Preset" has exactly one
+place to go, which is why Auracle never asks for a name. There is no library of
+interface configurations to recall from; there is one, and saving overwrites it.
+That kills the idea of making the interface's routing part of a board preset,
+and it makes the one slot worth treating as the reset baseline rather than as
+storage.
+
+**Twenty-nine ports**, in three groups:
+
+| ports | kind | what they are |
+|---|---|---|
+| 1 | DIN | the physical MIDI jack |
+| 2–11 | USB-device | the ten MIDI ports one computer sees: `DIN`, `USB2`, `HST1`–`HST8` |
+| 12–21 | USB-device | the same ten for the *second* computer: `DIN`, `USB1`, `HST1`–`HST8` |
+| 22–29 | USB-host | `HST1`–`HST8`, the devices plugged into the Audio4c's own USB-A jacks |
+
+Ports 3 and 13 are the computer-to-computer bridge — computer one's `USB2` is
+computer two, and vice versa.
+
+**The routing is not symmetric, and the asymmetry is the interesting part.**
+Host port `HST1` (port 22) fans out to twelve destinations: the DIN, both
+computers, both computers' HST1, and every other host port. Every other host
+port is point-to-point — `HST3` (24) reaches only `[6, 16]`, its own port on each
+of the two computers. So whatever is on HST1 is heard by everything, and
+everything else is heard only by the two Macs.
+
+That is worth knowing before we trust any belief about what reaches a pedal:
+one host jack is promiscuous and seven are not, and which physical socket a
+device is plugged into decides which it gets.
+
+**Filters: `[9]` in and out on all twenty-nine ports, and nothing else.** On a
+SysEx1 device the codes are `3` Realtime, `4` MTC Quarter Frame, `5` Song
+Position, `6` Song Select, `8` Tune Request, `9` Active Sensing, `10` Reset,
+`11` SysEx. So the only thing being dropped anywhere is Active Sensing, which is
+what you want dropped.
+
+Two consequences worth stating plainly, because both were previously beliefs.
+**SysEx is not filtered on any port** — so nothing in the interface is eating
+the MC6 or pedal SysEx we send. And **Realtime is not filtered either**, so MIDI
+clock passes everywhere, which matters once Itajara is in the path.
+
+Per-channel filters and remaps are still unread; they are `29 × 16 × 2` round
+trips and a remap is the worse failure of the two, since it delivers to the
+wrong pedal rather than to none.
 
 ## What would actually be worth having
 
