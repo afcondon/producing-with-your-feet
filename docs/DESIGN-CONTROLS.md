@@ -365,6 +365,31 @@ be durable artefacts in `pwyf-store` alongside presets and boards.
 
 ---
 
+## 9a. Bank entry messages, and the budget
+
+The MC6 fires messages on **bank entry** — the only thing on the device that
+happens without a switch press. A full dump carries them (one bank record per
+bank, `F2=2`), so we can now read them; nothing yet models or writes them.
+
+They are worth having for their own sake, since anything set there is currently
+invisible to us and could make a page behave in a way no switch explains. But
+the better argument is the budget. Every board in a page pays for the same
+"Pedal A off" out of its own sixteen messages; hoisting it to bank entry pays
+once. It is common-subexpression elimination on the message budget.
+
+The constraint that makes hoisting safe is checkable: **no preset in this page
+turns A on.** We hold every message for every switch, so the app can prove that
+invariant and offer the hoist — which is exactly the bookkeeping a person cannot
+hold in their head across twelve switches. Build the check before the feature: a
+hoist on a false premise gives you a page where one switch quietly stops working,
+a bar late and hard to attribute.
+
+Note this is the same thing as a transition action — see
+`DESIGN-TRANSITIONS.md` §2. Bank entry is the one transition the hardware already
+implements.
+
+---
+
 ## 10. Open questions
 
 1. ~~**Authored targets or hand-written JSON?**~~ Resolved: neither is needed.
@@ -372,7 +397,9 @@ be durable artefacts in `pwyf-store` alongside presets and boards.
    own controls. §5.
 2. **Should a scene carry a follow-on jump?** Picking a ballpark is immediately
    followed by going to the action page. "Recall this board, then go here" is one
-   extra message and well inside budget — but it hard-wires a pairing.
+   extra message and well inside budget — but it hard-wires a pairing. See
+   `DESIGN-TRANSITIONS.md` §5: if the return is automatic the pairing costs no
+   switch and no message, which may dissolve this question rather than answer it.
 3. **How many scenes really?** "A couple of banks' worth" is up to 24. That is a
    lot of switches; it may want a scene page per *kind* of loop rather than a
    flat list.

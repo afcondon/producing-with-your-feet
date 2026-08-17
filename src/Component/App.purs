@@ -471,6 +471,10 @@ renderLooperView state =
           (if lp.state == "multiplying" then "End multiply" else "Multiply")
       , gestureBtn "looper-btn small" (not st.connected) 5 "Take"
       , gestureBtn "looper-btn small" (not st.connected || lp.layers == 0) 3 "Undo"
+      -- Only offered when there is a length and nothing sitting in it, which is
+      -- the only moment it is meaningful and also the only moment it is wanted.
+      , gestureBtn "looper-btn small"
+          (not st.connected || lp.layers /= 0 || lp.loopFrames == 0) 13 "Forget length"
       , HH.button
           [ HP.class_ (H.ClassName "looper-btn small")
           , HP.disabled (not st.connected)
@@ -494,7 +498,12 @@ renderLooperView state =
     "overdubbing" -> "Finish overdub"
     "multiplying" -> "End multiply"
     "armed" -> "Starting…"
-    _ -> if lp.loopFrames == 0 then "Record" else "Overdub"
+    -- An empty loop with a length is not an overdub, whatever the engine calls
+    -- the state. Saying "Overdub" with nothing to overdub onto is what made a
+    -- kept grid read as a stuck one.
+    _ | lp.loopFrames == 0 -> "Record"
+      | lp.layers == 0 -> "Record on the grid"
+      | otherwise -> "Overdub"
 
   readout lp =
     HH.div [ HP.class_ (H.ClassName "looper-readout") ]
@@ -506,6 +515,9 @@ renderLooperView state =
               , row "Loop"
                   ( if lp.loopFrames == 0 then "not set"
                     else fmt2 lp.loopSecs <> " s  (" <> show lp.loopFrames <> " frames)"
+                           <> (if lp.layers == 0
+                                 then "  \x2014 empty, grid kept for the next take"
+                                 else "")
                   )
               , row "Input" (fmt1 lp.inDb <> " dBFS")
               , row "Output" (fmt1 lp.outDb <> " dBFS")
@@ -1312,6 +1324,9 @@ handleAction = case _ of
                           pr.shortName pr.longName pr.toToggle pr.messages
             sendSysExLogged ("looper-" <> show pr.switchIndex) output bytes
             H.liftAff (delay (Milliseconds 100.0))
+        -- This writes a bank like any other sync, so what we had read about that
+        -- bank is now stale in the same way.
+        invalidateObservation [ cb.mc6BankNumber ]
         H.modify_ _ { looperProgramStatus = Just
           ("Written to MC6 bank " <> show st.mc6LooperBankNum <> ". Stomp to test.") }
 

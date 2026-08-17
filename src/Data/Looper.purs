@@ -75,6 +75,19 @@ command theCC val = case unCC theCC of
   8 -> NotYetImplemented "global reverse"
   9 -> NotYetImplemented "global half speed"
 
+  -- The second multiply. Where `x` asks "how many bars of this?" and answers by
+  -- repeating, these ask "how often?" and answer by leaving room: the layer
+  -- keeps its length and the loop grows around it. Structural rather than
+  -- recorded, so they cost no bars and `d` puts it back.
+  10 -> onPress (Send "s2")
+  11 -> onPress (Send "o")
+  12 -> onPress (Send "d")
+
+  -- Undo keeps the length on purpose, so there has to be a way to let go of it.
+  -- Three erasures, deliberately separate: undo a layer, forget the length,
+  -- clear both.
+  13 -> onPress (Send "z")
+
   -- Source and routing
   20 -> NotYetImplemented "record source select"
   21 -> NotYetImplemented "record width"
@@ -122,6 +135,7 @@ command theCC val = case unCC theCC of
 isMomentary :: CC -> Boolean
 isMomentary theCC = case unCC theCC of
   n | n >= 1 && n <= 6 -> true
+    | n >= 10 && n <= 13 -> true
     | n == 61 || n == 62 -> true
     | n >= 71 && n <= 74 -> true
     | otherwise -> false
@@ -165,6 +179,17 @@ looperBank bankNum returnBankNum =
          , messages: [ MC6Msg.bankJumpMessage returnBankNum ActionPress ] }
     6 -> latching "Click" "Looper Click" 81
     7 -> latching "Monitor" "Looper Input Monitor" 83
+    -- Spread and Shift sit together because they are used together: spread to
+    -- make room, shift to decide where in it the bar falls. Dense is beside them
+    -- as the way back, which matters more than it sounds — a gesture you cannot
+    -- undo with your foot is one you will not try mid-take.
+    8 -> gesture "Spread" "Looper Spread One In Two" 10
+    9 -> gesture "Shift" "Looper Shift One Slot" 11
+    10 -> gesture "Dense" "Looper Sound Every Cycle" 12
+    -- On the second FS3X, which may not exist (DESIGN-CONTROLS §10.5). It is the
+    -- least urgent of the three erasures underfoot: undo and clear are both on
+    -- the MC6 itself, and forgetting the length is a between-takes decision.
+    11 -> gesture "Length" "Looper Forget The Length" 13
     -- Written blank rather than left alone, so reprogramming leaves no
     -- stragglers from whatever the bank held before.
     _ -> { label: "", longName: "", toToggle: false, messages: [] }

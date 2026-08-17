@@ -101,6 +101,11 @@ layout =
         , ledCC: Nothing, engagedColor: "#3a7d6c", ledColor: "#3a7d6c" }
       , { col: 3, cc: cc 3, label: "Undo", group: "layer"
         , ledCC: Nothing, engagedColor: "#a87a4a", ledColor: "#a87a4a" }
+      -- The face has exactly one column spare, so the second multiply gets it
+      -- and its companions live on the MC6 bank. Spread earns the place: Shift
+      -- and Dense do nothing until something has been spread.
+      , { col: 4, cc: cc 10, label: "Sprd", group: "loop"
+        , ledCC: Nothing, engagedColor: "#3a7d6c", ledColor: "#3a7d6c" }
       ]
   , dipBanks: []
   , config:
