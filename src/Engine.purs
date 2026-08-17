@@ -19,8 +19,9 @@ import Prelude
 import Config.Registry (PedalRegistry)
 import Config.Registry as CRegistry
 import Config.Types (MidiRouting)
-import Data.MC6.Shared (SharedSwitch)
+import Data.MC6.Global (GlobalSwitch)
 import Data.MC6.ControlBank (ControlBank, exampleControlBank)
+import Data.MC6.Dump as Dump
 import Data.MC6.Types (MC6NativeBank)
 import Data.Array as Array
 import Data.Map (Map)
@@ -91,8 +92,13 @@ type AppState =
   , mc6Banks :: Array MC6NativeBank
   , mc6BoardBankNum :: Int
   , mc6Assignments :: Array MC6Assignment
+  -- | Which bank the MC6 says it is sitting on, from the `09 01` frame it
+  -- | volunteers whenever that changes. The one piece of device state this app
+  -- | does not have to believe — and what makes walking the banks checkable
+  -- | rather than hopeful.
+  , mc6CurrentBank :: Maybe Int
   , controlBanks :: Array ControlBank
-  , sharedSwitches :: Array SharedSwitch
+  , globalSwitches :: Array GlobalSwitch
   , activeControlBankIdx :: Maybe Int
   -- Folder backup (Chrome File System Access API → Infovore path)
   -- Result of the last manual MIDI test, shown on the MIDI page.
@@ -110,6 +116,29 @@ type AppState =
   -- | wire numbers, i.e. 0-based; the editor shows them one higher.
   , mc6BankNames :: Map Int String
   , mc6BankSwitches :: Map Int (Array String)
+  -- | When the device last told us the above. Stored with the reading, because
+  -- | a persisted observation is only as good as its date and the alternative is
+  -- | a map that looks like fresh truth forever.
+  , mc6ReadAt :: Maybe String
+  -- | Every preset the last dump returned, messages included. Held apart from
+  -- | `mc6BankNames`/`mc6BankSwitches` because those are labels and this is
+  -- | behaviour: one can be shown, only the other can be sent back.
+  , mc6DumpedBanks :: Array MC6NativeBank
+  -- | Raw dump frames as they arrive, before being gathered into banks.
+  , mc6DumpedPresets :: Array Dump.DumpPreset
+  -- | Every SysEx frame the device has sent, tallied by function code. Exists so
+  -- | that "the request returned nothing" can be answered with what *did*
+  -- | arrive, without needing a browser console to find out.
+  , mc6FrameCounts :: Map String Int
+  -- | Dump frames received, counted whether or not they decoded. Progress has to
+  -- | be independent of understanding, or a decoder bug reads as a silent device.
+  , mc6DumpFrames :: Int
+  -- | Set by the device's own end-of-dump frame. The alternative — waiting for a
+  -- | gap in the stream — is a guess, and it truncated a read once already.
+  , mc6DumpDone :: Boolean
+  -- | True while the device is being walked. A read is minutes long, so the
+  -- | fact that one is running is state the whole UI needs.
+  , mc6Reading :: Boolean
   , mc6ReadStatus :: Maybe String
   -- | Outcome of the last baseline sweep, shown on the pedal card that
   -- | triggered it. Separate from `midiTest` because that changes on every CC
@@ -178,8 +207,9 @@ initAppState =
   , mc6Banks: []
   , mc6BoardBankNum: 1
   , mc6Assignments: []
+  , mc6CurrentBank: Nothing
   , controlBanks: [exampleControlBank]
-  , sharedSwitches: []
+  , globalSwitches: []
   , activeControlBankIdx: Just 0
   , looper: Nothing
   , looperStatus: { connected: false, everConnected: false, lastError: "", url: "" }
@@ -188,6 +218,13 @@ initAppState =
   , midiTest: Nothing
   , mc6BankNames: Map.empty
   , mc6BankSwitches: Map.empty
+  , mc6ReadAt: Nothing
+  , mc6DumpedBanks: []
+  , mc6DumpedPresets: []
+  , mc6FrameCounts: Map.empty
+  , mc6DumpFrames: 0
+  , mc6DumpDone: false
+  , mc6Reading: false
   , mc6ReadStatus: Nothing
   , baselineStatus: Nothing
   , testCh: 3

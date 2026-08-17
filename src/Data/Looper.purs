@@ -145,7 +145,6 @@ looperBank bankNum returnBankNum =
   , description: "Looper transport on channel " <> show itajaraChannel
   , mc6BankNumber: bankNum
   , returnSwitchIndex: 5
-  , sharedOverrides: []
   , switches: Array.mapWithIndex switchAt (Array.replicate 12 unit)
   }
   where

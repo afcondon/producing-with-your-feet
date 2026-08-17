@@ -13,6 +13,7 @@ module Data.MC6.Types
   , intToMC6Action
   , mc6ActionFromString
   , mc6ToggleToInt
+  , intToMC6Toggle
   , mc6ToggleFromString
   , mc6ModelToInt
   , mc6ModelFromString
@@ -243,6 +244,15 @@ data MC6TogglePosition
   | ToggleBoth  -- 2
 
 derive instance Eq MC6TogglePosition
+
+-- | The wire's toggle byte. Two private copies of this already existed — one in
+-- | `Engine.Storage`, one in `Data.MC6.Backup` — which is one copy too many for
+-- | a three-line total function that decides whether a switch latches.
+intToMC6Toggle :: Int -> MC6TogglePosition
+intToMC6Toggle = case _ of
+  0 -> ToggleOff
+  1 -> ToggleOn
+  _ -> ToggleBoth
 
 mc6ToggleToInt :: MC6TogglePosition -> Int
 mc6ToggleToInt = case _ of

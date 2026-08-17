@@ -5,6 +5,12 @@ module Data.MC6.SysEx
   , sysexCompleteUpload
   , sysexPresetData
   , sysexClearPreset
+  , sysexRequestPresetNames
+  , sysexRequestAllPresetNames
+  , sysexEditorBankChange
+  , sysexRequestFullDump
+  , sysexRequestBankDump
+  , sysexAcknowledge
   , mc6mk2DeviceId
   , toHexString
   ) where
@@ -88,6 +94,84 @@ sysexPresetData bankNum presetNum shortName longName toToggle messages =
   in sysexFrame mc6mk2DeviceId funcIds payload
 
 -- | Send an empty preset to clear a switch
+-- | Ask for one bank's twelve switch names. **F1=0, F2=64, F3=bank.**
+-- |
+-- | The request this app spent months believing did not exist. `Data.MC6.Read`
+-- | records a sweep of the function-code space finding nothing that asks for
+-- | bank data, and concluded the device could only be made to *volunteer* — so
+-- | reading everything meant walking the MC6 through all thirty banks and
+-- | hoping it would talk on the way.
+-- |
+-- | It is simply there, and always was: Morningstar's own editor calls it
+-- | `requestPresetNamesData(bank)`. Read out of the editor's bundle rather than
+-- | guessed, so the byte layout is theirs and not our reconstruction of it.
+-- |
+-- | The device answers with the same `09 01 <bank>` frame it volunteers on
+-- | connect, which is why nothing downstream had to change: one decoder, and it
+-- | cannot tell whether the frame was offered or asked for.
+sysexRequestPresetNames :: Int -> Array Int
+sysexRequestPresetNames bank = sysexFrame mc6mk2DeviceId [0x00, 0x40, bank] []
+
+-- | Ask for every bank's switch names at once. **F1=0, F2=43.**
+-- |
+-- | The editor calls this on connect and after any paste, and it is cheaper than
+-- | thirty separate requests — but it is not a substitute for them, because
+-- | nothing in the protocol says how many frames it will produce or when it has
+-- | finished. Worth asking first and then filling the gaps one bank at a time.
+sysexRequestAllPresetNames :: Array Int
+sysexRequestAllPresetNames = sysexFrame mc6mk2DeviceId [0x00, 0x2B] []
+
+-- | Put the device on a bank. **F1=0, F2=31, F3=bank, F4=1 for presets.**
+-- |
+-- | Not needed to read any more, now that banks can simply be asked for. Kept
+-- | because it is the honest way to show a page on the hardware while working on
+-- | it here, which is a thing worth having and was never the same job as reading.
+sysexEditorBankChange :: Int -> Array Int
+sysexEditorBankChange bank = sysexFrame mc6mk2DeviceId [0x00, 0x1F, bank, 0x01] []
+
+-- | Ask the device for everything it has. **F1=7, F2=0, F3=51.**
+-- |
+-- | The device answers with a long run of `F1=2` frames — one per preset, one
+-- | per expression preset and one per bank, 450 in total on an MC6 MKII — each
+-- | carrying the full message list rather than a label. This is what
+-- | Morningstar's backup uses, and it is the only route to knowing what a switch
+-- | *does* rather than what it is called.
+-- |
+-- | Preferred over the per-preset request (`F1=0, F2=29`) despite being far
+-- | larger, because that one is named `engagePreset` in the editor and is only
+-- | ever fired there in response to a switch the player already pressed. Reading
+-- | a whole device with it would mean asking the MC6 to run every preset it
+-- | has — three hundred and sixty presses worth of MIDI into the rig. A dump
+-- | cannot do that.
+sysexRequestFullDump :: Array Int
+sysexRequestFullDump = sysexFrame mc6mk2DeviceId [0x07, 0x00, 0x33] []
+
+-- | Ask for one bank — whichever the device is on. **F1=7, F2=0, F3=50.**
+-- |
+-- | Fifteen frames rather than four hundred and fifty: twelve presets, two
+-- | expression presets and the bank's own record. The editor calls this
+-- | `bankNewProtocol` and the all-banks request `allBanksNewProtocol`, and the
+-- | two differ by one in the third function byte — which is exactly the sort of
+-- | neighbouring opcode that returns silence rather than an error when you pick
+-- | the wrong one.
+sysexRequestBankDump :: Array Int
+sysexRequestBankDump = sysexFrame mc6mk2DeviceId [0x07, 0x00, 0x32] []
+
+-- | Acknowledge a frame. **F1=0, F2=127, F3=the checksum we received.**
+-- |
+-- | Not optional, and this is why a dump request appeared to do nothing: the
+-- | device streams hundreds of frames and waits to be told each one landed. The
+-- | editor sets `sendAck = true` at construction and acknowledges *every* valid
+-- | SysEx frame before it even looks at what the frame was — so this is flow
+-- | control, not a courtesy, and without it the device sends one frame and
+-- | stops.
+-- |
+-- | Echoing the checksum back is what identifies which frame is being
+-- | acknowledged; there is no sequence number to use instead.
+sysexAcknowledge :: Int -> Array Int
+sysexAcknowledge receivedChecksum =
+  sysexFrame mc6mk2DeviceId [0x00, 0x7F, receivedChecksum] []
+
 sysexClearPreset :: Int -> Int -> Array Int
 sysexClearPreset bankNum presetNum =
   sysexPresetData bankNum presetNum "" "" false []

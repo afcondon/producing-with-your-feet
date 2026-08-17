@@ -12,18 +12,29 @@
 -- | to it blind — which is how a generated looper bank came to be sitting on top
 -- | of a hand-built one, with the old bank's name still showing.
 -- |
--- | **There is no read request, and that was the whole difficulty.** A sweep of
--- | the function-code space found nothing that asks for bank data, because the
--- | device is not asked: `sysexConnect` makes it *volunteer* a full dump —
--- | controller settings, then every bank name in one frame, then the twelve
--- | switch names of whichever bank it is currently sitting on. Verified four
--- | times over in `test/mc6-connect-dump-20260816.json`. So reading the MC6 is
--- | connect, listen, disconnect, and this module only has to decode.
+-- | On connect the device *volunteers* a dump — controller settings, then every
+-- | bank name in one frame, then the twelve switch names of whichever bank it is
+-- | currently sitting on. Verified four times over in
+-- | `test/mc6-connect-dump-20260816.json`.
 -- |
--- | The consequence to know: a connect yields **all thirty bank names but only
--- | one bank's switches**. The device re-announces `09 01` whenever the current
--- | bank changes, so walking the banks would fill in the rest — at the cost of
--- | moving the device, which makes it a deliberate action rather than a default.
+-- | **This file used to claim there was no read request**, on the strength of a
+-- | function-code sweep that found nothing asking for bank data — and that claim
+-- | cost real work, because it made "read the whole device" mean walking the MC6
+-- | through all thirty banks and hoping it spoke on the way.
+-- |
+-- | There is a read request. `F1=0, F2=64, F3=bank` returns any bank's switch
+-- | names with the device sitting still; Morningstar's own editor calls it
+-- | `requestPresetNamesData`, and `F1=0, F2=43` asks for all of them at once.
+-- | Both are in `Data.MC6.SysEx` now, read out of the editor's own bundle rather
+-- | than guessed at.
+-- |
+-- | Worth keeping as a lesson rather than quietly fixing: a negative result
+-- | about somebody else's protocol is a statement about our search, not about
+-- | their protocol. The answer was one grep away in shipped JavaScript the whole
+-- | time.
+-- |
+-- | Either way this module only decodes. A requested reply and a volunteered one
+-- | are the same `09 01` frame, so nothing here needs to know which it is.
 -- |
 -- | **Bank numbers here are what the wire uses: 0-based.** Morningstar's editor
 -- | displays them 1-based, so wire 19 is the bank the editor calls 20. Three

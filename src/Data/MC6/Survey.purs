@@ -81,10 +81,11 @@ survey
   -> Int                       -- ^ the app's board-recall channel
   -> Array ControlBank         -- ^ pages this app authored
   -> Array MC6NativeBank       -- ^ whatever the controller config declares
+  -> Array MC6NativeBank       -- ^ what a full dump read back, messages included
   -> Map Int String            -- ^ bank names the device reported
   -> Map Int (Array String)    -- ^ switch names the device reported, per bank
   -> Array BankCard
-survey registry boardRecallChannel controlBanks nativeBanks readNames readSwitches =
+survey registry boardRecallChannel controlBanks nativeBanks dumpedBanks readNames readSwitches =
   map card (Array.range 0 (bankCount - 1))
   where
   card n =
@@ -92,11 +93,18 @@ survey registry boardRecallChannel controlBanks nativeBanks readNames readSwitch
         observed = fromMaybe [] (Map.lookup n readSwitches)
         authored = Array.find (\cb -> cb.mc6BankNumber == n) controlBanks
         declared = Array.find (\nb -> nb.bankNumber == n) nativeBanks
+        dumped = Array.find (\nb -> nb.bankNumber == n) dumpedBanks
 
-        slots = case authored, declared of
-          Just cb, _ -> pad (map (\sw -> classify registry boardRecallChannel sw.messages) cb.switches)
-          _, Just nb -> pad (map (\p -> classify registry boardRecallChannel p.messages) nb.presets)
-          _, _ -> []
+        -- Authored first, because `slots` is what we *meant* and the whole point
+        -- of holding it apart from observation is that `agrees` can compare them.
+        -- Then the dump, which is the device's own answer and the only thing that
+        -- can fill a bank this app never wrote. Then config, which is the oldest
+        -- and weakest claim of the three.
+        slots = case authored, dumped, declared of
+          Just cb, _, _ -> pad (map (\sw -> classify registry boardRecallChannel sw.messages) cb.switches)
+          _, Just nb, _ -> pad (map (\p -> classify registry boardRecallChannel p.messages) nb.presets)
+          _, _, Just nb -> pad (map (\p -> classify registry boardRecallChannel p.messages) nb.presets)
+          _, _, _ -> []
 
         -- A read beats anything we merely believe, and a bank the device named
         -- is known even when we have no idea what is on its switches.

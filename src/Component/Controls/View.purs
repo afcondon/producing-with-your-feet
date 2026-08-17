@@ -20,8 +20,8 @@ import Data.MC6.Survey as MC6Survey
 import Data.MC6.Types (MC6Action(..), MC6Message, MC6MsgType(..), MC6NativeBank, MC6TogglePosition(..), intToMC6Action, intToMC6MsgType, mc6ActionToInt, mc6ToggleToInt)
 import Data.Midi (unCC)
 import Data.Pedal (PedalDef, PedalId, Control(..), LabelSource(..), Section)
-import Data.MC6.Shared (SharedSwitch)
-import Data.MC6.Shared as Shared
+import Data.MC6.Global (GlobalSwitch)
+import Data.MC6.Global as Global
 import Data.Preset (BoardPreset, PedalPreset, PresetId)
 import Engine (MC6Assignment)
 import Data.String as String
@@ -46,9 +46,17 @@ type Input =
   -- on purpose — one is intent, the others are observation, and the survey's
   -- whole job is to show where they disagree.
   , mc6NativeBanks :: Array MC6NativeBank
+  -- | What a full dump read back: every bank, with messages. The only source
+  -- | that can make a bank this app never wrote reproducible rather than merely
+  -- | describable.
+  , mc6DumpedBanks :: Array MC6NativeBank
   , mc6BankNames :: Map Int String
   , mc6BankSwitches :: Map Int (Array String)
   , mc6ReadStatus :: Maybe String
+  -- | Set once the bank-change probe has found a channel; until then there is
+  -- | no way to read more than the bank the device happens to be showing.
+  , mc6Reading :: Boolean
+  , mc6ReadAt :: Maybe String
   -- What a switch can hold besides messages. A board preset compiles to
   -- messages, so it is an alternative filling for the same slot rather than a
   -- different kind of thing — but the compilation has a budget, which is why
@@ -58,7 +66,7 @@ type Input =
   , presets :: Array PedalPreset
   , mc6Assignments :: Array MC6Assignment
   -- Switches that belong to the instrument rather than to any one page.
-  , sharedSwitches :: Array SharedSwitch
+  , globalSwitches :: Array GlobalSwitch
   }
 
 data Output
@@ -69,20 +77,30 @@ data Output
   -- | page behind what you are looking at — and a sync that writes the wrong
   -- | bank number is the one mistake on this page with no undo.
   | SyncControlBankToMC6 ControlBank
+  -- | Write every authored page. The only correct answer after a global
+  -- | changes: a global occupies its slot on all of them, so one page's worth
+  -- | of SysEx leaves the other twenty-nine holding the previous version with
+  -- | nothing on the device or in this app saying they disagree.
+  | SyncAllBanksToMC6
   -- | Ask the app to open a session with the MC6 and listen to what it
   -- | volunteers. Raised here because the survey is where you look at the
   -- | answer, and a read button somewhere else would be a button you press and
   -- | then go looking for the result of.
   | ReadMC6
+  -- | Read the entire device: find how to move it if that is not yet known,
+  -- | then walk every bank until all thirty have answered. One output because
+  -- | it is one intention — a complete reading — and splitting it made the
+  -- | prerequisite something the user had to know about.
+  | DeepReadMC6
   -- | Put a board on a switch, or take it off. Addressed by (bank, switch)
   -- | rather than by board, because a switch holds exactly one thing while a
   -- | board can sit on many switches — the other direction can express a
   -- | contradiction and this one cannot.
   | AssignBoard Int Int PresetId
   | UnassignSwitch Int Int
-  -- | The instrument's shared switches, whole. Small enough to send entire, and
+  -- | The instrument's global switches, whole. Small enough to send entire, and
   -- | sending the whole list means there is never a partial write to reconcile.
-  | SaveSharedSwitches (Array SharedSwitch)
+  | SaveGlobalSwitches (Array GlobalSwitch)
 
 -- | Flat searchable entry for one CC control from the pedal registry
 type CCEntry =
@@ -118,6 +136,16 @@ type State =
   , selectedBankNumber :: Maybe Int
   , selectedSwitchIdx :: Maybe Int
   , elideUnknown :: Boolean
+  -- | The globals page has the work column instead of a bank. Not a variant of
+  -- | `selectedBankNumber` because it is not a bank: it has no wire number, it
+  -- | is never synced on its own, and it compiles into all of them.
+  , viewingGlobals :: Boolean
+  -- | An in-progress stamp: which slot is being copied, and onto which wire
+  -- | bank numbers. Held here rather than committed as you tick, because a
+  -- | stamp is a single destructive write and half a stamp is not a state the
+  -- | store should ever be in.
+  , stampSlot :: Maybe Int
+  , stampTargets :: Array Int
   }
 
 data Action
@@ -157,20 +185,30 @@ data Action
   | AddFromBrowser Int Int Boolean  -- channel, cc, isToggle
   -- Sync
   | SyncToMC6
+  | SyncAllToMC6
   -- The selection cascade
   | SelectBankNumber Int
   | ClearBankSelection
   | SelectSwitch Int
   | ClearSwitchSelection
   | CreatePageHere Int
+  | AdoptBankFromDevice Int
   | ToggleElideUnknown
   | RequestRead
+  | RequestDeepRead
   | SetSwitchHolds Int String
-  -- Shared switches
-  | MakeShared Int
-  | UnshareSwitch Int
-  | OverrideShared Int
-  | UseSharedAgain Int
+  -- Global switches
+  | OpenGlobals
+  | OpenGlobalSlot Int
+  | PromoteSwitch Int
+  | DissolveGlobal Int
+  | DiscardGlobal Int
+  -- Stamping one switch onto many pages
+  | OpenStamp Int
+  | CloseStamp
+  | ToggleStampBank Int
+  | ToggleStampAll
+  | ApplyStamp
 
 type Slot = H.Slot (Const Void) Output
 
@@ -202,6 +240,9 @@ initialState i =
      , selectedBankNumber: Nothing
      , selectedSwitchIdx: Nothing
      , elideUnknown: false
+     , viewingGlobals: false
+     , stampSlot: Nothing
+     , stampTargets: []
      }
 
 -- | Flatten the entire pedal registry into a searchable array of CC entries
@@ -303,23 +344,32 @@ render state =
   HH.div [ HP.class_ (H.ClassName "controls-view") ]
     [ HH.div [ HP.class_ (H.ClassName "controls-columns") ]
         [ HH.div [ HP.class_ (H.ClassName "controls-col-instrument") ]
-            [ renderSurvey state
-            , renderSharedList state
+            -- Globals first. Underneath thirty bank cards it was below the fold
+            -- whenever the survey was expanded, which put the one place a
+            -- global is defined behind a scroll on exactly the screens where
+            -- you would be looking for it.
+            [ renderGlobalsCard state
+            , renderSurvey state
             ]
         , HH.div [ HP.class_ (H.ClassName "controls-col-work") ]
-            ( case state.selectedBankNumber of
-                Nothing ->
-                  [ HH.p [ HP.class_ (H.ClassName "controls-empty") ]
-                      [ HH.text "Pick a bank." ] ]
-                Just n ->
-                  [ renderBankZone state n ]
-                    <> (case state.selectedSwitchIdx of
-                          Just i -> [ renderSwitchZone state i ]
-                          Nothing -> [])
+            ( if state.viewingGlobals
+                then [ renderGlobalsZone state ] <> switchZone
+                else case state.selectedBankNumber of
+                  Nothing ->
+                    [ HH.p [ HP.class_ (H.ClassName "controls-empty") ]
+                        [ HH.text "Pick a bank." ] ]
+                  Just n -> [ renderBankZone state n ] <> switchZone
             )
         ]
     , if state.showDictionary then renderDictionaryOverlay state else HH.text ""
+    , case state.stampSlot of
+        Just slot -> renderStampOverlay state slot
+        Nothing -> HH.text ""
     ]
+  where
+  switchZone = case state.selectedSwitchIdx of
+    Just i -> [ renderSwitchZone state i ]
+    Nothing -> []
 
 -- | The whole device, built fresh from the four sources the survey merges.
 -- |
@@ -339,40 +389,59 @@ renderSurvey state =
     , onToggleElide: ToggleElideUnknown
     , onSelect: SelectBankNumber
     , onRead: RequestRead
+    , onDeepRead: RequestDeepRead
+    , reading: state.input.mc6Reading
+    , readAt: state.input.mc6ReadAt
     }
 
--- | The instrument's own switches, listed where the instrument is.
+-- | The instrument's own switches, sitting where the instrument is.
 -- |
--- | Deliberately not a place to create one from nothing: a shared switch is
--- | made by promoting a switch that already works, so this is a register of
--- | what has been promoted rather than a form. The page count is the fact that
--- | keeps "on every page" honest — a switch overridden everywhere reads as 0.
-renderSharedList :: forall m. State -> H.ComponentHTML Action () m
-renderSharedList state =
-  if Array.null state.input.sharedSwitches then HH.text "" else
-  HH.div [ HP.class_ (H.ClassName "controls-shared-list") ]
-    [ HH.h4_ [ HH.text "Shared switches" ]
-    , HH.div_ (map row (Array.sortWith _.slot state.input.sharedSwitches))
+-- | A card rather than a list, and always present rather than appearing once
+-- | something has been promoted, because it is a *place* — the one place a
+-- | global is defined. Making it come and go would leave the answer to "where
+-- | do globals live" depending on whether any exist yet.
+renderGlobalsCard :: forall m. State -> H.ComponentHTML Action () m
+renderGlobalsCard state =
+  HH.div
+    [ HP.class_ (H.ClassName ("controls-globals-card"
+        <> if state.viewingGlobals then " selected" else ""))
+    , HE.onClick \_ -> OpenGlobals
+    ]
+    [ HH.div [ HP.class_ (H.ClassName "controls-globals-card-head") ]
+        [ HH.h4_ [ HH.text "Globals" ]
+        , HH.span [ HP.class_ (H.ClassName "controls-globals-card-sub") ]
+            [ HH.text (case Array.length pages of
+                0 -> "no pages yet"
+                n -> "on all " <> show n <> " pages") ]
+        ]
+    , if Array.null globals
+        then HH.p [ HP.class_ (H.ClassName "controls-globals-card-empty") ]
+               [ HH.text "Nothing is global yet. Open a switch and promote it, or author one here." ]
+        else HH.div_ (map row (Array.sortWith _.slot globals))
     ]
   where
-  row sh =
-    let n = Shared.pageCount state.input.controlBanks sh
-    in HH.div [ HP.class_ (H.ClassName "controls-shared-row") ]
-      [ HH.span [ HP.class_ (H.ClassName "controls-shared-slot") ]
-          [ HH.text (switchLetter sh.slot) ]
-      , HH.span [ HP.class_ (H.ClassName "controls-shared-label") ]
-          [ HH.text (if sh.label == "" then "\x2014" else sh.label) ]
-      , HH.span [ HP.class_ (H.ClassName "controls-shared-count") ]
-          [ HH.text (show n <> (if n == 1 then " page" else " pages")) ]
+  globals = state.input.globalSwitches
+  pages = state.input.controlBanks
+  row g =
+    HH.div [ HP.class_ (H.ClassName "controls-globals-row") ]
+      [ HH.span [ HP.class_ (H.ClassName "controls-globals-slot") ]
+          [ HH.text (switchLetter g.slot) ]
+      , HH.span [ HP.class_ (H.ClassName "controls-globals-label") ]
+          [ HH.text (if g.label == "" then "\x2014" else g.label) ]
       ]
 
+-- | Globals are written in first, so the survey draws the pages that will
+-- | actually reach the device. Surveying the raw pages showed a hole where
+-- | every global sits — and since the survey's universal-edge detection is what
+-- | draws furniture faint, it was the one view most entitled to see it.
 surveyCards :: State -> Array MC6Survey.BankCard
 surveyCards state =
   MC6Survey.survey
     state.input.registry
     Board.boardRecallChannel
-    state.input.controlBanks
+    (map (Global.applyGlobals state.input.globalSwitches) state.input.controlBanks)
     state.input.mc6NativeBanks
+    state.input.mc6DumpedBanks
     state.input.mc6BankNames
     state.input.mc6BankSwitches
 
@@ -389,7 +458,10 @@ renderBankZone :: forall m. State -> Int -> H.ComponentHTML Action () m
 renderBankZone state bankNum =
   let mCard = Array.find (\c -> c.bankNumber == bankNum) (surveyCards state)
       mBank = effectiveBank state
-      meta = "bank " <> show bankNum <> " \x00b7 editor " <> show (bankNum + 1)
+      -- One numbering, zero-based, the same as the wire. Morningstar's editor
+      -- counts from one; showing both here is what produced the off-by-ones it
+      -- was meant to prevent.
+      meta = "bank " <> show bankNum
                <> (case mCard of
                      Just c -> " \x00b7 " <> Survey.provenanceLabel c.provenance
                      Nothing -> "")
@@ -401,7 +473,7 @@ renderBankZone state bankNum =
               , HH.h3_ [ HH.text ("Bank " <> show bankNum) ]
               , HH.span [ HP.class_ (H.ClassName "controls-zone-sub") ] [ HH.text meta ]
               ]
-          , renderUnauthoredBank mCard bankNum
+          , renderUnauthoredBank state mCard bankNum
           ]
         Just bank ->
           [ HH.div [ HP.class_ (H.ClassName "controls-bank-head") ]
@@ -454,7 +526,67 @@ backToInstrument =
     [ HP.class_ (H.ClassName "controls-zone-back")
     , HE.onClick \_ -> ClearBankSelection
     ]
-    [ HH.text "\x2190 instrument" ]
+    [ HH.text "\x2190 MC6" ]
+
+-- | The globals, laid out as a page — because that is how they are used.
+-- |
+-- | It looks like a bank and is not one: no wire number, no Sync, no Delete.
+-- | The resemblance is the point, since a global occupies a slot underfoot
+-- | exactly as a bank switch does, and this is the layout your foot already
+-- | knows. What it does not have is the bank bar, because there is nothing
+-- | here to send on its own — globals reach the device inside every page.
+renderGlobalsZone :: forall m. State -> H.ComponentHTML Action () m
+renderGlobalsZone state =
+  HH.div [ HP.class_ (H.ClassName "controls-zone controls-zone-bank") ]
+    [ HH.div [ HP.class_ (H.ClassName "controls-bank-head") ]
+        [ backToInstrument
+        , HH.h3_ [ HH.text "Globals" ]
+        , HH.span [ HP.class_ (H.ClassName "controls-zone-sub") ]
+            [ HH.text ("written into all " <> show (Array.length state.input.controlBanks)
+                        <> " pages at sync") ]
+        ]
+    , HH.div [ HP.class_ (H.ClassName "controls-bank-bar") ]
+        [ HH.p [ HP.class_ (H.ClassName "controls-globals-note") ]
+            [ HH.text "A global is on every page or it is not a global. To make one page different, dissolve it \x2014 every page keeps a copy it owns, and you edit the odd one. To put a switch on some pages only, stamp it from that page instead." ]
+        -- A global changes every page at once, so there is no per-page sync
+        -- that could be the right one. This writes all of them.
+        , HH.button
+            [ HP.class_ (H.ClassName "controls-btn controls-btn-accent")
+            , HE.onClick \_ -> SyncAllToMC6
+            ]
+            [ HH.text ("Write all " <> show (Array.length state.input.controlBanks) <> " pages") ]
+        ]
+    , HH.div [ HP.class_ (H.ClassName "controls-bank-switches") ]
+        (map (renderGlobalCell state) Survey.physicalOrder)
+    ]
+
+renderGlobalCell :: forall m. State -> Int -> H.ComponentHTML Action () m
+renderGlobalCell state idx =
+  let mG = Global.globalAt state.input.globalSwitches idx
+      isSelected = state.selectedSwitchIdx == Just idx
+      cls = String.joinWith " "
+        ([ "controls-bank-switch" ]
+          <> (if isSelected then [ "selected" ] else [])
+          <> (if isJust mG then [ "global" ] else [ "vacant" ]))
+  in HH.div
+    [ HP.class_ (H.ClassName cls)
+    , HE.onClick \_ -> OpenGlobalSlot idx
+    ]
+    [ HH.div [ HP.class_ (H.ClassName "controls-bank-switch-head") ]
+        [ HH.span [ HP.class_ (H.ClassName "controls-bank-switch-letter") ]
+            [ HH.text (switchLetter idx) ]
+        , case mG of
+            Just _ -> HH.span [ HP.class_ (H.ClassName "controls-global-mark") ] [ HH.text "\x25c9" ]
+            Nothing -> HH.text ""
+        ]
+    , HH.div [ HP.class_ (H.ClassName "controls-bank-switch-label") ]
+        [ HH.text (maybe "" _.label mG) ]
+    , HH.div [ HP.class_ (H.ClassName "controls-bank-switch-verb") ]
+        [ HH.text (case mG of
+            Just g -> show (Array.length g.messages)
+                        <> (if Array.length g.messages == 1 then " message" else " messages")
+            Nothing -> "free on every page") ]
+    ]
 
 assignedBoard :: State -> Int -> Int -> Maybe BoardPreset
 assignedBoard state bankNum idx = do
@@ -484,33 +616,156 @@ boardBudget state bp =
 -- | looper bank landed on a hand-built one and kept its name, so nothing looked
 -- | wrong.
 renderUnauthoredBank
-  :: forall m. Maybe MC6Survey.BankCard -> Int -> H.ComponentHTML Action () m
-renderUnauthoredBank mCard bankNum =
+  :: forall m. State -> Maybe MC6Survey.BankCard -> Int
+  -> H.ComponentHTML Action () m
+renderUnauthoredBank state mCard bankNum =
   let occupied = case mCard of
         Just c -> c.name /= "" || not (Array.null (Array.filter (_ /= "") c.observedNames))
         Nothing -> false
+      names = case mCard of
+        Just c -> c.observedNames
+        Nothing -> []
+      known = not (Array.null (Array.filter (_ /= "") names))
+      -- A dump gives messages, and messages are the difference between
+      -- describing this bank and being able to reproduce it.
+      mDumped = Array.find (\nb -> nb.bankNumber == bankNum) state.input.mc6DumpedBanks
+      globals = state.input.globalSwitches
+      -- Switches the device is using that a global would take over. This is the
+      -- one place the globals rule destroys evidence rather than merely
+      -- overruling intent, so it gets counted before the copy rather than
+      -- regretted after it.
+      displaced nb = Array.filter
+        (\i -> isJust (Global.globalAt globals i) && deviceCarries nb i)
+        (Array.range 0 (switchCount - 1))
+      deviceCarries nb i = case Array.find (\p -> p.presetNum == i) nb.presets of
+        Just p -> not (Array.null p.messages)
+        Nothing -> false
   in HH.div [ HP.class_ (H.ClassName "controls-bank-empty") ]
     ( [ HH.p_ [ HH.text "This app has never written this bank." ] ]
-        <> (case mCard of
-              Just c | not (Array.null c.observedNames) ->
+        <> (if not known then [] else
+              [ HH.p [ HP.class_ (H.ClassName "controls-observed-names") ]
+                  [ HH.text ("The device says: "
+                      <> String.joinWith "  \x00b7  " (Array.filter (_ /= "") names)) ]
+              ])
+        <> (case mDumped of
+              -- We have read the messages. Adopting is now a faithful copy and
+              -- syncing it back writes what is already there, so the warning that
+              -- stood here for months no longer applies — and leaving it up would
+              -- teach you to ignore it for the one case where it still does.
+              Just nb ->
                 [ HH.p [ HP.class_ (H.ClassName "controls-observed-names") ]
-                    [ HH.text ("The device says: "
-                        <> String.joinWith "  \x00b7  "
-                             (Array.filter (_ /= "") c.observedNames)) ]
+                    [ HH.text ("Read from the device in full: "
+                        <> show (Array.length (Array.filter (\p -> not (Array.null p.messages)) nb.presets))
+                        <> " of its switches carry messages. Taking a copy is exact \x2014 nothing is inferred, and syncing it back writes what is already there.") ]
+                , renderDevicePreview state nb mCard
                 ]
-              _ -> [])
-        <> (if occupied
-              then [ HH.p [ HP.class_ (H.ClassName "controls-warn") ]
-                       [ HH.text "Something is already here. Authoring a page at this number and syncing would replace it, and the device will not warn you." ]
-                   ]
-              else [])
-        <> [ HH.button
-               [ HP.class_ (H.ClassName ("controls-btn-small" <> if occupied then " controls-btn-danger" else ""))
-               , HE.onClick \_ -> CreatePageHere bankNum
-               ]
-               [ HH.text (if occupied then "Author a page here anyway" else "Author a page here") ]
+                <> (case displaced nb of
+                      [] -> []
+                      ds ->
+                        [ HH.p [ HP.class_ (H.ClassName "controls-warn") ]
+                            [ HH.text (String.joinWith ", " (map switchLetter ds)
+                                <> (if Array.length ds == 1 then " is" else " are")
+                                <> " doing something here that a global would take over, marked \x25c9 above. A page carries every global, so this is the copy where that work stops existing \x2014 and after it there is nothing left to read it back from. To keep one of them, dissolve that global first: every page then owns its copy and this one can differ.") ]
+                        ])
+              Nothing | occupied ->
+                [ HH.p [ HP.class_ (H.ClassName "controls-warn") ]
+                    [ HH.text "Something is already here, and we know its labels but not what its switches do. Read the whole device first \x2014 authoring from labels alone and syncing would replace working switches with silent ones, and the device will not warn you." ]
+                ]
+              Nothing -> [])
+        <> [ HH.div [ HP.class_ (H.ClassName "controls-bank-empty-actions") ]
+              ( (case mDumped of
+                  Just _ ->
+                    [ HH.button
+                        [ HP.class_ (H.ClassName "controls-btn controls-btn-accent")
+                        , HE.onClick \_ -> AdoptBankFromDevice bankNum
+                        ]
+                        [ HH.text "Take a copy of this bank" ]
+                    ]
+                  Nothing | known ->
+                    [ HH.button
+                        [ HP.class_ (H.ClassName "controls-btn-small")
+                        , HE.onClick \_ -> AdoptBankFromDevice bankNum
+                        ]
+                        [ HH.text "Start from the device's labels" ]
+                    ]
+                  Nothing -> [])
+                  <> [ HH.button
+                         [ HP.class_ (H.ClassName ("controls-btn-small"
+                             <> if occupied && mDumped == Nothing then " controls-btn-danger" else ""))
+                         , HE.onClick \_ -> CreatePageHere bankNum
+                         ]
+                         [ HH.text "Start from an empty page" ]
+                     ]
+              )
            ]
     )
+
+-- | The device's own twelve switches, before we take the bank over.
+-- |
+-- | This exists because of a hole the globals rule opens rather than for
+-- | completeness. A global is unconditional — every page carries it — so the
+-- | moment a bank becomes a page, whatever the device had at a global's slot is
+-- | gone, and gone from the only copy that held it. The disagreement badge that
+-- | appears afterwards reports *that* it changed and can never say what it was.
+-- | So the last chance to look is here, and it is deliberately the same
+-- | twelve-cell layout as the editor: recognising a switch by where it sits
+-- | underfoot is how you judge whether losing it matters.
+-- |
+-- | Read-only, and not because editing would be hard. A third editable thing on
+-- | this page — neither our page nor the device's bank — is exactly the
+-- | ambiguity the globals redesign removed.
+renderDevicePreview
+  :: forall m. State -> MC6NativeBank -> Maybe MC6Survey.BankCard
+  -> H.ComponentHTML Action () m
+renderDevicePreview state nb mCard =
+  HH.div [ HP.class_ (H.ClassName "controls-device-preview") ]
+    [ HH.div [ HP.class_ (H.ClassName "controls-device-preview-head") ]
+        [ HH.text "On the device now" ]
+    , HH.div [ HP.class_ (H.ClassName "controls-bank-switches") ]
+        (map cell Survey.physicalOrder)
+    ]
+  where
+  globals = state.input.globalSwitches
+  cell idx =
+    let mP = Array.find (\p -> p.presetNum == idx) nb.presets
+        verb = mCard >>= \c -> Array.index c.slots idx
+        count = maybe 0 (Array.length <<< _.messages) mP
+        taken = isJust (Global.globalAt globals idx)
+        cls = String.joinWith " "
+          ([ "controls-bank-switch", "readonly" ]
+            <> (if count == 0 then [ "vacant" ] else [])
+            <> (if taken && count > 0 then [ "displaced" ] else []))
+    in HH.div
+      [ HP.class_ (H.ClassName cls)
+      , HP.attr (HH.AttrName "style")
+          ("border-left: 3px solid " <> maybe "#e6e6ea" Survey.verbColor verb)
+      ]
+      [ HH.div [ HP.class_ (H.ClassName "controls-bank-switch-head") ]
+          [ HH.span [ HP.class_ (H.ClassName "controls-bank-switch-letter") ]
+              [ HH.text (switchLetter idx) ]
+          , if taken
+              then HH.span
+                     [ HP.class_ (H.ClassName "controls-global-mark")
+                     , HP.title (if count > 0
+                         then "a global takes this slot \x2014 what is here now will not survive the copy"
+                         else "a global takes this slot, which is free on the device")
+                     ]
+                     [ HH.text "\x25c9" ]
+              else HH.text ""
+          ]
+      , HH.div [ HP.class_ (H.ClassName "controls-bank-switch-label") ]
+          [ HH.text (maybe "" _.shortName mP) ]
+      , HH.div [ HP.class_ (H.ClassName "controls-bank-switch-verb") ]
+          [ HH.text (if count == 0
+              then "empty"
+              else maybe "" Survey.verbName verb <> " \x00b7 " <> show count
+                     <> (if count == 1 then " message" else " messages")) ]
+      , case mP of
+          Just p | p.longName /= "" && p.longName /= p.shortName ->
+            HH.div [ HP.class_ (H.ClassName "controls-bank-switch-observed") ]
+              [ HH.text p.longName ]
+          _ -> HH.text ""
+      ]
 
 -- | One switch as it sits underfoot: our label, and the device's if it differs.
 renderBankSwitchCell
@@ -521,14 +776,11 @@ renderBankSwitchCell state bank mCard idx =
       verb = mCard >>= \c -> Array.index c.slots idx
       observed = mCard >>= \c -> Array.index c.observedNames idx
       isSelected = state.selectedSwitchIdx == Just idx
-      shared = isSharedHere state bank idx
-      overridden = isJust (Shared.sharedAt state.input.sharedSwitches idx)
-                     && Shared.isOverridden bank idx
+      global = isJust (Global.globalAt state.input.globalSwitches idx)
       cls = String.joinWith " "
         ([ "controls-bank-switch" ]
           <> (if isSelected then [ "selected" ] else [])
-          <> (if shared then [ "shared" ] else [])
-          <> (if overridden then [ "overridden" ] else []))
+          <> (if global then [ "global" ] else []))
   in HH.div
     [ HP.class_ (H.ClassName cls)
     , HP.attr (HH.AttrName "style")
@@ -538,15 +790,11 @@ renderBankSwitchCell state bank mCard idx =
     [ HH.div [ HP.class_ (H.ClassName "controls-bank-switch-head") ]
         [ HH.span [ HP.class_ (H.ClassName "controls-bank-switch-letter") ]
             [ HH.text (switchLetter idx) ]
-        , if shared
-            then HH.span [ HP.class_ (H.ClassName "controls-shared-mark")
-                         , HP.title "shared across the instrument" ]
-                   [ HH.text "\x21c4" ]
-            else if overridden
-              then HH.span [ HP.class_ (H.ClassName "controls-override-mark")
-                           , HP.title "shared switch overridden on this page" ]
-                     [ HH.text "\x2718" ]
-              else HH.text ""
+        , if global
+            then HH.span [ HP.class_ (H.ClassName "controls-global-mark")
+                         , HP.title "global \x2014 the same on every page" ]
+                   [ HH.text "\x25c9" ]
+            else HH.text ""
         ]
     , HH.div [ HP.class_ (H.ClassName "controls-bank-switch-label") ]
         [ HH.text (fromMaybe "" (mSw <#> _.label)) ]
@@ -565,71 +813,194 @@ renderBankSwitchCell state bank mCard idx =
 
 -- ──── Zoom 3: one switch ────
 
-renderSwitchZone :: forall m. State -> Int -> H.ComponentHTML Action () m
-renderSwitchZone state idx = case effectiveBank state of
-  Nothing -> HH.text ""
-  Just bank -> case Array.index bank.switches idx of
-    Nothing -> HH.text ""
-    Just sw ->
-      let bankNum = bank.mc6BankNumber
-          mBoard = assignedBoard state bankNum idx
-      in HH.div [ HP.class_ (H.ClassName "controls-zone controls-zone-switch") ]
-        [ HH.div [ HP.class_ (H.ClassName "controls-zone-head") ]
-            [ HH.button
-                [ HP.class_ (H.ClassName "controls-zone-back")
-                , HE.onClick \_ -> ClearSwitchSelection
-                ]
-                [ HH.text "\x2190 bank" ]
-            , HH.h3_ [ HH.text ("Switch " <> switchLetter idx
-                                  <> (if sw.label == "" then "" else " \x00b7 " <> sw.label)) ]
-            ]
-        , renderSharedBanner state bank idx
-        , renderHoldsSelector state bankNum idx mBoard
-        , case mBoard of
-            Just bp -> renderBoardHeld state bp
-            Nothing ->
-              HH.div [ HP.class_ (H.ClassName "controls-switch-body") ]
-                [ renderSwitchSection (bankColor state.selectedBankIdx) idx sw
-                , renderSearchPanel state
-                ]
-        ]
-
--- | Where this switch is defined, and how to change that.
+-- | The switch you are working on, on whichever surface you reached it from.
 -- |
--- | Shown above the holds selector because it is the prior question: editing a
--- | shared switch changes every page, and that has to be said before the fields
--- | rather than discovered after them.
-renderSharedBanner :: forall m. State -> ControlBank -> Int -> H.ComponentHTML Action () m
-renderSharedBanner state bank idx =
-  case Shared.sharedAt state.input.sharedSwitches idx of
-    Just sh
-      | not (Shared.isOverridden bank idx) ->
-          let n = Shared.pageCount state.input.controlBanks sh
-          in banner "shared"
-            [ HH.text ("\x21c4 Shared across the instrument \x2014 on "
-                        <> show n <> (if n == 1 then " page" else " pages")
-                        <> ". Editing here changes all of them.") ]
-            [ button "Override on this page" (OverrideShared idx)
-            , button "Stop sharing everywhere" (UnshareSwitch idx)
-            ]
-      | otherwise ->
-          banner "overridden"
-            [ HH.text ("\x2718 This page has taken "
-                        <> switchLetter idx
-                        <> " back from the shared switch \x201c" <> sh.label <> "\x201d.") ]
-            [ button "Use the shared switch again" (UseSharedAgain idx) ]
-    Nothing ->
-      banner "plain"
-        [ HH.text "Defined on this page only." ]
-        [ button "Put this on every page" (MakeShared idx) ]
+-- | Three surfaces, and each one can only do the thing that surface is for:
+-- | the globals page edits globals, a bank page edits its own switches, and a
+-- | global met on a bank page is shown and not edited. That last case is the
+-- | whole design — the old version let you type into it and left you guessing
+-- | whether the keystrokes were landing on this page or on thirty.
+renderSwitchZone :: forall m. State -> Int -> H.ComponentHTML Action () m
+renderSwitchZone state idx
+  | state.viewingGlobals = renderGlobalEditor state idx
+  | otherwise = case effectiveBank state of
+      Nothing -> HH.text ""
+      Just bank -> case Array.index bank.switches idx of
+        Nothing -> HH.text ""
+        Just sw ->
+          let bankNum = bank.mc6BankNumber
+              mBoard = assignedBoard state bankNum idx
+          in switchShell (switchTitle idx sw.label) "\x2190 bank" ClearSwitchSelection $
+            case Global.globalAt state.input.globalSwitches idx of
+              Just g ->
+                [ banner "global"
+                    [ HH.text ("\x25c9 Global \x2014 the same on every page. This page shows it; it is edited in Globals.") ]
+                    [ button "Edit global \x2192" (OpenGlobalSlot idx)
+                    , button "Dissolve into every page" (DissolveGlobal idx)
+                    ]
+                , renderGlobalPreview g
+                ]
+              Nothing ->
+                [ banner "local"
+                    [ HH.text "Local to this page." ]
+                    [ button "Make global" (PromoteSwitch idx)
+                    , button "Copy to pages\x2026" (OpenStamp idx)
+                    ]
+                , renderHoldsSelector state bankNum idx mBoard
+                , case mBoard of
+                    Just bp -> renderBoardHeld state bp
+                    Nothing ->
+                      HH.div [ HP.class_ (H.ClassName "controls-switch-body") ]
+                        [ renderSwitchSection (bankColor state.selectedBankIdx) idx sw
+                        , renderSearchPanel state
+                        ]
+                ]
+
+-- | A global, on the one surface that can change it.
+-- |
+-- | An empty slot is editable too: typing here authors a global from nothing,
+-- | which is the other half of `promote`. Promoting is the ergonomic path —
+-- | build it on a page where you can hear it, then say it is furniture — but a
+-- | home you cannot write in is not really a home.
+renderGlobalEditor :: forall m. State -> Int -> H.ComponentHTML Action () m
+renderGlobalEditor state idx =
+  let sw = globalSlotSwitch state idx
+      exists = isJust (Global.globalAt state.input.globalSwitches idx)
+      n = Array.length state.input.controlBanks
+  in switchShell (switchTitle idx sw.label) "\x2190 globals" ClearSwitchSelection
+    ( [ banner "global"
+          [ HH.text (if exists
+              then "\x25c9 Global \x2014 written into all " <> show n
+                     <> " pages at sync. Editing here changes all of them."
+              else "Nothing is global on " <> switchLetter idx
+                     <> " yet. Anything you author here goes on every page.") ]
+          (if exists
+             then [ button "Dissolve \x2014 every page keeps a copy" (DissolveGlobal idx)
+                  , button "Discard \x2014 pages keep their own" (DiscardGlobal idx)
+                  ]
+             else [])
+      , HH.div [ HP.class_ (H.ClassName "controls-switch-body") ]
+          [ renderSwitchSection "#7e22ce" idx sw
+          , renderSearchPanel state
+          ]
+      ]
+    )
+
+-- | What a global holds, stated rather than offered for editing.
+renderGlobalPreview :: forall m. GlobalSwitch -> H.ComponentHTML Action () m
+renderGlobalPreview g =
+  HH.div [ HP.class_ (H.ClassName "controls-global-preview") ]
+    ( [ HH.div [ HP.class_ (H.ClassName "controls-global-preview-name") ]
+          [ HH.text (g.label <> (if g.longName == "" then "" else "  \x00b7  " <> g.longName)
+                      <> (if g.toToggle then "  \x00b7  toggle" else "")) ]
+      ]
+        <> (if Array.null g.messages
+              then [ HH.div [ HP.class_ (H.ClassName "controls-global-preview-msg") ]
+                       [ HH.text "no messages" ] ]
+              else map line g.messages)
+    )
   where
-  banner kind text actions =
-    HH.div [ HP.class_ (H.ClassName ("controls-shared-banner " <> kind)) ]
-      ( [ HH.span [ HP.class_ (H.ClassName "controls-shared-text") ] text ] <> actions )
-  button label act =
-    HH.button
-      [ HP.class_ (H.ClassName "controls-btn-small"), HE.onClick \_ -> act ]
-      [ HH.text label ]
+  line m =
+    HH.div [ HP.class_ (H.ClassName "controls-global-preview-msg") ]
+      [ HH.span [ HP.class_ (H.ClassName "controls-global-preview-type") ]
+          [ HH.text (mc6MsgTypeLabel m.msgType) ]
+      , HH.text (" ch " <> show m.channel <> "  " <> show m.data1 <> " " <> show m.data2)
+      ]
+
+switchTitle :: Int -> String -> String
+switchTitle idx label =
+  "Switch " <> switchLetter idx <> (if label == "" then "" else " \x00b7 " <> label)
+
+switchShell
+  :: forall m
+   . String -> String -> Action -> Array (H.ComponentHTML Action () m)
+  -> H.ComponentHTML Action () m
+switchShell title backLabel backAction body =
+  HH.div [ HP.class_ (H.ClassName "controls-zone controls-zone-switch") ]
+    ( [ HH.div [ HP.class_ (H.ClassName "controls-zone-head") ]
+          [ HH.button
+              [ HP.class_ (H.ClassName "controls-zone-back")
+              , HE.onClick \_ -> backAction
+              ]
+              [ HH.text backLabel ]
+          , HH.h3_ [ HH.text title ]
+          ]
+      ] <> body
+    )
+
+-- | Where this switch is defined, said before the fields rather than after.
+banner
+  :: forall m
+   . String -> Array (H.ComponentHTML Action () m) -> Array (H.ComponentHTML Action () m)
+  -> H.ComponentHTML Action () m
+banner kind text actions =
+  HH.div [ HP.class_ (H.ClassName ("controls-scope-banner " <> kind)) ]
+    ( [ HH.span [ HP.class_ (H.ClassName "controls-scope-text") ] text ] <> actions )
+
+button :: forall m. String -> Action -> H.ComponentHTML Action () m
+button label act =
+  HH.button
+    [ HP.class_ (H.ClassName "controls-btn-small"), HE.onClick \_ -> act ]
+    [ HH.text label ]
+
+-- | Which pages a stamp lands on.
+-- |
+-- | A stamp is the answer to everything a global refuses: most pages, or the
+-- | five pages of one group. It writes copies and raises no link, so the switch
+-- | stays local everywhere and can drift — which is exactly what you wanted
+-- | when you reached for it instead of a global.
+renderStampOverlay :: forall m. State -> Int -> H.ComponentHTML Action () m
+renderStampOverlay state slot =
+  HH.div [ HP.class_ (H.ClassName "controls-dict-overlay") ]
+    [ HH.div [ HP.class_ (H.ClassName "controls-stamp") ]
+        [ HH.div [ HP.class_ (H.ClassName "controls-stamp-head") ]
+            [ HH.h3_ [ HH.text ("Copy switch " <> switchLetter slot <> " to\x2026") ]
+            , HH.button
+                [ HP.class_ (H.ClassName "controls-btn-small"), HE.onClick \_ -> CloseStamp ]
+                [ HH.text "Cancel" ]
+            ]
+        , HH.p [ HP.class_ (H.ClassName "controls-stamp-note") ]
+            [ HH.text ("Each page gets its own copy on " <> switchLetter slot
+                        <> ", replacing whatever is there. No link afterwards \x2014 change one later and the rest stay put.") ]
+        , HH.div [ HP.class_ (H.ClassName "controls-stamp-bar") ]
+            [ HH.button
+                [ HP.class_ (H.ClassName "controls-btn-small"), HE.onClick \_ -> ToggleStampAll ]
+                [ HH.text (if allPicked then "Clear all" else "All pages") ]
+            , HH.span [ HP.class_ (H.ClassName "controls-stamp-count") ]
+                [ HH.text (show (Array.length state.stampTargets) <> " selected") ]
+            ]
+        , HH.div [ HP.class_ (H.ClassName "controls-stamp-grid") ] (map cell state.input.controlBanks)
+        , HH.div [ HP.class_ (H.ClassName "controls-stamp-foot") ]
+            [ HH.button
+                [ HP.class_ (H.ClassName "controls-btn controls-btn-accent")
+                , HP.disabled (Array.null state.stampTargets)
+                , HE.onClick \_ -> ApplyStamp
+                ]
+                [ HH.text ("Copy to " <> show (Array.length state.stampTargets)
+                            <> (if Array.length state.stampTargets == 1 then " page" else " pages")) ]
+            ]
+        ]
+    ]
+  where
+  allPicked = Array.length state.stampTargets == Array.length state.input.controlBanks
+  cell cb =
+    let picked = Array.elem cb.mc6BankNumber state.stampTargets
+        here = Just cb.mc6BankNumber == state.selectedBankNumber
+    in HH.div
+      [ HP.class_ (H.ClassName ("controls-stamp-cell"
+          <> (if picked then " picked" else "")
+          <> (if here then " here" else "")))
+      , HE.onClick \_ -> ToggleStampBank cb.mc6BankNumber
+      ]
+      [ HH.span [ HP.class_ (H.ClassName "controls-stamp-cell-num") ]
+          [ HH.text (show cb.mc6BankNumber) ]
+      , HH.span [ HP.class_ (H.ClassName "controls-stamp-cell-name") ]
+          [ HH.text (if cb.name == "" then "\x2014" else cb.name) ]
+      , HH.span [ HP.class_ (H.ClassName "controls-stamp-cell-was") ]
+          [ HH.text (case Array.index cb.switches slot of
+              Just sw | sw.label /= "" -> "replaces " <> sw.label
+              _ -> "empty") ]
+      ]
 
 -- | What this switch holds: messages you author, or a board that compiles to
 -- | them.
@@ -1182,6 +1553,10 @@ handleAction = case _ of
     st <- H.get
     for_ (selectedBank st) (H.raise <<< SyncControlBankToMC6)
 
+  SyncAllToMC6 -> do
+    commitBankProps
+    H.raise SyncAllBanksToMC6
+
   -- Moving between zoom levels commits whatever was half-typed into the bank
   -- property fields. Without this, stepping out to check something silently
   -- discards a rename, and the survey then shows the old name — which reads as
@@ -1195,6 +1570,7 @@ handleAction = case _ of
     H.modify_ _
       { selectedBankNumber = Just n
       , selectedSwitchIdx = Nothing
+      , viewingGlobals = false
       , selectedBankIdx = idx
       , editBankName = fromMaybe "" (mBank <#> _.name)
       , editBankNumber = fromMaybe (show n) (mBank <#> \b -> show b.mc6BankNumber)
@@ -1204,7 +1580,8 @@ handleAction = case _ of
 
   ClearBankSelection -> do
     commitBankProps
-    H.modify_ _ { selectedBankNumber = Nothing, selectedSwitchIdx = Nothing }
+    H.modify_ _ { selectedBankNumber = Nothing, selectedSwitchIdx = Nothing
+                , viewingGlobals = false }
 
   -- The CC browser adds to whatever switch you are inside of, so the separate
   -- "add to" target selector no longer has anything to disambiguate.
@@ -1222,15 +1599,62 @@ handleAction = case _ of
       { selectedBankIdx = newIdx
       , selectedBankNumber = Just n
       , selectedSwitchIdx = Nothing
+      , viewingGlobals = false
       , editBankName = newBank.name
       , editBankNumber = show n
       , editBankDescription = newBank.description
       , editReturnSwitch = newBank.returnSwitchIndex
       }
 
+  -- Seed a new page from what the device reported. Labels only — a read brings
+  -- back names and not messages — so the page arrives correct on the face of it
+  -- and empty underneath, which is exactly the state the warning describes and
+  -- exactly why every switch starts with no messages rather than a guess.
+  AdoptBankFromDevice n -> do
+    st <- H.get
+    let names = case Array.find (\c -> c.bankNumber == n) (surveyCards st) of
+          Just c -> c.observedNames
+          Nothing -> []
+        mDumped = Array.find (\nb -> nb.bankNumber == n) st.input.mc6DumpedBanks
+        -- With a dump, the copy is exact: labels, long names, toggle mode and
+        -- every message. Without one, labels are all there is, and the switch
+        -- arrives silent — which is the state the panel's warning describes and
+        -- the reason the two cases must not look alike.
+        switches = case mDumped of
+          Just nb -> Array.mapWithIndex (fromDumped nb) blanks
+          Nothing -> Array.mapWithIndex
+            (\i sw -> sw { label = fromMaybe "" (Array.index names i) }) blanks
+        blanks = Array.replicate switchCount emptySwitch
+        fromDumped nb i sw = case Array.find (\p -> p.presetNum == i) nb.presets of
+          Just p ->
+            { label: p.shortName
+            , longName: p.longName
+            , toToggle: p.toToggle
+            , messages: p.messages
+            }
+          Nothing -> sw
+        seeded = (emptyControlBank (bankTitle n) n) { switches = switches }
+        bankTitle b = case Array.find (\c -> c.bankNumber == b) (surveyCards st) of
+          Just c | c.name /= "" -> c.name
+          _ -> "Bank " <> show b
+        banks = Array.snoc st.input.controlBanks seeded
+        newIdx = Array.length banks - 1
+    H.raise (SaveControlBanks banks (Just newIdx))
+    H.modify_ _
+      { selectedBankIdx = newIdx
+      , selectedBankNumber = Just n
+      , selectedSwitchIdx = Nothing
+      , viewingGlobals = false
+      , editBankName = seeded.name
+      , editBankNumber = show n
+      , editBankDescription = seeded.description
+      }
+
   ToggleElideUnknown -> H.modify_ \st -> st { elideUnknown = not st.elideUnknown }
 
   RequestRead -> H.raise ReadMC6
+
+  RequestDeepRead -> H.raise DeepReadMC6
 
   SetSwitchHolds idx boardId -> do
     st <- H.get
@@ -1239,63 +1663,84 @@ handleAction = case _ of
         then H.raise (UnassignSwitch bank.mc6BankNumber idx)
         else H.raise (AssignBoard bank.mc6BankNumber idx boardId)
 
+  OpenGlobals -> do
+    commitBankProps
+    H.modify_ _ { viewingGlobals = true, selectedSwitchIdx = Nothing }
+
+  -- Reached both from the globals page and from "Edit global →" on a bank page,
+  -- which is why it sets the surface as well as the slot: the second caller is
+  -- standing somewhere else and the whole point of the jump is to move.
+  OpenGlobalSlot idx -> do
+    commitBankProps
+    H.modify_ _ { viewingGlobals = true, selectedSwitchIdx = Just idx }
+
   -- Promote what is already on this switch. Building the thing once on a page
-  -- and then saying "this is furniture" is the workflow that actually happens;
-  -- an empty shared-switch form you have to fill in from nothing is not.
-  MakeShared idx -> do
+  -- where you can hear it and then saying "this is furniture" is the workflow
+  -- that actually happens; an empty form you fill in from nothing is not.
+  PromoteSwitch idx -> do
     st <- H.get
     for_ (selectedBank st) \bank ->
-      for_ (Array.index bank.switches idx) \sw -> do
-        let shared :: SharedSwitch
-            shared =
-              { id: "shared-" <> show idx
-              , slot: idx
-              , label: sw.label
-              , longName: sw.longName
-              , toToggle: sw.toToggle
-              , messages: sw.messages
-              }
-        H.raise (SaveSharedSwitches
-          (Array.snoc (Array.filter (\x -> x.slot /= idx) st.input.sharedSwitches) shared))
-        -- A page that had taken this slot back would otherwise not receive the
-        -- switch it just donated.
-        setOverrides bank (Array.filter (_ /= idx) bank.sharedOverrides)
+      for_ (Array.index bank.switches idx) \sw ->
+        H.raise (SaveGlobalSwitches (Global.promote idx sw st.input.globalSwitches))
 
-  UnshareSwitch idx -> do
+  -- The only way out of a global, and the whole way out: every page keeps a
+  -- copy it owns, so the exception you wanted is now an ordinary edit on one
+  -- page. Costs the link, which is the honest price and is paid once.
+  DissolveGlobal idx -> do
     st <- H.get
-    H.raise (SaveSharedSwitches (Array.filter (\x -> x.slot /= idx) st.input.sharedSwitches))
+    let r = Global.dissolve idx st.input.globalSwitches st.input.controlBanks
+    H.modify_ _ { input = st.input { globalSwitches = r.globals, controlBanks = r.banks }
+                , viewingGlobals = false
+                }
+    H.raise (SaveGlobalSwitches r.globals)
+    H.raise (SaveControlBanks r.banks (Just st.selectedBankIdx))
 
-  -- Taking a slot back copies the shared content in first, so you start from
-  -- what was there rather than from nothing — an override is usually a
-  -- variation, not a fresh switch.
-  OverrideShared idx -> do
+  -- The undo for promoting. Writes nothing, because promoting wrote nothing:
+  -- every page still holds whatever its own slot held before, and gets it back.
+  DiscardGlobal idx -> do
     st <- H.get
-    for_ (Shared.sharedAt st.input.sharedSwitches idx) \sh -> do
-      -- Order matters: the slot has to stop being shared before the copy is
-      -- written, or modifySwitch would route the write straight back into the
-      -- shared definition it is trying to diverge from.
+    let globals = Global.discard idx st.input.globalSwitches
+    H.modify_ _ { input = st.input { globalSwitches = globals } }
+    H.raise (SaveGlobalSwitches globals)
+
+  OpenStamp idx ->
+    -- Opens with the page you are on already ticked: you are stamping *this*
+    -- switch, so the page it came from is not a choice.
+    H.modify_ \st -> st
+      { stampSlot = Just idx
+      , stampTargets = case st.selectedBankNumber of
+          Just n -> [ n ]
+          Nothing -> []
+      }
+
+  CloseStamp -> H.modify_ _ { stampSlot = Nothing, stampTargets = [] }
+
+  ToggleStampBank n -> H.modify_ \st -> st
+    { stampTargets = if Array.elem n st.stampTargets
+        then Array.filter (_ /= n) st.stampTargets
+        else Array.snoc st.stampTargets n
+    }
+
+  ToggleStampAll -> H.modify_ \st -> st
+    { stampTargets =
+        if Array.length st.stampTargets == Array.length st.input.controlBanks
+          then []
+          else map _.mc6BankNumber st.input.controlBanks
+    }
+
+  ApplyStamp -> do
+    st <- H.get
+    for_ st.stampSlot \slot ->
       for_ (selectedBank st) \bank ->
-        setOverrides bank (Array.nub (Array.snoc bank.sharedOverrides idx))
-      modifySwitch idx \_ ->
-        { label: sh.label, longName: sh.longName, toToggle: sh.toToggle, messages: sh.messages }
-      save
-
-  UseSharedAgain idx -> do
-    st <- H.get
-    for_ (selectedBank st) \bank ->
-      setOverrides bank (Array.filter (_ /= idx) bank.sharedOverrides)
+        for_ (Array.index bank.switches slot) \sw -> do
+          let banks = Global.stampTo slot sw st.stampTargets st.input.controlBanks
+          H.modify_ _ { input = st.input { controlBanks = banks }
+                      , stampSlot = Nothing
+                      , stampTargets = []
+                      }
+          H.raise (SaveControlBanks banks (Just st.selectedBankIdx))
 
 -- ──── Helpers ────
-
--- | Replace the selected bank's override list and save.
-setOverrides :: forall m. MonadAff m => ControlBank -> Array Int -> H.HalogenM State Action () Output m Unit
-setOverrides bank overrides = do
-  st <- H.get
-  let banks = fromMaybe st.input.controlBanks
-        (Array.updateAt st.selectedBankIdx (bank { sharedOverrides = overrides })
-          st.input.controlBanks)
-  H.modify_ _ { input = st.input { controlBanks = banks } }
-  H.raise (SaveControlBanks banks (Just st.selectedBankIdx))
 
 intToToggle :: Int -> MC6TogglePosition
 intToToggle = case _ of
@@ -1339,53 +1784,47 @@ emptyControlBank name bankNum =
   , description: ""
   , mc6BankNumber: bankNum
   , returnSwitchIndex: 6
-  , sharedOverrides: []
   , switches: Array.replicate switchCount emptySwitch
   }
 
--- | Modify a switch in the selected bank
+-- | Modify a switch on whichever surface is open.
+-- |
+-- | The routing is by *surface*, not by what the slot happens to hold: on the
+-- | globals page an edit is a global edit, on a bank page it is a page edit,
+-- | and a bank page never offers the editor for a global slot in the first
+-- | place. That is what makes the destination knowable before you type — the
+-- | previous version decided per slot, so the same field meant different things
+-- | on different switches of the same page.
 modifySwitch :: forall m. MonadAff m => Int -> (ControlBankSwitch -> ControlBankSwitch) -> H.HalogenM State Action () Output m Unit
 modifySwitch swIdx f = do
   st <- H.get
-  case Array.index st.input.controlBanks st.selectedBankIdx of
-    Nothing -> pure unit
-    Just bank
-      -- A shared switch is edited wherever you happen to meet it, but there is
-      -- only one of it: the edit goes to the instrument's definition and lands
-      -- on every page that has not taken the slot back. Writing to this page's
-      -- copy instead would be an edit that appears to work and is discarded at
-      -- the next sync, when the shared switch overwrites it again.
-      | isSharedHere st bank swIdx ->
-          for_ (Shared.sharedAt st.input.sharedSwitches swIdx) \sh -> do
-            let edited = f
-                  { label: sh.label, longName: sh.longName
-                  , toToggle: sh.toToggle, messages: sh.messages }
-                updated = sh
-                  { label = edited.label, longName = edited.longName
-                  , toToggle = edited.toToggle, messages = edited.messages }
-                allShared = map (\x -> if x.slot == swIdx then updated else x)
-                              st.input.sharedSwitches
-            H.modify_ _ { input = st.input { sharedSwitches = allShared } }
-            H.raise (SaveSharedSwitches allShared)
-      | otherwise -> do
-          let newSwitches = fromMaybe bank.switches (Array.modifyAt swIdx f bank.switches)
-              newBank = bank { switches = newSwitches }
-              newBanks = fromMaybe st.input.controlBanks (Array.updateAt st.selectedBankIdx newBank st.input.controlBanks)
-          H.modify_ _ { input = st.input { controlBanks = newBanks } }
+  if st.viewingGlobals
+    then do
+      -- Editing an empty slot here authors a global, which is why this upserts
+      -- rather than requiring one to exist.
+      let globals = Global.promote swIdx (f (globalSlotSwitch st swIdx)) st.input.globalSwitches
+      H.modify_ _ { input = st.input { globalSwitches = globals } }
+      H.raise (SaveGlobalSwitches globals)
+    else case Array.index st.input.controlBanks st.selectedBankIdx of
+      Nothing -> pure unit
+      Just bank -> do
+        let newSwitches = fromMaybe bank.switches (Array.modifyAt swIdx f bank.switches)
+            newBank = bank { switches = newSwitches }
+            newBanks = fromMaybe st.input.controlBanks (Array.updateAt st.selectedBankIdx newBank st.input.controlBanks)
+        H.modify_ _ { input = st.input { controlBanks = newBanks } }
 
--- | Is this slot filled by the instrument rather than by this page?
-isSharedHere :: State -> ControlBank -> Int -> Boolean
-isSharedHere st bank slot =
-  isJust (Shared.sharedAt st.input.sharedSwitches slot)
-    && not (Shared.isOverridden bank slot)
+-- | What a globals slot currently holds, empty included.
+globalSlotSwitch :: State -> Int -> ControlBankSwitch
+globalSlotSwitch st slot =
+  maybe emptySwitch Global.toSwitch (Global.globalAt st.input.globalSwitches slot)
 
--- | The page as it will actually reach the device: shared switches written in.
+-- | The page as it will actually reach the device: globals written in.
 -- |
 -- | Rendering goes through this and mutation goes through `selectedBank`, which
 -- | is the whole trick — what you see is the compiled page, what you edit is
 -- | whichever source owns that slot.
 effectiveBank :: State -> Maybe ControlBank
-effectiveBank st = Shared.applyShared st.input.sharedSwitches <$> selectedBank st
+effectiveBank st = Global.applyGlobals st.input.globalSwitches <$> selectedBank st
 
 -- | Append messages to a switch, putting it into toggle mode if they need it.
 -- |

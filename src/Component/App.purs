@@ -15,7 +15,8 @@ import Data.Argonaut.Parser (jsonParser)
 import Data.Looper as Looper
 import Data.MC6.Backup as Backup
 import Data.MC6.ControlBank as ControlBank
-import Data.MC6.Shared as Shared
+import Data.MC6.Dump as Dump
+import Data.MC6.Global as Global
 import Data.MC6.Diagnostics as Diagnostics
 import Data.MC6.Message as MC6Msg
 import Data.MC6.SysEx as SysEx
@@ -23,7 +24,7 @@ import Data.MC6.Types (MC6Action(..), MC6NativeBank, MC6Preset)
 import Data.MC6.Board as Board
 import Data.MC6.Read as Read
 import Data.MC6.Survey as Survey
-import Data.Foldable (any, for_)
+import Data.Foldable (any, for_, traverse_)
 import Data.Map as Map
 import Data.Int as Int
 import Data.Maybe (Maybe(..), fromMaybe, isNothing)
@@ -103,6 +104,7 @@ data Action
   | ExportAllBoardsAction
   | ImportPresetsFromFileAction
   | ImportBoardsFromFileAction
+  | DeepReadMC6Banks
   | ExportMC6BackupAction
   | SelectBoardBank Int
   | ClickMC6Switch Int
@@ -202,13 +204,16 @@ render state = case state.configError of
             , registry: state.registry
             , mc6BoardBankNum: state.mc6BoardBankNum
             , mc6NativeBanks: state.mc6Banks
+            , mc6DumpedBanks: state.mc6DumpedBanks
             , mc6BankNames: state.mc6BankNames
             , mc6BankSwitches: state.mc6BankSwitches
             , mc6ReadStatus: state.mc6ReadStatus
+            , mc6Reading: state.mc6Reading
+            , mc6ReadAt: state.mc6ReadAt
             , boardPresets: state.boardPresets
             , presets: state.presets
             , mc6Assignments: state.mc6Assignments
-            , sharedSwitches: state.sharedSwitches
+            , globalSwitches: state.globalSwitches
             }
             HandleControls
         FilesView -> renderFilesView state
@@ -251,11 +256,11 @@ render state = case state.configError of
 
 -- | What the MC6 said it contains.
 -- |
--- | This is the first thing in the app that reports the device's own state
--- | rather than the app's belief about it, so it deliberately shows both bank
--- | numberings: wire numbers are what everything internal uses, editor numbers
--- | are what you see when you go looking on the hardware, and confusing the two
--- | writes to the wrong bank.
+-- | Banks are numbered from zero here, as they are on the wire and everywhere
+-- | else in this app. Morningstar's editor numbers them from one, and carrying
+-- | both numberings side by side — which this table used to do — turned out to be
+-- | the thing that produced off-by-one mistakes rather than the thing that
+-- | prevented them.
 renderMC6Readout :: forall m. MonadAff m => AppState -> H.ComponentHTML Action Slots m
 renderMC6Readout state =
   if Map.isEmpty state.mc6BankNames && Map.isEmpty state.mc6BankSwitches
@@ -269,8 +274,7 @@ renderMC6Readout state =
       , HH.table [ HP.class_ (H.ClassName "mc6-readout-table") ]
           [ HH.thead_
               [ HH.tr_
-                  [ HH.th_ [ HH.text "wire" ]
-                  , HH.th_ [ HH.text "editor" ]
+                  [ HH.th_ [ HH.text "bank" ]
                   , HH.th_ [ HH.text "name" ]
                   , HH.th_ [ HH.text "switches" ]
                   ]
@@ -286,7 +290,6 @@ renderMC6Readout state =
     in if nm == "" && Array.null used then Nothing
        else Just $ HH.tr_
          [ HH.td_ [ HH.text (show n) ]
-         , HH.td_ [ HH.text (show (n + 1)) ]
          , HH.td_ [ HH.text nm ]
          , HH.td_ [ HH.text (String.joinWith "  " used) ]
          ]
@@ -310,6 +313,16 @@ renderFilesView state =
                 , HE.onClick \_ -> ImportPresetsFromFileAction
                 ]
                 [ HH.text "Import Presets" ]
+            ]
+        , HH.div [ HP.class_ (H.ClassName "files-group") ]
+            -- The one file here that describes the *device* rather than this
+            -- app's own data. The button existed with nothing wired to it.
+            [ HH.h3_ [ HH.text "MC6 Device" ]
+            , HH.button
+                [ HP.class_ (H.ClassName "files-btn")
+                , HE.onClick \_ -> ExportMC6BackupAction
+                ]
+                [ HH.text "Export MC6 Backup" ]
             ]
         , HH.div [ HP.class_ (H.ClassName "files-group") ]
             [ HH.h3_ [ HH.text "Board Presets" ]
@@ -791,23 +804,43 @@ handleAction = case _ of
         -- switches gain the other three without a migration step.
         controlBanks <- map (map ControlBank.padSwitches)
           (liftEffect $ Storage.loadControlBanksParsed currentSt.controlBanks)
-        loadedShared <- liftEffect Storage.loadSharedSwitchesParsed
-        -- The return switch used to be substituted in by the compiler. It is an
-        -- ordinary shared switch now, so a store that has not seen one yet gets
-        -- the conversion here — once, and preserving where each page kept it.
-        let migrated =
-              if Array.null loadedShared && not (Array.null controlBanks)
-                then Shared.migrateReturns currentSt.mc6BoardBankNum controlBanks
-                else { shared: loadedShared, banks: controlBanks }
-            sharedSwitches = migrated.shared
-            banksAfter = migrated.banks
-        when (Array.null loadedShared && not (Array.null sharedSwitches)) do
-          liftEffect $ Storage.saveSharedSwitches sharedSwitches
+        loadedGlobals <- liftEffect Storage.loadGlobalSwitchesParsed
+        legacyOverrides <- liftEffect Storage.loadLegacyOverrides
+        -- Two one-time conversions, and at most one of them can apply.
+        --
+        -- With no globals in the store, the return switch has never been
+        -- converted: it used to be substituted in by the compiler, and becomes
+        -- an ordinary switch here. With globals present, the store may still
+        -- carry per-page overrides from when a global could be refused — those
+        -- go now, by dissolving any global that was ever refused into copies.
+        let reconciled =
+              if Array.null loadedGlobals && not (Array.null controlBanks)
+                then Global.migrateReturns currentSt.mc6BoardBankNum controlBanks
+                else Global.retireOverrides legacyOverrides loadedGlobals controlBanks
+            globalSwitches = reconciled.globals
+            banksAfter = reconciled.banks
+        when (globalSwitches /= loadedGlobals || banksAfter /= controlBanks
+                || not (Array.null (Array.concat legacyOverrides))) do
+          liftEffect $ Storage.saveGlobalSwitches globalSwitches
           liftEffect $ Storage.saveControlBanks banksAfter
           liftEffect $ Console.log
-            ("Migrated return switches to a shared switch on slot "
-              <> show (map _.slot (Array.head sharedSwitches)))
-        H.modify_ _ { presets = presets, boardPresets = boardPresets, mc6Assignments = mc6Assignments, controlBanks = banksAfter, sharedSwitches = sharedSwitches }
+            ("Reconciled globals: " <> show (map _.slot globalSwitches))
+        -- Whatever the device last said about itself. Reading every bank costs
+        -- minutes at the hardware, so the result has to survive a reload or it
+        -- is not a baseline, it is a chore.
+        dumpedBanks <- liftEffect Storage.loadDumpedBanks
+        H.modify_ _ { mc6DumpedBanks = dumpedBanks }
+        mDeviceRead <- liftEffect Storage.loadDeviceRead
+        for_ mDeviceRead \dr -> H.modify_ _
+          { mc6BankNames = dr.names
+          , mc6BankSwitches = dr.switches
+          , mc6ReadAt = Just dr.readAt
+          , mc6ReadStatus = Just
+              ("Showing what the MC6 said on " <> String.take 10 dr.readAt
+                <> " \x2014 " <> show (Map.size dr.switches) <> " of "
+                <> show Survey.bankCount <> " banks with switches.")
+          }
+        H.modify_ _ { presets = presets, boardPresets = boardPresets, mc6Assignments = mc6Assignments, controlBanks = banksAfter, globalSwitches = globalSwitches }
         st <- H.get
         liftEffect do
           w <- window
@@ -1138,12 +1171,99 @@ handleAction = case _ of
         H.liftAff (delay (Milliseconds 2500.0))
         sendSysExLogged "read-disconnect" output SysEx.sysexDisconnect
         st' <- H.get
+        readAt <- liftEffect Storage.nowISO
+        when (not (Map.isEmpty st'.mc6BankNames)) do
+          liftEffect $ Storage.saveDeviceRead st'.mc6BankNames st'.mc6BankSwitches readAt
+          H.modify_ _ { mc6ReadAt = Just readAt }
+        -- Says what it got *and* what it did not, because the numbers alone read
+        -- as a complete answer. One connect only ever describes the switches of
+        -- the bank the device is standing on.
         H.modify_ _ { mc6ReadStatus = Just
           ( if Map.isEmpty st'.mc6BankNames
               then "Session opened but nothing came back \x2014 is the MC6 input connected?"
-              else "Read " <> show (Map.size st'.mc6BankNames) <> " bank names and "
-                     <> show (Map.size st'.mc6BankSwitches) <> " bank's switches."
+              else "Read all " <> show (Map.size st'.mc6BankNames) <> " bank names, and the "
+                     <> show (Map.size st'.mc6BankSwitches)
+                     <> " switch set the MC6 volunteered for the bank it is on. "
+                     <> "Use \x201cRead the whole device\x201d for the rest."
           ) }
+
+  -- | Read the entire device: every bank's names, then every preset's messages.
+  -- |
+  -- | Two requests do the work that a thirty-bank walk used to attempt.
+  -- | `sysexRequestPresetNames` returns any bank's switch names with the device
+  -- | sitting still, and `sysexRequestFullDump` returns every preset with its
+  -- | full message list. Both were read out of Morningstar's own editor bundle
+  -- | after `Data.MC6.Read` spent months asserting no read request existed.
+  -- |
+  -- | Names first because they are cheap and give every bank a label even if the
+  -- | dump is interrupted; then the dump, which is the only thing that says what
+  -- | a switch actually *does* and so the only thing that makes an adopted page
+  -- | reproducible rather than merely plausible.
+  DeepReadMC6Banks -> do
+    st <- H.get
+    case st.connections.mc6Output of
+      Nothing ->
+        H.modify_ _ { mc6ReadStatus = Just "Cannot read: no MC6 SysEx output selected." }
+      Just output -> do
+        H.modify_ _
+          { mc6Reading = true
+          , mc6BankNames = Map.empty
+          , mc6BankSwitches = Map.empty
+          , mc6DumpedPresets = []
+          , mc6DumpFrames = 0
+          , mc6DumpDone = false
+          , mc6FrameCounts = Map.empty
+          , mc6ReadStatus = Just "Opening a session\x2026"
+          }
+        sendSysExLogged "read-connect" output SysEx.sysexConnect
+        _ <- awaitState 40 (\s -> not (Map.isEmpty s.mc6BankNames))
+        sendSysExLogged "read-all-names" output SysEx.sysexRequestAllPresetNames
+        _ <- awaitState 20 (\s -> Map.size s.mc6BankSwitches >= Survey.bankCount)
+        exhaustBanks output 4
+        H.modify_ _ { mc6ReadStatus = Just "Asking for every preset\x2026" }
+        sendSysExLogged "read-dump-all" output SysEx.sysexRequestFullDump
+        awaitDumpSettled 0 0
+        -- If the all-banks request produced nothing, try the single-bank one.
+        -- They are neighbouring opcodes and the wrong one answers with silence
+        -- rather than an error, so the cheap check is to ask the other way and
+        -- see — and one bank of real messages beats none.
+        stDump <- H.get
+        when (stDump.mc6DumpFrames == 0) do
+          H.modify_ _ { mc6ReadStatus = Just
+            "No presets came back \x2014 trying the single-bank request\x2026" }
+          sendSysExLogged "read-dump-bank" output SysEx.sysexRequestBankDump
+          awaitDumpSettled 0 0
+        sendSysExLogged "read-disconnect" output SysEx.sysexDisconnect
+        st2 <- H.get
+        let got = Map.size st2.mc6BankSwitches
+            missing = Array.filter (\b -> not (Map.member b st2.mc6BankSwitches))
+                        (Array.range 0 (Survey.bankCount - 1))
+        readAt <- liftEffect Storage.nowISO
+        let dumped = Dump.presetsToBanks st2.mc6DumpedPresets
+        liftEffect $ Storage.saveDeviceRead st2.mc6BankNames st2.mc6BankSwitches readAt
+        when (not (Array.null dumped)) $
+          liftEffect $ Storage.saveDumpedBanks dumped
+        H.modify_ _
+          { mc6Reading = false
+          , mc6ReadAt = Just readAt
+          , mc6DumpedBanks = dumped
+          , mc6ReadStatus = Just
+              ("Read " <> show got <> " of " <> show Survey.bankCount <> " banks"
+                <> (if Array.null missing then "" else "; " <> show missing <> " gave no names")
+                -- Frames against frames, banks against banks. It used to
+                -- compare decoded presets against the *total* frame count,
+                -- which includes thirty bank records  14 so a complete dump
+                -- reported 422 of 450 and read as a shortfall.
+                <> ", and " <> show st2.mc6DumpFrames <> " of "
+                <> show Dump.expectedFrames <> " dump frames giving "
+                <> show (Array.length dumped) <> " banks with their messages."
+                -- What arrived, by function code. The one thing worth printing
+                -- when a request returns less than asked for.
+                <> (if Map.isEmpty st2.mc6FrameCounts then "" else
+                      "  Frames seen (F1/F2): "
+                        <> String.joinWith ", "
+                             (map (\(Tuple k n) -> k <> " \xd7 " <> show n)
+                               (Map.toUnfoldable st2.mc6FrameCounts :: Array _)))) }
 
   -- | Write generated bypass-test banks to the MC6.
   -- |
@@ -1162,7 +1282,7 @@ handleAction = case _ of
         withEditorSession output do
           for_ banks \cb -> do
             let presets = ControlBank.controlBankToPresets
-                      (Shared.applyShared st.sharedSwitches cb)
+                      (Global.applyGlobals st.globalSwitches cb)
             for_ presets \pr -> do
               let bytes = SysEx.sysexPresetData cb.mc6BankNumber pr.switchIndex
                             pr.shortName pr.longName pr.toToggle pr.messages
@@ -1329,15 +1449,19 @@ handleAction = case _ of
       pushSnapshot
     ControlsView.SyncControlBankToMC6 cb ->
       syncControlBankToMC6 cb
+    ControlsView.SyncAllBanksToMC6 ->
+      syncAllBanksToMC6
     ControlsView.ReadMC6 ->
       handleAction ReadMC6Banks
+    ControlsView.DeepReadMC6 ->
+      handleAction DeepReadMC6Banks
     ControlsView.AssignBoard bankNum switchIdx boardId ->
       handleAssignBoardToSwitch bankNum boardId switchIdx
     ControlsView.UnassignSwitch bankNum switchIdx ->
       handleUnassignSwitch bankNum switchIdx
-    ControlsView.SaveSharedSwitches shared -> do
-      H.modify_ _ { sharedSwitches = shared }
-      liftEffect $ Storage.saveSharedSwitches shared
+    ControlsView.SaveGlobalSwitches globals -> do
+      H.modify_ _ { globalSwitches = globals }
+      liftEffect $ Storage.saveGlobalSwitches globals
       liftEffect FolderBackup.scheduleBackup
 
   ExportAllPresetsAction -> handleExportAllPresets
@@ -1453,24 +1577,51 @@ handleAction = case _ of
       [status, pc] | status >= 0xC0 && status <= 0xCF ->
         observePedalPC (status - 0xC0 + 1) pc
 
-      -- SysEx: the device answering a read (Data.MC6.Read).
-      _ | Array.head bytes == Just 0xF0 -> case Read.decodeReply bytes of
-        Just (Read.BankNames names) -> do
-          H.modify_ \s -> s
-            { mc6BankNames = Map.fromFoldable names
-            , mc6ReadStatus = Just ("Read " <> show (Array.length names) <> " bank names.")
-            }
-        Just (Read.BankSwitches bank names) ->
-          H.modify_ \s -> s
-            { mc6BankSwitches = Map.insert bank names s.mc6BankSwitches
-            , mc6ReadStatus = Just ("Read bank " <> show bank <> " (editor " <> show (bank + 1) <> ").")
-            }
-        Just (Read.OtherReply f1 f2) ->
-          liftEffect $ Console.log $ "MC6 reply not decoded: F1=" <> show f1 <> " F2=" <> show f2
-        Nothing -> pure unit
+      -- Any Morningstar frame gets acknowledged first, before anything looks at
+      -- what it was. The device streams a dump hundreds of frames long and waits
+      -- to be told each one landed, so this is flow control: without it the
+      -- first request produced silence and looked like a wrong opcode.
+      --
+      -- Tallied by function code at the same time, because when a request
+      -- returns nothing the useful question is "what *did* arrive", and the
+      -- answer should not require a browser console.
+      _ | Array.head bytes == Just 0xF0 -> do
+        stAck <- H.get
+        let f1 = fromMaybe (-1) (Array.index bytes 6)
+            f2 = fromMaybe (-1) (Array.index bytes 7)
+            cs = fromMaybe 0 (Array.index bytes (Array.length bytes - 2))
+        for_ stAck.connections.mc6Output \out ->
+          liftEffect $ MIDI.send out (SysEx.sysexAcknowledge cs)
+        H.modify_ \s -> s
+          { mc6FrameCounts = Map.insertWith (+) (show f1 <> "/" <> show f2) 1 s.mc6FrameCounts }
+        -- Every dump frame counts towards progress, decoded or not. Tying the
+        -- progress counter to successful decoding is what let one wrong function
+        -- code stop the read after 221 of 450 frames: nothing was landing, so
+        -- nothing looked like progress, so it concluded the device had gone quiet
+        -- while the device was still talking.
+        case Dump.decodeDumpFrame bytes of
+          Just (Dump.DumpPresetFrame preset) ->
+            H.modify_ \s -> s
+              { mc6DumpedPresets = Array.snoc s.mc6DumpedPresets preset
+              , mc6DumpFrames = s.mc6DumpFrames + 1
+              , mc6ReadStatus = Just
+                  ("Reading presets\x2026 " <> show (s.mc6DumpFrames + 1)
+                    <> " of " <> show Dump.expectedFrames)
+              }
+          Just (Dump.DumpBankFrame _) ->
+            H.modify_ \s -> s { mc6DumpFrames = s.mc6DumpFrames + 1 }
+          Just Dump.DumpStarted ->
+            H.modify_ _ { mc6DumpDone = false }
+          -- The device says when it has finished. Far better than inferring it
+          -- from a gap in the stream, which is a guess that gets slower and less
+          -- reliable the more careful you make it.
+          Just Dump.DumpFinished ->
+            H.modify_ _ { mc6DumpDone = true }
+          Nothing -> handleReadReply bytes
 
       _ -> pure unit
 
+  -- | Pull the newest snapshot the socket is holding.
   -- | Pull the newest snapshot the socket is holding.
   -- |
   -- | The daemon pushes thirty times a second; this reads at ten, because a
@@ -1901,6 +2052,120 @@ handleBoardRecallFromMC6 ccNum = do
       Nothing -> pure unit
     Nothing -> pure unit
 
+-- | Wait for the device to say something, rather than assuming it did.
+-- |
+-- | MIDI has no acknowledgement, so the alternative is a fixed delay long enough
+-- | for the worst case — too short sometimes, too long always. Polling state
+-- | costs nothing and turns "probably arrived" into "arrived, and here is when".
+awaitState
+  :: forall o m. MonadAff m
+  => Int -> (AppState -> Boolean) -> H.HalogenM AppState Action Slots o m Boolean
+awaitState tries done
+  | tries <= 0 = pure false
+  | otherwise = do
+      st <- H.get
+      if done st then pure true else do
+        H.liftAff (delay (Milliseconds 150.0))
+        awaitState (tries - 1) done
+
+-- | Wait for a dump to finish, by waiting for it to stop.
+-- |
+-- | There is no end-of-dump marker, and the expected count is a per-model number
+-- | read out of somebody else's minified code — so treating it as a requirement
+-- | would hang on any device that sends 449. Instead: stop when the frame count
+-- | has not moved for a while, or early if it reaches the expected total.
+-- | Whichever happens first, what arrived is kept.
+awaitDumpSettled
+  :: forall o m. MonadAff m
+  => Int -> Int -> H.HalogenM AppState Action Slots o m Unit
+awaitDumpSettled lastCount quietFor = do
+  st <- H.get
+  let now = st.mc6DumpFrames
+  if st.mc6DumpDone || now >= Dump.expectedFrames then pure unit
+  else if quietFor >= 12 then
+    liftEffect $ Console.log $
+      "MC6 dump: went quiet after " <> show now <> " frames (expected "
+        <> show Dump.expectedFrames <> ", no completion frame seen)"
+  else do
+    H.liftAff (delay (Milliseconds 250.0))
+    awaitDumpSettled now (if now == lastCount then quietFor + 1 else 0)
+
+-- | Sweep the banks until a whole pass adds nothing.
+-- |
+-- | A reply may go missing for a reason that clears next time, and stopping
+-- | while the last sweep was still finding things would leave holes for no
+-- | reason but an arbitrary limit. So the loop ends on *no progress*; the count
+-- | is only a backstop against a device that never answers at all.
+exhaustBanks
+  :: forall o m. MonadAff m
+  => MIDI.MIDIOutput -> Int -> H.HalogenM AppState Action Slots o m Unit
+exhaustBanks output sweepsLeft
+  | sweepsLeft <= 0 = pure unit
+  | otherwise = do
+      st0 <- H.get
+      let allBanks = Array.range 0 (Survey.bankCount - 1)
+          missing = Array.filter (\b -> not (Map.member b st0.mc6BankSwitches)) allBanks
+          before = Map.size st0.mc6BankSwitches
+      if Array.null missing then pure unit else do
+        traverse_ (requestOneBank output) missing
+        st1 <- H.get
+        if Map.size st1.mc6BankSwitches == before
+          then liftEffect $ Console.log $
+            "MC6 read: a whole sweep added nothing; " <> show (Array.length missing)
+              <> " bank(s) are not answering"
+          else do
+            H.liftAff (delay (Milliseconds 500.0))
+            exhaustBanks output (sweepsLeft - 1)
+
+-- | Ask one bank for its switch names, and wait for the answer rather than for
+-- | a fixed delay, so the read runs at whatever speed the device manages.
+requestOneBank
+  :: forall o m. MonadAff m
+  => MIDI.MIDIOutput -> Int -> H.HalogenM AppState Action Slots o m Unit
+requestOneBank output b = do
+  H.modify_ _ { mc6ReadStatus = Just
+    ("Asking for bank " <> show b <> " of " <> show (Survey.bankCount - 1) <> "\x2026") }
+  sendSysExLogged ("read-bank-" <> show b) output (SysEx.sysexRequestPresetNames b)
+  _ <- awaitState 20 (\s -> Map.member b s.mc6BankSwitches)
+  pure unit
+
+-- | Write every authored page, in one editor session.
+-- |
+-- | The per-page sync is the wrong shape for anything instrument-wide. A global
+-- | occupies its slot on all thirty pages, so changing one and syncing the page
+-- | you happen to be looking at leaves twenty-nine holding the previous version
+-- | — and nothing says so, because the app's own model is correct and only the
+-- | device disagrees.
+-- |
+-- | Writes pages in full rather than only the slots globals occupy: after
+-- | `discard` the changed slots are the ones a global *stopped* filling, so a
+-- | globals-only write would miss precisely the pages that need it.
+syncAllBanksToMC6 :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
+syncAllBanksToMC6 = do
+  st <- H.get
+  case st.connections.mc6Output of
+    Nothing ->
+      H.modify_ _ { mc6ReadStatus = Just "Cannot write: no MC6 SysEx output selected." }
+    Just output -> do
+      let banks = st.controlBanks
+          writes = Array.length banks * ControlBank.switchCount
+      H.modify_ _ { mc6ReadStatus = Just
+        ("Writing " <> show (Array.length banks) <> " pages ("
+          <> show writes <> " presets)\x2026") }
+      withEditorSession output do
+        for_ banks \cb -> do
+          let presets = ControlBank.controlBankToPresets
+                          (Global.applyGlobals st.globalSwitches cb)
+          for_ presets \p -> do
+            let bytes = SysEx.sysexPresetData cb.mc6BankNumber p.switchIndex
+                          p.shortName p.longName p.toToggle p.messages
+            sendSysExLogged ("all-" <> show cb.mc6BankNumber <> "-" <> show p.switchIndex) output bytes
+            H.liftAff (delay (Milliseconds 100.0))
+      invalidateObservation (map _.mc6BankNumber banks)
+      H.modify_ _ { mc6ReadStatus = Just
+        ("Wrote " <> show (Array.length banks)
+          <> " pages to the MC6. Read the device again to confirm what landed.") }
+
 -- | Send SysEx with hex logging
 sendSysExLogged :: forall o m. MonadAff m => String -> MIDI.MIDIOutput -> Array Int -> H.HalogenM AppState Action Slots o m Unit
 sendSysExLogged label output bytes = do
@@ -2005,13 +2270,40 @@ syncControlBankToMC6 cb = do
     Nothing -> pure unit
     Just output -> do
       let presets = ControlBank.controlBankToPresets
-                      (Shared.applyShared st.sharedSwitches cb)
+                      (Global.applyGlobals st.globalSwitches cb)
       liftEffect $ Console.log $ "MC6 SysEx: syncing control bank '" <> cb.name <> "' to MC6 bank " <> show cb.mc6BankNumber
       withEditorSession output do
         for_ presets \p -> do
           let sysexBytes = SysEx.sysexPresetData cb.mc6BankNumber p.switchIndex p.shortName p.longName p.toToggle p.messages
           sendSysExLogged ("ctrl-" <> show p.switchIndex) output sysexBytes
           H.liftAff (delay (Milliseconds 100.0))
+      invalidateObservation [ cb.mc6BankNumber ]
+
+-- | Forget what we had read about the banks we just wrote.
+-- |
+-- | A write makes the read stale, and stale observation is worse than none: the
+-- | survey compares what we authored against what the device last said, so a
+-- | page that was synced *because* it differed goes on reporting "device
+-- | disagrees" against a snapshot taken before the fix. Every adopted bank
+-- | shows it, since globals are written into every page and no dump ever had
+-- | them.
+-- |
+-- | The tempting repair is to copy what we sent into the observed side, and it
+-- | is the same laundering that made a five-month-old backup file read as
+-- | `Observed`. We did not look; we wrote. So the honest move is to drop the
+-- | reading and let provenance fall back to `Authored` — the bank is ours,
+-- | unverified, and a re-read is what makes it observed again.
+invalidateObservation :: forall o m. MonadAff m => Array Int -> H.HalogenM AppState Action Slots o m Unit
+invalidateObservation bankNums = do
+  H.modify_ \s -> s
+    { mc6BankNames = Map.filterKeys (\k -> not (Array.elem k bankNums)) s.mc6BankNames
+    , mc6BankSwitches = Map.filterKeys (\k -> not (Array.elem k bankNums)) s.mc6BankSwitches
+    , mc6DumpedBanks = Array.filter (\nb -> not (Array.elem nb.bankNumber bankNums)) s.mc6DumpedBanks
+    }
+  st <- H.get
+  liftEffect $ Storage.saveDeviceRead st.mc6BankNames st.mc6BankSwitches
+    (fromMaybe "" st.mc6ReadAt)
+  liftEffect $ Storage.saveDumpedBanks st.mc6DumpedBanks
 
 -- | Inject board-recall trigger messages into mc6Banks for export
 injectBoardTriggers :: Array MC6Assignment -> Array BoardPreset -> Array MC6NativeBank -> Array MC6NativeBank
@@ -2314,3 +2606,28 @@ mergeLayout :: PedalDef -> PedalDef
 mergeLayout p = case PsRegistry.findPedal p.meta.id of
   Just psDef -> p { layout = psDef.layout }
   Nothing -> p
+
+-- | What the device said, once it is not a dump frame.
+-- |
+-- | Split out of the receive branch when acknowledgement moved in front of it:
+-- | the ack has to happen for every frame regardless of kind, so the kinds had
+-- | to stop being alternatives of one another.
+handleReadReply
+  :: forall o m. MonadAff m => Array Int -> H.HalogenM AppState Action Slots o m Unit
+handleReadReply bytes = case Read.decodeReply bytes of
+  Just (Read.BankNames names) ->
+    H.modify_ \s -> s
+      { mc6BankNames = Map.fromFoldable names
+      , mc6ReadStatus = Just ("Read " <> show (Array.length names) <> " bank names.")
+      }
+  -- Double duty: what a bank holds, and — when the device volunteers it rather
+  -- than answering a request — which bank it is standing on.
+  Just (Read.BankSwitches bank names) ->
+    H.modify_ \s -> s
+      { mc6BankSwitches = Map.insert bank names s.mc6BankSwitches
+      , mc6CurrentBank = Just bank
+      , mc6ReadStatus = Just ("Read bank " <> show bank <> ".")
+      }
+  Just (Read.OtherReply f1 f2) ->
+    liftEffect $ Console.log $ "MC6 reply not decoded: F1=" <> show f1 <> " F2=" <> show f2
+  Nothing -> pure unit

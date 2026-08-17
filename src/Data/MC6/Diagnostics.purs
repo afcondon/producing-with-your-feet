@@ -53,7 +53,6 @@ bypassBanks firstBank returnBankNum reg =
     , description: "Generated: one switch per pedal bypass"
     , mc6BankNumber: firstBank + i
     , returnSwitchIndex: returnIndex
-    , sharedOverrides: []
     , switches: pad (map pedalSwitch pedals)
     }
 

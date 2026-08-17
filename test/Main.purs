@@ -3,10 +3,11 @@ module Test.Main where
 import Prelude
 
 import Data.Argonaut.Core (stringify)
+import Data.Int.Bits (xor)
 import Data.Array as Array
 import Data.Map as Map
 import Data.Set as Set
-import Data.Maybe (Maybe(..), isJust, isNothing, maybe)
+import Data.Maybe (Maybe(..), fromMaybe, isJust, isNothing, maybe)
 import Data.Midi (makeCC, makeMidiValue, makeProgramNumber)
 import Data.Pedal (PedalId(..))
 import Data.Pedal.Engage (EngageConfig(..), EngageState(..), bypassCCs)
@@ -14,13 +15,16 @@ import Effect (Effect)
 import Effect.Console (log)
 import Config.Registry as CRegistry
 import Engine (initEngineFromPedals, pedalsOnChannel)
+import Engine.Storage as Storage
 import Engine.Storage (engineToJson, parseEngine, parseCardOrder, parsePresets, parseBoardPresets, parseEngageState)
 import Data.MC6.Board as Board
 import Data.MC6.ControlBank as ControlBank
 import Data.MC6.Message as MC6Msg
 import Data.MC6.Types (MC6Action(..))
 import Data.MC6.Read as Read
-import Data.MC6.Shared as Shared
+import Data.MC6.SysEx as SysEx
+import Data.MC6.Dump as Dump
+import Data.MC6.Global as Global
 import Data.MC6.Survey as Survey
 import Data.MC6.Verb as Verb
 import Data.Tuple (Tuple(..))
@@ -59,8 +63,28 @@ capturedBankSwitchesFrame =
   , 32, 32, 32, 32, 102, 247
   ]
 
+-- | Rewrite one of our own preset writes as the device's dump frame.
+-- |
+-- | Only F2 changes: our writer already sends F1=7, F2=17 — which is exactly the
+-- | editor's own upload code — and the device's dump records are F1=7, F2=1. The
+-- | payload is byte-identical either way, which is why the encoder is a fair
+-- | fixture for the decoder.
+asDumpFrame :: Int -> Array Int -> Array Int
+asDumpFrame f2 bytes = fromMaybe bytes (Array.updateAt 7 f2 bytes)
+
+dumpPreset :: Array Int -> Maybe Dump.DumpPreset
+dumpPreset bytes = case Dump.decodeDumpFrame bytes of
+  Just (Dump.DumpPresetFrame p) -> Just p
+  _ -> Nothing
+
+-- | A bare Morningstar frame with the given function bytes and no payload.
+frameWith :: Int -> Int -> Int -> Array Int
+frameWith f1 f2 f3 =
+  [ 0xF0, 0x00, 0x21, 0x24, 0x03, 0x00, f1, f2, f3, 0, 0, 0, 0, 0, 0, 0, 0, 0xF7 ]
+
 assert :: String -> Boolean -> Effect Unit
 assert label ok = log $ (if ok then "PASS" else "FAIL") <> " - " <> label
+
 
 main :: Effect Unit
 main = do
@@ -319,7 +343,7 @@ main = do
   log ""
   log "Running MC6 survey tests..."
 
-  let cards = Survey.survey reg 1 [ ControlBank.exampleControlBank ] [] Map.empty Map.empty
+  let cards = Survey.survey reg 1 [ ControlBank.exampleControlBank ] [] [] Map.empty Map.empty
 
   assert "the survey covers all 30 banks" (Array.length cards == Survey.bankCount)
   assert "a known bank has 12 slots"
@@ -368,7 +392,7 @@ main = do
   -- Reading the device outranks anything we merely believe.
   let readNames = Map.fromFoldable [ Tuple 11 "LoopyPro", Tuple 19 "Ableton" ]
       readSwitches = Map.singleton 19 [ "Rec", "Multiply", "Take" ]
-      readCards = Survey.survey reg 1 [ ControlBank.exampleControlBank ] [] readNames readSwitches
+      readCards = Survey.survey reg 1 [ ControlBank.exampleControlBank ] [] [] readNames readSwitches
       at n = Array.filter (\c -> c.bankNumber == n) readCards
   assert "a bank the device named is Observed, not Unknown"
     (map _.provenance (at 11) == [ Survey.Observed ])
@@ -383,57 +407,246 @@ main = do
     (Array.all (\c -> c.agrees == Nothing) (Array.filter (\c -> c.bankNumber /= 20) readCards))
 
   log ""
-  log "Running shared-switch tests..."
+  log "Running global-switch tests..."
 
   let bankA = ControlBank.exampleControlBank
-      bankB = bankA { id = "b", mc6BankNumber = 21, sharedOverrides = [ 6 ] }
+      bankB = bankA { id = "b", mc6BankNumber = 21 }
       backSwitch =
-        { id: "shared-6", slot: 6, label: "< Back", longName: "Back to Board Bank"
+        { id: "global-G", slot: 6, label: "< Back", longName: "Back to Board Bank"
         , toToggle: false, messages: [ MC6Msg.bankJumpMessage 1 ActionPress ] }
 
   -- Applied on the way out, not stored: the authored page keeps saying what its
   -- author wrote.
-  assert "a shared switch fills its slot"
-    (map _.label (Array.index (Shared.applyShared [ backSwitch ] bankA).switches 6)
+  assert "a global fills its slot"
+    (map _.label (Array.index (Global.applyGlobals [ backSwitch ] bankA).switches 6)
       == Just "< Back")
   assert "and does not disturb the others"
-    (map _.label (Array.index (Shared.applyShared [ backSwitch ] bankA).switches 0)
+    (map _.label (Array.index (Global.applyGlobals [ backSwitch ] bankA).switches 0)
       == map _.label (Array.index bankA.switches 0))
-  assert "an overriding page keeps its own switch"
-    (map _.label (Array.index (Shared.applyShared [ backSwitch ] bankB).switches 6)
-      == map _.label (Array.index bankB.switches 6))
+  -- The rule the whole design rests on: no page can refuse.
+  assert "every page takes it, with no way to opt out"
+    (map _.label (Array.index (Global.applyGlobals [ backSwitch ] bankB).switches 6)
+      == Just "< Back")
   assert "applying nothing changes nothing"
-    (Shared.applyShared [] bankA == bankA)
-  -- "On every page" is a claim; the count is the fact.
-  assert "page count excludes overriding pages"
-    (Shared.pageCount [ bankA, bankB ] backSwitch == 1)
-  assert "sharedAt finds by slot, not by index"
-    (map _.label (Shared.sharedAt [ backSwitch ] 6) == Just "< Back"
-      && Shared.sharedAt [ backSwitch ] 5 == Nothing)
+    (Global.applyGlobals [] bankA == bankA)
+  assert "globalAt finds by slot, not by index"
+    (map _.label (Global.globalAt [ backSwitch ] 6) == Just "< Back"
+      && Global.globalAt [ backSwitch ] 5 == Nothing)
 
-  -- The migration off the hardcoded return switch. Modelled on the real store:
-  -- four pages agreeing on slot 6, one keeping its way back on slot 0.
-  let mig = Shared.migrateReturns 1
+  -- Promote and dissolve are duals. If this ever fails, one of them has grown a
+  -- side effect the other does not undo, and the two-concept story is a lie.
+  let banks2 = [ bankA, bankB ]
+      promoted = Global.promote 0 (Global.toSwitch backSwitch) []
+      roundTrip = Global.dissolve 0 promoted banks2
+  assert "promote puts the switch on the slot it names"
+    (map _.slot (Array.head promoted) == Just 0)
+  assert "dissolve leaves no global behind"
+    (Array.null roundTrip.globals)
+  assert "and writes the copy onto every page"
+    (Array.all (\cb -> map _.label (Array.index cb.switches 0) == Just "< Back")
+      roundTrip.banks)
+  assert "dissolving what was never global is a no-op"
+    (let r = Global.dissolve 3 [] banks2 in r.banks == banks2 && Array.null r.globals)
+  -- The other exit. Promote writes nothing to the pages, so its undo must not
+  -- either — otherwise a global made by mistake could only be removed by
+  -- stamping the mistake onto all thirty pages.
+  assert "discard removes the global and touches no page"
+    (Array.null (Global.discard 0 promoted))
+  assert "promote then discard is the identity"
+    (Global.discard 0 (Global.promote 0 (Global.toSwitch backSwitch) []) == [])
+
+  -- A stamp is a copy, not a link: only the named pages change, and nothing
+  -- records that they came from the same place.
+  let stamped = Global.stampTo 2 (Global.toSwitch backSwitch) [ 21 ] banks2
+  assert "a stamp lands on the pages it names"
+    (map (\cb -> map _.label (Array.index cb.switches 2)) (Array.index stamped 1)
+      == Just (Just "< Back"))
+  assert "and leaves the others alone"
+    (Array.index stamped 0 == Just bankA)
+
+  -- Retiring the shared-switch era. The page that refused keeps what it refused
+  -- the global *for*; the pages that accepted keep the global's content. Same
+  -- bytes out either way, which is the only acceptable outcome for a migration
+  -- nobody asked for.
+  let refuser = bankB { switches = fromMaybe bankB.switches
+                          (Array.updateAt 6 { label: "Tuner", longName: "Tuner"
+                                            , toToggle: false, messages: [] } bankB.switches) }
+      retired = Global.retireOverrides [ [], [ 6 ] ] [ backSwitch ] [ bankA, refuser ]
+  assert "a global any page refused is dissolved"
+    (Array.null retired.globals)
+  assert "the accepting page keeps the global's content"
+    (map (\cb -> map _.label (Array.index cb.switches 6)) (Array.index retired.banks 0)
+      == Just (Just "< Back"))
+  assert "and the refusing page keeps its own"
+    (map (\cb -> map _.label (Array.index cb.switches 6)) (Array.index retired.banks 1)
+      == Just (Just "Tuner"))
+  assert "with nothing refused, nothing is disturbed"
+    (let r = Global.retireOverrides [ [], [] ] [ backSwitch ] banks2
+     in r.globals == [ backSwitch ] && r.banks == banks2)
+
+  -- The migration off the hardcoded return switch, now strict: agreement makes
+  -- a global, disagreement makes copies.
+  let unanimous = Global.migrateReturns 1
+        [ bankA, bankA { id = "b", mc6BankNumber = 1 }, bankA { id = "c", mc6BankNumber = 2 } ]
+  assert "pages that agree on a return slot get one global"
+    (map _.slot (Array.head unanimous.globals) == Just 6)
+  assert "and keep the name a page gave it"
+    (map _.label (Array.head unanimous.globals) == Just "< Back")
+  assert "and their own switches are untouched"
+    (unanimous.banks == [ bankA, bankA { id = "b", mc6BankNumber = 1 }, bankA { id = "c", mc6BankNumber = 2 } ])
+
+  -- The odd page is why this cannot be a global: a global at slot 6 would give
+  -- page d a second way back, silently.
+  let mixed = Global.migrateReturns 1
         [ bankA
-        , bankA { id = "b", mc6BankNumber = 1, sharedOverrides = [] }
-        , bankA { id = "c", mc6BankNumber = 2, sharedOverrides = [] }
-        , bankA { id = "d", mc6BankNumber = 3, returnSwitchIndex = 0, sharedOverrides = [] }
+        , bankA { id = "b", mc6BankNumber = 1 }
+        , bankA { id = "d", mc6BankNumber = 3, returnSwitchIndex = 0 }
         ]
-  assert "the shared return lands on the slot most pages use"
-    (map _.slot (Array.head mig.shared) == Just 6)
-  assert "and keeps the name a page gave it"
-    (map _.label (Array.head mig.shared) == Just "< Back")
-  assert "a page that agreed is left alone"
-    (map _.sharedOverrides (Array.index mig.banks 0) == Just [])
-  -- Behaviour-preserving: the odd page keeps its way back exactly where it was,
-  -- and does not quietly grow a second one at the shared slot.
-  assert "a page with its return elsewhere keeps it there"
-    (map (\sw -> Array.length sw.messages)
-      (Array.index mig.banks 3 >>= \b -> Array.index b.switches 0) == Just 1)
-  assert "and overrides the shared slot rather than gaining a second way back"
-    (map _.sharedOverrides (Array.index mig.banks 3) == Just [ 6 ])
+  assert "pages that disagree get no global at all"
+    (Array.null mixed.globals)
+  assert "each page gets the jump written where it already kept it"
+    (map (\cb -> map (_.messages >>> Array.length) (Array.index cb.switches 0))
+      (Array.index mixed.banks 2) == Just (Just 1))
+  assert "and the modal slot is left as that page had it"
+    (map (\cb -> map (_.messages >>> Array.length) (Array.index cb.switches 6))
+      (Array.index mixed.banks 2) == Just (Just 0))
   assert "migration of nothing produces nothing"
-    (Array.null (Shared.migrateReturns 1 []).shared)
+    (Array.null (Global.migrateReturns 1 []).globals)
+
+  -- A bank the device described but this app has never written. The survey used
+  -- to label these "not read" because its slot array is built from messages, and
+  -- a read brings names only — so a successful read looked like no read at all.
+  let namesOnly = Survey.survey reg 1 []
+        [] []
+        (Map.fromFoldable [ Tuple 7 "Presets", Tuple 8 "" ])
+        (Map.fromFoldable [ Tuple 7 [ "Home", "Resetter" ] ])
+      cardAt n = Array.find (\c -> c.bankNumber == n) namesOnly
+  assert "a bank the device named is known even with no messages for it"
+    (map _.provenance (cardAt 7) == Just Survey.Observed)
+  assert "and carries the names it gave, so the card has something to show"
+    (map _.observedNames (cardAt 7) == Just [ "Home", "Resetter" ])
+  -- The distinction that makes the third state necessary: named but no switch
+  -- set is still known, and must not fall back to "not read".
+  assert "a bank named but with no switch set is still not Unknown"
+    (map _.provenance (cardAt 8) == Just Survey.Observed)
+  assert "a bank nothing said anything about stays Unknown"
+    (map _.provenance (cardAt 3) == Just Survey.Unknown)
+  -- The two counts the header shows must be able to differ. A single connect
+  -- names every bank and returns exactly one switch set, so a summary built from
+  -- provenance alone reports 30 and 30 over cards that show nothing.
+  assert "names read and switch sets read are different counts"
+    (Array.length (Survey.knownBanks namesOnly) == 2
+      && Array.length (Array.filter (\c -> Array.any (_ /= "") c.observedNames) namesOnly) == 1)
+
+  log ""
+  log "Running MC6 read-request tests..."
+
+  -- Byte layout taken from Morningstar's own editor bundle: F1..F6 live at
+  -- offsets 6..11, and the checksum is an XOR of everything before the last two
+  -- bytes. Pinned here because the request was reconstructed from their code and
+  -- a silent drift in our framing would look like a device that stopped
+  -- answering.
+  let req5 = SysEx.sysexRequestPresetNames 5
+  assert "a bank request is a Morningstar frame"
+    (Array.take 5 req5 == [ 0xF0, 0x00, 0x21, 0x24, 0x03 ])
+  assert "carrying F1=0 F2=64 and the bank in F3"
+    (Array.slice 6 9 req5 == [ 0x00, 0x40, 5 ])
+  assert "and ending with a checksum then F7"
+    (Array.last req5 == Just 0xF7 && Array.length req5 == 18)
+  -- The checksum the device validates: XOR of every byte up to the slot itself.
+  assert "whose checksum is the XOR the device expects"
+    (Array.index req5 16
+      == Just (Array.foldl xor 0 (Array.take 16 req5) `mod` 128))
+  -- The two dump requests differ by one in F3, and the wrong one answers with
+  -- silence rather than an error — which is exactly how the first attempt at
+  -- this looked like a decoder fault. 51 is all banks, 50 is the current one.
+  assert "the all-banks dump is F1=7 F2=0 F3=51"
+    (Array.slice 6 9 SysEx.sysexRequestFullDump == [ 0x07, 0x00, 0x33 ])
+  assert "and the single-bank dump is its neighbour, 50"
+    (Array.slice 6 9 SysEx.sysexRequestBankDump == [ 0x07, 0x00, 0x32 ])
+  -- Flow control, not courtesy: the device waits to be told each frame landed,
+  -- and echoing the checksum is what says which frame is meant.
+  assert "an acknowledgement echoes the checksum it received"
+    (Array.slice 6 9 (SysEx.sysexAcknowledge 0x66) == [ 0x00, 0x7F, 0x66 ])
+
+  assert "asking for every bank at once is F2=43 with no bank"
+    (Array.slice 6 9 SysEx.sysexRequestAllPresetNames == [ 0x00, 0x2B, 0x00 ])
+  -- Bank 0 must be requestable: an off-by-one here would silently read 1..29 and
+  -- report a hole at the one bank that is always in use.
+  assert "bank 0 is a legal request, not an empty one"
+    (Array.slice 6 9 (SysEx.sysexRequestPresetNames 0) == [ 0x00, 0x40, 0x00 ])
+  assert "and the last bank is reachable too"
+    (Array.slice 6 9 (SysEx.sysexRequestPresetNames 29) == [ 0x00, 0x40, 29 ])
+
+  -- The dump decoder is the exact mirror of an encoder that has been writing to
+  -- this hardware for months, so the encoder is the right fixture: anything the
+  -- device would accept from us must read back as what we meant.
+  let dumpMsgs =
+        [ MC6Msg.ccMessage 3 105 127 ActionPress
+        , MC6Msg.bankJumpMessage 4 ActionPress
+        ]
+      encoded = SysEx.sysexPresetData 22 6 "Br Tap" "Brig Tap Tempo" true dumpMsgs
+      -- Ours go out as F1=7 F2=17 (the editor's upload code); the device's dump
+      -- records are F1=7 F2=1. Same payload, so only F2 needs rewriting.
+      asDump = asDumpFrame 0x01 encoded
+  assert "a dump frame decodes to the preset it encoded"
+    (dumpPreset asDump # map (\d -> Tuple d.bankNumber d.presetNum)
+      # (_ == Just (Tuple 22 6)))
+  assert "with its names and toggle flag intact"
+    (map _.shortName (dumpPreset asDump) == Just "Br Tap"
+      && map _.longName (dumpPreset asDump) == Just "Brig Tap Tempo"
+      && map _.toToggle (dumpPreset asDump) == Just true)
+  -- The whole point of the dump over a name read: messages come back.
+  assert "and every message, which is what names could never give us"
+    (map _.messages (dumpPreset asDump) == Just dumpMsgs)
+  assert "a frame that is not a dump frame at all is refused"
+    (Dump.decodeDumpFrame capturedBankSwitchesFrame == Nothing)
+  -- The device announces the end of a dump. Recognising it is what stops a read
+  -- from having to guess at silence — a guess that truncated one at 221 of 450.
+  assert "the all-banks completion frame ends the dump"
+    (Dump.decodeDumpFrame (frameWith 0x07 0x00 0x02) == Just Dump.DumpFinished
+      && Dump.decodeDumpFrame (frameWith 0x07 0x00 0x01) == Just Dump.DumpFinished)
+  assert "and its start frame is not mistaken for the end"
+    (Dump.decodeDumpFrame (frameWith 0x07 0x00 0x00) == Just Dump.DumpStarted)
+  -- A dump costs a minute of the hardware's time and 450 frames, so it has to
+  -- survive a reload. Round-tripped through the real codec rather than eyeballed,
+  -- because a lossy save would look exactly like a device that read badly.
+  let dumpedBank =
+        { bankNumber: 22
+        , bankName: ""
+        , bankClearToggle: false
+        , presets:
+            [ { presetNum: 0, shortName: "Br Tap", toggleName: "", longName: "Brig Tap"
+              , toToggle: true, toggleGroup: 0, messages: dumpMsgs }
+            , { presetNum: 6, shortName: "< Back", toggleName: "", longName: ""
+              , toToggle: false, toggleGroup: 0, messages: [] }
+            ]
+        }
+  assert "a dumped bank survives being saved and loaded"
+    (Storage.parseDumpedBanks (Storage.dumpedBanksToJsonString [ dumpedBank ])
+      == Just [ dumpedBank ])
+
+  assert "bank records are counted, not discarded"
+    (Dump.decodeDumpFrame (frameWith 0x07 0x02 0x0b) == Just (Dump.DumpBankFrame 11))
+  -- 30 banks x (12 presets + 2 expression + 1 bank record).
+  assert "the expected frame count is the arithmetic, not a magic number"
+    (Dump.expectedFrames == 30 * (12 + 2 + 1))
+  -- Ordering is not promised by the protocol, and a shuffled bank would look
+  -- like a device fault rather than a decoder one.
+  let shuffled =
+        [ { bankNumber: 3, presetNum: 5, isExp: false, shortName: "F", toggleName: ""
+          , longName: "", toToggle: false, toggleGroup: 0, messages: [] }
+        , { bankNumber: 3, presetNum: 0, isExp: false, shortName: "A", toggleName: ""
+          , longName: "", toToggle: false, toggleGroup: 0, messages: [] }
+        , { bankNumber: 3, presetNum: 1, isExp: true, shortName: "EXP", toggleName: ""
+          , longName: "", toToggle: false, toggleGroup: 0, messages: [] }
+        ]
+  assert "presets are gathered into banks in switch order, not arrival order"
+    (map (\b -> map _.shortName b.presets) (Array.head (Dump.presetsToBanks shuffled))
+      == Just [ "A", "F" ])
+  assert "and expression presets are left out of the twelve"
+    (map (\b -> Array.length b.presets) (Array.head (Dump.presetsToBanks shuffled))
+      == Just 2)
 
   log ""
   log "Running MC6 navigation-graph tests..."

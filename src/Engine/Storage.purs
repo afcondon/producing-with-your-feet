@@ -12,11 +12,18 @@ module Engine.Storage
   , loadCardOrder
   , loadCardOrderParsed
   , saveMC6Assignments
+  , saveDeviceRead
+  , loadDeviceRead
+  , saveDumpedBanks
+  , loadDumpedBanks
+  , dumpedBanksToJsonString
+  , parseDumpedBanks
   , loadMC6AssignmentsParsed
   , saveControlBanks
   , loadControlBanksParsed
-  , saveSharedSwitches
-  , loadSharedSwitchesParsed
+  , saveGlobalSwitches
+  , loadGlobalSwitchesParsed
+  , loadLegacyOverrides
   , parseEngine
   , parseCardOrder
   , parsePresets
@@ -47,8 +54,8 @@ import Data.JSDate as JSDate
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.MC6.ControlBank (ControlBank, ControlBankSwitch)
-import Data.MC6.Shared (SharedSwitch)
-import Data.MC6.Types (MC6Message, MC6TogglePosition(..), mc6MsgTypeToInt, intToMC6MsgType, mc6ActionToInt, intToMC6Action, mc6ToggleToInt)
+import Data.MC6.Global (GlobalSwitch)
+import Data.MC6.Types (MC6Message, MC6NativeBank, MC6Preset, MC6TogglePosition(..), mc6MsgTypeToInt, intToMC6MsgType, mc6ActionToInt, intToMC6Action, mc6ToggleToInt)
 import Data.Midi (CC, MidiValue, makeCC, makeMidiValue, makeProgramNumber, unCC, unMidiValue, unProgramNumber)
 import Data.Pedal (PedalId(..))
 import Data.Pedal.Engage (EngageState(..))
@@ -70,7 +77,9 @@ data StorageKey
   | CardOrderKey
   | MC6AssignmentsKey
   | ControlBanksKey
-  | SharedSwitchesKey
+  | GlobalSwitchesKey
+  | DeviceReadKey
+  | DumpedBanksKey
 
 keyString :: StorageKey -> String
 keyString = case _ of
@@ -81,7 +90,11 @@ keyString = case _ of
   CardOrderKey -> "pedal-explorer-card-order"
   MC6AssignmentsKey -> "pedal-explorer-mc6-assignments"
   ControlBanksKey -> "pedal-explorer-control-banks"
-  SharedSwitchesKey -> "pedal-explorer-shared-switches"
+  -- Still the old string: renaming a storage key throws away the data it
+  -- names, and the shape did not change when the concept did.
+  GlobalSwitchesKey -> "pedal-explorer-shared-switches"
+  DeviceReadKey -> "pedal-explorer-mc6-device-read"
+  DumpedBanksKey -> "pedal-explorer-mc6-dumped-banks"
 
 getStorage :: Effect Storage.Storage
 getStorage = window >>= localStorage
@@ -154,6 +167,120 @@ saveCardOrder order = do
 
 loadCardOrder :: Effect (Maybe String)
 loadCardOrder = getItem CardOrderKey
+
+-- | What the MC6 last said about itself, kept across reloads.
+-- |
+-- | The timestamp is stored *with* the maps rather than beside them, because the
+-- | two are one fact: these were the names at that moment. Anything that renders
+-- | the maps can therefore say how old they are, which is the difference between
+-- | a known-good baseline and a stale one wearing its clothes.
+saveDeviceRead :: Map.Map Int String -> Map.Map Int (Array String) -> String -> Effect Unit
+saveDeviceRead names switches readAt =
+  setItem DeviceReadKey $ stringify $ Json.fromObject $ FO.fromFoldable
+    [ Tuple "readAt" (Json.fromString readAt)
+    , Tuple "names" (Json.fromObject (FO.fromFoldable
+        (map (\(Tuple n v) -> Tuple (show n) (Json.fromString v))
+          (Map.toUnfoldable names :: Array _))))
+    , Tuple "switches" (Json.fromObject (FO.fromFoldable
+        (map (\(Tuple n vs) -> Tuple (show n) (Json.fromArray (map Json.fromString vs)))
+          (Map.toUnfoldable switches :: Array _))))
+    ]
+
+loadDeviceRead
+  :: Effect (Maybe { names :: Map.Map Int String
+                   , switches :: Map.Map Int (Array String)
+                   , readAt :: String
+                   })
+loadDeviceRead = do
+  mStr <- getItem DeviceReadKey
+  pure do
+    str <- mStr
+    json <- hush (jsonParser str)
+    obj <- Json.toObject json
+    readAt <- FO.lookup "readAt" obj >>= Json.toString
+    namesObj <- FO.lookup "names" obj >>= Json.toObject
+    switchesObj <- FO.lookup "switches" obj >>= Json.toObject
+    names <- traverse (\(Tuple k v) -> Tuple <$> Int.fromString k <*> Json.toString v)
+               (FO.toUnfoldable namesObj :: Array _)
+    switches <- traverse
+                  (\(Tuple k v) -> Tuple <$> Int.fromString k
+                                      <*> (Json.toArray v >>= traverse Json.toString))
+                  (FO.toUnfoldable switchesObj :: Array _)
+    pure { names: Map.fromFoldable names
+         , switches: Map.fromFoldable switches
+         , readAt
+         }
+
+-- | Every bank the last full dump returned, messages included.
+-- |
+-- | Kept separately from `saveDeviceRead` because it is a different order of
+-- | claim and a much larger payload: names describe the device, messages
+-- | reproduce it. A dump takes a minute of the hardware's time and four hundred
+-- | and fifty frames, so losing it to a page reload would make the whole
+-- | exercise a chore rather than a baseline.
+saveDumpedBanks :: Array MC6NativeBank -> Effect Unit
+saveDumpedBanks = setItem DumpedBanksKey <<< dumpedBanksToJsonString
+
+loadDumpedBanks :: Effect (Array MC6NativeBank)
+loadDumpedBanks = do
+  mStr <- getItem DumpedBanksKey
+  pure $ fromMaybe [] (mStr >>= parseDumpedBanks)
+
+-- | Split from the effectful pair so the round trip can be tested. A lossy save
+-- | here would be indistinguishable from a device that read badly.
+dumpedBanksToJsonString :: Array MC6NativeBank -> String
+dumpedBanksToJsonString = stringify <<< Json.fromArray <<< map nativeBankToJson
+
+parseDumpedBanks :: String -> Maybe (Array MC6NativeBank)
+parseDumpedBanks str = do
+  json <- hush (jsonParser str)
+  arr <- Json.toArray json
+  traverse parseNativeBank arr
+
+nativeBankToJson :: MC6NativeBank -> Json
+nativeBankToJson nb =
+  Json.fromObject $ FO.fromFoldable
+    [ Tuple "bankNumber" (Json.fromNumber (Int.toNumber nb.bankNumber))
+    , Tuple "bankName" (Json.fromString nb.bankName)
+    , Tuple "presets" (Json.fromArray (map nativePresetToJson nb.presets))
+    ]
+
+nativePresetToJson :: MC6Preset -> Json
+nativePresetToJson p =
+  Json.fromObject $ FO.fromFoldable
+    [ Tuple "presetNum" (Json.fromNumber (Int.toNumber p.presetNum))
+    , Tuple "shortName" (Json.fromString p.shortName)
+    , Tuple "toggleName" (Json.fromString p.toggleName)
+    , Tuple "longName" (Json.fromString p.longName)
+    , Tuple "toToggle" (Json.fromBoolean p.toToggle)
+    , Tuple "toggleGroup" (Json.fromNumber (Int.toNumber p.toggleGroup))
+    , Tuple "messages" (Json.fromArray (map mc6MessageToJson p.messages))
+    ]
+
+parseNativeBank :: Json -> Maybe MC6NativeBank
+parseNativeBank json = do
+  obj <- Json.toObject json
+  bankNumber <- FO.lookup "bankNumber" obj >>= Json.toNumber >>= Int.fromNumber
+  let bankName = fromMaybe "" (FO.lookup "bankName" obj >>= Json.toString)
+  presetsJson <- FO.lookup "presets" obj >>= Json.toArray
+  presets <- traverse parseNativePreset presetsJson
+  pure { bankNumber, bankName, bankClearToggle: false, presets }
+
+parseNativePreset :: Json -> Maybe MC6Preset
+parseNativePreset json = do
+  obj <- Json.toObject json
+  presetNum <- FO.lookup "presetNum" obj >>= Json.toNumber >>= Int.fromNumber
+  let str k = fromMaybe "" (FO.lookup k obj >>= Json.toString)
+  messagesJson <- FO.lookup "messages" obj >>= Json.toArray
+  messages <- traverse parseMC6Message messagesJson
+  pure { presetNum
+       , shortName: str "shortName"
+       , toggleName: str "toggleName"
+       , longName: str "longName"
+       , toToggle: fromMaybe false (FO.lookup "toToggle" obj >>= Json.toBoolean)
+       , toggleGroup: fromMaybe 0 (FO.lookup "toggleGroup" obj >>= Json.toNumber >>= Int.fromNumber)
+       , messages
+       }
 
 saveMC6Assignments :: Array MC6Assignment -> Effect Unit
 saveMC6Assignments assignments = do
@@ -450,24 +577,24 @@ parseMC6Assignment json = do
 
 -- Control Bank serialization
 
-saveSharedSwitches :: Array SharedSwitch -> Effect Unit
-saveSharedSwitches shared = do
-  let json = Json.fromArray (map sharedSwitchToJson shared)
-  setItem SharedSwitchesKey (stringify json)
+saveGlobalSwitches :: Array GlobalSwitch -> Effect Unit
+saveGlobalSwitches globals = do
+  let json = Json.fromArray (map globalSwitchToJson globals)
+  setItem GlobalSwitchesKey (stringify json)
 
-loadSharedSwitchesParsed :: Effect (Array SharedSwitch)
-loadSharedSwitchesParsed = do
-  mStr <- getItem SharedSwitchesKey
-  pure $ fromMaybe [] (mStr >>= parseSharedSwitches)
+loadGlobalSwitchesParsed :: Effect (Array GlobalSwitch)
+loadGlobalSwitchesParsed = do
+  mStr <- getItem GlobalSwitchesKey
+  pure $ fromMaybe [] (mStr >>= parseGlobalSwitches)
 
-parseSharedSwitches :: String -> Maybe (Array SharedSwitch)
-parseSharedSwitches str = do
+parseGlobalSwitches :: String -> Maybe (Array GlobalSwitch)
+parseGlobalSwitches str = do
   json <- hush (jsonParser str)
   arr <- Json.toArray json
-  traverse parseSharedSwitch arr
+  traverse parseGlobalSwitch arr
 
-sharedSwitchToJson :: SharedSwitch -> Json
-sharedSwitchToJson s =
+globalSwitchToJson :: GlobalSwitch -> Json
+globalSwitchToJson s =
   Json.fromObject $ FO.fromFoldable
     [ Tuple "id" (Json.fromString s.id)
     , Tuple "slot" (Json.fromNumber (Int.toNumber s.slot))
@@ -477,8 +604,8 @@ sharedSwitchToJson s =
     , Tuple "messages" (Json.fromArray (map mc6MessageToJson s.messages))
     ]
 
-parseSharedSwitch :: Json -> Maybe SharedSwitch
-parseSharedSwitch json = do
+parseGlobalSwitch :: Json -> Maybe GlobalSwitch
+parseGlobalSwitch json = do
   obj <- Json.toObject json
   id <- FO.lookup "id" obj >>= Json.toString
   slot <- FO.lookup "slot" obj >>= Json.toNumber >>= Int.fromNumber
@@ -513,7 +640,6 @@ controlBankToJson cb =
     , Tuple "description" (Json.fromString cb.description)
     , Tuple "mc6BankNumber" (Json.fromNumber (Int.toNumber cb.mc6BankNumber))
     , Tuple "returnSwitchIndex" (Json.fromNumber (Int.toNumber cb.returnSwitchIndex))
-    , Tuple "sharedOverrides" (Json.fromArray (map (Json.fromNumber <<< Int.toNumber) cb.sharedOverrides))
     , Tuple "switches" (Json.fromArray (map controlBankSwitchToJson cb.switches))
     ]
 
@@ -550,14 +676,28 @@ parseControlBank json = do
   returnSwitchIndex <- FO.lookup "returnSwitchIndex" obj >>= Json.toNumber >>= Int.fromNumber
   switchesJson <- FO.lookup "switches" obj >>= Json.toArray
   switches <- traverse parseControlBankSwitch switchesJson
-  -- Absent on every page written before shared switches existed, and absent is
-  -- the right default: a page that never refused anything refuses nothing.
-  let sharedOverrides = fromMaybe []
-        ( FO.lookup "sharedOverrides" obj
-            >>= Json.toArray
-            >>= traverse (\j -> Json.toNumber j >>= Int.fromNumber)
-        )
-  pure { id, name, description, mc6BankNumber, returnSwitchIndex, switches, sharedOverrides }
+  pure { id, name, description, mc6BankNumber, returnSwitchIndex, switches }
+
+-- | The per-page override lists left in the store by the shared-switch era.
+-- |
+-- | Read separately from the banks, and only once at load, because a bank no
+-- | longer has anywhere to put them — `Global.retireOverrides` consumes this
+-- | array and the next save drops the field for good. Parallel to the bank
+-- | array by position, so an unparseable store yields `[]` and the reconciler
+-- | correctly concludes nothing was ever refused.
+loadLegacyOverrides :: Effect (Array (Array Int))
+loadLegacyOverrides = do
+  mStr <- getItem ControlBanksKey
+  pure $ fromMaybe [] do
+    str <- mStr
+    json <- hush (jsonParser str)
+    arr <- Json.toArray json
+    pure $ map overridesOf arr
+  where
+  overridesOf json = fromMaybe [] do
+    obj <- Json.toObject json
+    slots <- FO.lookup "sharedOverrides" obj >>= Json.toArray
+    traverse (\j -> Json.toNumber j >>= Int.fromNumber) slots
 
 parseControlBankSwitch :: Json -> Maybe ControlBankSwitch
 parseControlBankSwitch json = do

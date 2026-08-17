@@ -2639,37 +2639,103 @@ body {
 .controls-bank-switch-verb { font-size: 10px; color: var(--fg-muted); text-transform: uppercase; letter-spacing: .04em; }
 .controls-bank-switch-observed { font-size: 10px; color: #be123c; margin-top: 2px; }
 
-/* Shared switches: instrument furniture, marked wherever it appears. */
-.controls-shared-mark { font-size: 12px; color: var(--accent); font-weight: 700; }
-.controls-override-mark { font-size: 11px; color: #be123c; font-weight: 700; }
-.controls-bank-switch.shared { background: #f7f9fc; }
-.controls-bank-switch.overridden { border-style: dashed; }
+/* Globals: instrument furniture. One mark, one tint, no third state — a slot
+   is global or it is local, and the whole point of the rewrite is that you can
+   tell which by looking. Purple throughout, kept away from the accent so the
+   scope of a switch never reads as its selection. */
+.controls-global-mark { font-size: 11px; color: #7e22ce; }
+.controls-bank-switch.global { background: #faf5ff; }
+.controls-bank-switch.global .controls-bank-switch-label { color: #6b21a8; }
+.controls-bank-switch.vacant { opacity: .55; }
 
-.controls-shared-banner {
+/* The device's own switches, shown before we take a bank over. Flat and
+   uninviting on purpose: it is evidence, not a surface. The one loud thing is
+   the switch a global is about to overwrite, because that cell is the only
+   place its contents are ever visible. */
+.controls-device-preview { margin: 4px 0 12px; }
+.controls-device-preview-head {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--fg-muted); margin-bottom: 6px;
+}
+.controls-bank-switch.readonly { cursor: default; background: var(--bg-section); }
+.controls-bank-switch.readonly:hover { border-color: var(--border); }
+.controls-bank-switch.readonly.displaced {
+  background: #fff1f2; border-color: #fda4af;
+}
+.controls-bank-switch.readonly.displaced .controls-bank-switch-label { color: #9f1239; }
+
+.controls-scope-banner {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   padding: 6px 10px; margin-bottom: 10px; border-radius: var(--radius);
   font-size: 12px;
 }
-.controls-shared-banner.shared { background: #eef4fb; border-left: 3px solid var(--accent); }
-.controls-shared-banner.overridden { background: #fdf0f2; border-left: 3px solid #be123c; }
-.controls-shared-banner.plain { background: var(--bg-section); border-left: 3px solid var(--border); }
-.controls-shared-text { flex: 1 1 320px; }
+.controls-scope-banner.global { background: #faf5ff; border-left: 3px solid #7e22ce; }
+.controls-scope-banner.local { background: var(--bg-section); border-left: 3px solid var(--border); }
+.controls-scope-text { flex: 1 1 320px; }
 
-.controls-shared-list { padding: 0 12px 12px; }
-.controls-shared-list h4 {
+.controls-global-preview {
+  border: 1px solid var(--border-light); border-radius: var(--radius);
+  padding: 8px 10px; font-size: 12px; max-width: 46ch;
+}
+.controls-global-preview-name { font-weight: 600; margin-bottom: 4px; }
+.controls-global-preview-msg {
+  color: var(--fg-muted); font-variant-numeric: tabular-nums; padding: 1px 0;
+}
+.controls-global-preview-type {
+  display: inline-block; min-width: 8ch; font-weight: 600; color: #6b21a8;
+}
+
+.controls-globals-card {
+  margin: 0 12px 12px; padding: 8px 10px; cursor: pointer;
+  border: 1px solid var(--border-light); border-radius: var(--radius);
+  background: #faf5ff;
+}
+.controls-globals-card.selected { border-color: #7e22ce; box-shadow: inset 0 0 0 1px #7e22ce; }
+.controls-globals-card-head { display: flex; align-items: baseline; gap: 8px; }
+.controls-globals-card-head h4 {
   font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
-  color: var(--fg-muted); margin: 0 0 6px;
+  color: #6b21a8; margin: 0;
 }
-.controls-shared-row {
+.controls-globals-card-sub { font-size: 11px; color: var(--fg-light); margin-left: auto; }
+.controls-globals-card-empty { font-size: 11px; color: var(--fg-muted); margin: 6px 0 0; }
+.controls-globals-row {
   display: flex; align-items: baseline; gap: 8px;
-  font-size: 12px; padding: 2px 0; border-bottom: 1px solid var(--border-light);
+  font-size: 12px; padding: 2px 0;
 }
-.controls-shared-slot { font-weight: 700; width: 1.4em; }
-.controls-shared-label { flex: 1; }
-.controls-shared-count { color: var(--fg-light); font-size: 11px; font-variant-numeric: tabular-nums; }
+.controls-globals-slot { font-weight: 700; width: 1.4em; color: #6b21a8; }
+.controls-globals-label { flex: 1; }
+.controls-globals-note {
+  font-size: 12px; color: var(--fg-muted); max-width: 68ch; margin: 0 0 12px;
+}
 
-.controls-bank-empty { max-width: 62ch; }
-.controls-bank-empty p { font-size: 13px; margin: 0 0 8px; }
+/* The stamp picker: the flexible half, kept visibly separate from globals. */
+.controls-stamp {
+  background: var(--bg); border-radius: var(--radius);
+  padding: 16px; width: min(760px, 92vw); max-height: 82vh; overflow-y: auto;
+}
+.controls-stamp-head { display: flex; align-items: center; gap: 12px; }
+.controls-stamp-head h3 { margin: 0; font-size: 15px; flex: 1; }
+.controls-stamp-note { font-size: 12px; color: var(--fg-muted); max-width: 64ch; }
+.controls-stamp-bar { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+.controls-stamp-count { font-size: 11px; color: var(--fg-light); font-variant-numeric: tabular-nums; }
+.controls-stamp-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px;
+}
+.controls-stamp-cell {
+  display: flex; flex-direction: column; gap: 1px; cursor: pointer;
+  border: 1px solid var(--border-light); border-radius: var(--radius); padding: 5px 7px;
+}
+.controls-stamp-cell.picked { background: #eef4fb; border-color: var(--accent); }
+.controls-stamp-cell.here { box-shadow: inset 2px 0 0 var(--accent); }
+.controls-stamp-cell-num { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.controls-stamp-cell-name { font-size: 12px; }
+.controls-stamp-cell-was { font-size: 10px; color: var(--fg-light); }
+.controls-stamp-foot { display: flex; justify-content: flex-end; margin-top: 12px; }
+
+/* Prose stays at a readable measure; the switch preview inside it must not,
+   since its width is the pedalboard's, not the paragraph's. */
+.controls-bank-empty-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.controls-bank-empty p { font-size: 13px; margin: 0 0 8px; max-width: 62ch; }
 .controls-observed-names { color: var(--fg-muted); font-variant-numeric: tabular-nums; }
 .controls-warn { color: #be123c; font-weight: 600; }
 
@@ -2799,7 +2865,6 @@ body {
 
 .survey-card-head { display: flex; align-items: baseline; gap: 2px; }
 .survey-card-num { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.survey-card-editor { font-size: 10px; color: var(--fg-light); font-variant-numeric: tabular-nums; }
 .survey-card-prov { margin-left: auto; font-size: 11px; color: var(--fg-muted); }
 .survey-card-name {
   font-size: 11px; color: var(--fg-muted); margin: 1px 0 6px;
@@ -2820,7 +2885,37 @@ body {
   vertical-align: -1px;
 }
 
+.survey-missing {
+  font-size: 12px; margin: 4px 0 0; padding: 6px 8px;
+  background: #fff7ed; border-left: 3px solid #d97706; border-radius: var(--radius);
+  font-variant-numeric: tabular-nums;
+}
+
 .survey-card-unread { font-size: 11px; color: var(--fg-light); font-style: italic; padding: 4px 0; }
+
+/* Read from the device but never authored here: we know the names and not the
+   messages, so these are outlines rather than filled verb swatches. Claiming a
+   verb colour would claim knowledge a read cannot supply. */
+.survey-card-observed {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; margin-top: 4px;
+}
+.survey-slot-named {
+  font-size: 9px; line-height: 1.3; text-align: center;
+  padding: 1px 0; border: 1px solid var(--border); border-radius: 2px;
+  color: var(--fg-muted); overflow: hidden; white-space: nowrap;
+}
+.survey-slot-named.vacant { border-style: dashed; opacity: .45; }
+/* Compact drops the names — there is no room for them in a 7px strip. What it
+   must not drop is *occupancy*: an outline with its text hidden reads as an
+   empty switch, so the whole instrument looked unread the moment you clicked
+   into a bank. Filled means named, hollow means empty, which is the same thing
+   the verb bars say one row up. The grey is deliberately lighter than Raw's
+   #9ca3af so a name-only slot never passes for a classified one. */
+.survey.compact .survey-slot-named {
+  font-size: 0; line-height: 7px; padding: 0;
+  background: #cbd5e1; border-color: #cbd5e1;
+}
+.survey.compact .survey-slot-named.vacant { background: transparent; opacity: .5; }
 .survey-card-jumps { font-size: 10px; color: var(--fg-muted); margin-top: 5px; font-variant-numeric: tabular-nums; }
 .survey-card-disagree { font-size: 10px; color: #be123c; margin-top: 3px; font-weight: 600; }
 

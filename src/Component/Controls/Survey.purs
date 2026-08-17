@@ -88,6 +88,11 @@ type SurveyProps i =
   , onToggleElide :: i
   , onSelect :: Int -> i
   , onRead :: i
+  , onDeepRead :: i
+  -- | True while a read is walking the device. The read is minutes long, so a
+  -- | button that looks idle throughout is a button people press twice.
+  , reading :: Boolean
+  , readAt :: Maybe String
   }
 
 -- ──── Palette ────
@@ -121,7 +126,7 @@ provenanceMark = case _ of
 verbDetail :: Verb -> String
 verbDetail = case _ of
   Blank -> "\x2014"
-  Navigation (ToBank n) -> "jump to bank " <> show n <> " (editor " <> show (n + 1) <> ")"
+  Navigation (ToBank n) -> "jump to bank " <> show n
   Navigation BankUp -> "bank up"
   Navigation BankDown -> "bank down"
   Navigation TogglePage -> "toggle page"
@@ -173,21 +178,42 @@ visible props =
     then Array.filter (\c -> c.provenance /= Unknown) props.cards
     else props.cards
 
+-- | The two counts that are actually different, rather than two names for one.
+-- |
+-- | It used to say "N of 30 known, M read from the device", where both numbers
+-- | came from provenance and so moved together — 30 and 30 after a single
+-- | connect, above a grid of cards saying "not read". The honest pair is names
+-- | against switch sets, because those are what a connect returns in different
+-- | quantities: all thirty of the first, exactly one of the second.
 renderHeader :: forall w i. SurveyProps i -> HH.HTML w i
 renderHeader props =
   let known = Array.length (knownBanks props.cards)
-      observed = Array.length (Array.filter (\c -> c.provenance == Observed) props.cards)
+      observed = Array.length
+        (Array.filter (\c -> Array.any (_ /= "") c.observedNames) props.cards)
   in HH.div [ HP.class_ (H.ClassName "survey-header") ]
-    [ HH.h3_ [ HH.text "The instrument" ]
+    [ HH.h3_ [ HH.text "MC6" ]
     , HH.p [ HP.class_ (H.ClassName "survey-summary") ]
-        [ HH.text (show known <> " of " <> show bankCount <> " banks known, "
-                    <> show observed <> " read from the device") ]
+        [ HH.text (show known <> " of " <> show bankCount <> " banks known \x00b7 "
+                    <> show observed <> " with switches read from the device"
+                    <> (case props.readAt of
+                          Just t -> " on " <> String.take 10 t
+                          Nothing -> "")) ]
     , HH.div [ HP.class_ (H.ClassName "survey-actions") ]
         [ HH.button
             [ HP.class_ (H.ClassName "controls-btn-small")
             , HE.onClick \_ -> props.onRead
             ]
             [ HH.text "Read MC6" ]
+        -- A plain read describes one bank, because that is all a connect
+        -- volunteers. This is the whole device, and it is one button because it
+        -- is one intention: finding how to move the MC6 is a step *inside*
+        -- reading it, not homework to do first.
+        , HH.button
+            [ HP.class_ (H.ClassName "controls-btn controls-btn-accent")
+            , HP.disabled props.reading
+            , HE.onClick \_ -> props.onDeepRead
+            ]
+            [ HH.text (if props.reading then "Reading the device\x2026" else "Read the whole device") ]
         , HH.label [ HP.class_ (H.ClassName "survey-toggle") ]
             [ HH.input
                 [ HP.type_ HP.InputCheckbox
@@ -200,6 +226,16 @@ renderHeader props =
     , case props.readStatus of
         Nothing -> HH.text ""
         Just msg -> HH.p [ HP.class_ (H.ClassName "survey-status") ] [ HH.text msg ]
+      -- The work list, live. Mid-read the useful thing is not how much is done
+      -- but which banks are still owed, and it shrinking is the only proof that
+      -- a several-minute walk is progressing rather than stuck.
+    , if not props.reading then HH.text "" else
+        let missing = map _.bankNumber
+              (Array.filter (\c -> Array.all (_ == "") c.observedNames) props.cards)
+        in HH.p [ HP.class_ (H.ClassName "survey-missing") ]
+          [ HH.text (if Array.null missing
+              then "All thirty banks have their switches."
+              else "Still needed: " <> String.joinWith " " (map show missing)) ]
     ]
 
 renderLegend :: forall w i. HH.HTML w i
@@ -252,19 +288,38 @@ renderCard props card =
     [ HH.div [ HP.class_ (H.ClassName "survey-card-head") ]
         [ HH.span [ HP.class_ (H.ClassName "survey-card-num") ]
             [ HH.text (show card.bankNumber) ]
-        -- Editor numbering shown quietly beside the wire number. Both are
-        -- needed and confusing them writes to a neighbouring bank.
-        , HH.span [ HP.class_ (H.ClassName "survey-card-editor") ]
-            [ HH.text ("/" <> show (card.bankNumber + 1)) ]
         , HH.span [ HP.class_ (H.ClassName "survey-card-prov") ]
             [ HH.text (provenanceMark card.provenance) ]
         ]
     , HH.div [ HP.class_ (H.ClassName "survey-card-name") ]
         [ HH.text (if card.name == "" then "\x2014" else card.name) ]
-    , if Array.null card.slots
-        then HH.div [ HP.class_ (H.ClassName "survey-card-unread") ] [ HH.text "not read" ]
-        else HH.div [ HP.class_ (H.ClassName "survey-card-slots") ]
+      -- Three genuinely different states, and they used to be two.
+      --
+      -- `slots` is verbs, and verbs come from *messages* — so only an authored
+      -- page or the config can fill it. A device read brings back names and no
+      -- messages, which meant a bank we had read but never written fell into the
+      -- same branch as one we had never looked at and was labelled "not read".
+      -- The read had worked; the card was denying it. Worse, the header counted
+      -- the same bank as known, so the view contradicted itself on one screen.
+      --
+      -- So: verbs if we have them, otherwise the names the device gave us,
+      -- otherwise — and only otherwise — nothing looked at.
+    , if not (Array.null card.slots)
+        then HH.div [ HP.class_ (H.ClassName "survey-card-slots") ]
                (Array.mapMaybe (\i -> renderSlot card i <$> Array.index card.slots i) physicalOrder)
+        else if Array.any (_ /= "") card.observedNames
+          then HH.div [ HP.class_ (H.ClassName "survey-card-observed") ]
+                 (Array.mapMaybe (\i -> renderObservedSlot <$> Array.index card.observedNames i)
+                   physicalOrder)
+          -- Which of the two empty states this is, said as the difference it
+          -- actually is. A bank the device *named* is not unread — its switches
+          -- are, and only its switches, because that is all one connect can
+          -- withhold. A flat "not read" under a card displaying a name the
+          -- device supplied is the card arguing with itself.
+          else HH.div [ HP.class_ (H.ClassName "survey-card-unread") ]
+                 [ HH.text (case card.provenance of
+                     Unknown -> "never looked"
+                     _ -> "switches not read") ]
     , if Array.null outgoing
         then HH.text ""
         else HH.div [ HP.class_ (H.ClassName "survey-card-jumps") ]
@@ -275,6 +330,21 @@ renderCard props card =
             [ HH.text "device disagrees" ]
         _ -> HH.text ""
     ]
+
+-- | A switch the device named but whose messages we have never seen.
+-- |
+-- | Drawn as an outline rather than a filled swatch, deliberately: a filled one
+-- | would sit in the same visual grammar as the verb colours and claim we know
+-- | what the switch *does*, which a read cannot tell us. An empty switch reads
+-- | as a gap rather than a blank tile, because on a bank we did not author, empty
+-- | is a fact worth seeing.
+renderObservedSlot :: forall w i. String -> HH.HTML w i
+renderObservedSlot nm =
+  HH.span
+    [ HP.class_ (H.ClassName ("survey-slot-named" <> if nm == "" then " vacant" else ""))
+    , HP.title (if nm == "" then "empty on the device" else "device says \x201c" <> nm <> "\x201d")
+    ]
+    [ HH.text (String.take 4 nm) ]
 
 renderSlot :: forall w i. BankCard -> Int -> Verb -> HH.HTML w i
 renderSlot card idx verb =
@@ -322,7 +392,7 @@ renderNavMap props =
           )
       , if Set.isEmpty universal then HH.text "" else
           HH.p [ HP.class_ (H.ClassName "survey-legend-note") ]
-            [ HH.text "Faint arrows are the same switch going to the same bank almost everywhere \x2014 the instrument's furniture rather than the shape of a set." ]
+            [ HH.text "Faint arrows are the same switch going to the same bank almost everywhere \x2014 the MC6's furniture rather than the shape of a set." ]
       ]
 
 isUniversal :: Set (Tuple Int Int) -> NavEdge -> Boolean
