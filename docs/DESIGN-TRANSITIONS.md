@@ -175,3 +175,42 @@ die: infinitely expressive, unauthorable, and you end up hand-drawing what you
 used to hand-stomp. The discipline is that the authoring surface stays "this
 switch goes to *that* state", or "next in this list", and the graph is something
 you *see*, derived, rather than something you draw.
+
+---
+
+## 9. What holding a session costs (settled 2026-08-18)
+
+The device **will not change bank for us without an editor session** — tested,
+not assumed. The same request addressed to device `0x00` (the number connect and
+disconnect use, and `F1=0` is otherwise the family of things done to a running
+board: bank up/down `0,16`/`0,17`, toggle page `0,33`) does nothing at all: no
+reply, and the MC6 was still on its previous bank when a session opened straight
+afterwards. Morningstar's editor changes banks without the device visibly
+entering edit mode because it holds one session open for as long as it is loaded.
+
+So every idea in this document — the hub return, the auto-configured jumps —
+requires a **held-open session**, not a connect per jump.
+
+Holding one is only safe with the controller setting **"Load Preset Data into
+Editor using Switch Press"** turned off. On (the factory default), the device
+cannot distinguish a press meaning "load this into the editor" from one meaning
+"engage this preset", so while an editor is connected it blocks the ambiguous
+functions: **its own bank jump, and MIDI clock.** Off, presses stop feeding the
+editor and everything is unblocked — which costs us nothing, because we select
+presets in the app rather than by stomping.
+
+Implemented as `Hold a session` in the survey's action row: the setting goes off
+as the session opens and back on as it closes, so the unblocking is scoped to the
+session rather than left behind on the instrument.
+
+**Two things still open:**
+
+- **MIDI clock is unverified on this rig.** The blocked-list is Morningstar's
+  documentation, not something observed here, and the only clock consumers are
+  tap tempo on a few pedals. Check it when that area is next worked on — it is
+  the claim this whole direction rests on, and it would fail quietly.
+- **The restore writes the default, not what was found.** The `3/33` reply
+  carries the controller settings and certainly contains this bit, but which byte
+  is unknown, so releasing a session turns the setting back *on* whether or not
+  it was on before. Fixable by capturing `3/33` twice with the setting toggled
+  and diffing.

@@ -53,6 +53,10 @@ type Input =
   , mc6BankNames :: Map Int String
   , mc6BankSwitches :: Map Int (Array String)
   , mc6ReadStatus :: Maybe String
+  -- | Whether an editor session is currently being held open. A Boolean here
+  -- | rather than the session itself: the view needs to say which mode the
+  -- | instrument is in, and it has no business being able to send anything.
+  , mc6SessionHeld :: Boolean
   -- | Set once the bank-change probe has found a channel; until then there is
   -- | no way to read more than the bank the device happens to be showing.
   , mc6Reading :: Boolean
@@ -92,6 +96,10 @@ data Output
   -- | it is one intention — a complete reading — and splitting it made the
   -- | prerequisite something the user had to know about.
   | DeepReadMC6
+  -- | Hold an editor session open, or let it go. The device will not change
+  -- | bank for us without one, so this is what makes the app able to move the
+  -- | MC6 while the board is being played rather than only while it is idle.
+  | ToggleMC6Session
   -- | Put a board on a switch, or take it off. Addressed by (bank, switch)
   -- | rather than by board, because a switch holds exactly one thing while a
   -- | board can sit on many switches — the other direction can express a
@@ -101,6 +109,11 @@ data Output
   -- | The instrument's global switches, whole. Small enough to send entire, and
   -- | sending the whole list means there is never a partial write to reconcile.
   | SaveGlobalSwitches (Array GlobalSwitch)
+  -- | Move the device to the bank being looked at. Selecting a card here and
+  -- | standing on that bank underfoot are the same intention — checking a page
+  -- | means checking it against the switches, and walking to the MC6 to find it
+  -- | showing something else is how you end up editing the wrong page.
+  | JumpMC6ToBank Int
 
 -- | Flat searchable entry for one CC control from the pedal registry
 type CCEntry =
@@ -196,6 +209,7 @@ data Action
   | ToggleElideUnknown
   | RequestRead
   | RequestDeepRead
+  | RequestToggleSession
   | SetSwitchHolds Int String
   -- Global switches
   | OpenGlobals
@@ -390,6 +404,8 @@ renderSurvey state =
     , onSelect: SelectBankNumber
     , onRead: RequestRead
     , onDeepRead: RequestDeepRead
+    , sessionHeld: state.input.mc6SessionHeld
+    , onToggleSession: RequestToggleSession
     , reading: state.input.mc6Reading
     , readAt: state.input.mc6ReadAt
     }
@@ -1577,6 +1593,7 @@ handleAction = case _ of
       , editBankDescription = fromMaybe "" (mBank <#> _.description)
       , editReturnSwitch = fromMaybe 6 (mBank <#> _.returnSwitchIndex)
       }
+    H.raise (JumpMC6ToBank n)
 
   ClearBankSelection -> do
     commitBankProps
@@ -1655,6 +1672,7 @@ handleAction = case _ of
   RequestRead -> H.raise ReadMC6
 
   RequestDeepRead -> H.raise DeepReadMC6
+  RequestToggleSession -> H.raise ToggleMC6Session
 
   SetSwitchHolds idx boardId -> do
     st <- H.get

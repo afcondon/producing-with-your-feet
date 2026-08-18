@@ -50,7 +50,7 @@ import Prelude
 
 import Data.Array as Array
 import Data.Char (fromCharCode)
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.String.CodeUnits as SCU
 import Data.String as Str
 import Data.Tuple (Tuple(..))
@@ -58,6 +58,40 @@ import Data.Tuple (Tuple(..))
 data MC6Reply
   = BankNames (Array (Tuple Int String))
   | BankSwitches Int (Array String)
+  -- | Where the device is standing, said the moment it moves. **F1=6, F2=2**,
+  -- | carrying the bank number in TLV 0 and the bank's long name in TLV 3.
+  -- |
+  -- | This is the answer to "which bank are you on", and it went unread for
+  -- | months while the app inferred the same fact from `BankSwitches`, which is
+  -- | a list of switch names that happens to name its bank. That inference is
+  -- | both slower and weaker: after a bank change the device sends this
+  -- | immediately, and the switch names only after the whole controller-settings
+  -- | parade — so a confirmation waiting on the names could time out while the
+  -- | device had already answered.
+  | CurrentBank Int String
+  -- | The preset the device has in hand. **F1=6, F2=1**, TLV 0 being the same
+  -- | `[bank, preset, isExp]` header `SysEx.sysexPresetData` writes. Arrives
+  -- | alongside `CurrentBank` and agrees with it about the bank.
+  | CurrentPreset Int Int
+  -- | The device saying whether it is in editor mode. **F1=0, F2=125**, F3 being
+  -- | 1 on connect and 0 on disconnect.
+  -- |
+  -- | Worth having decoded because editor mode is not a state we can only infer
+  -- | from having asked for it: the device announces it, and a session opened by
+  -- | something else — Morningstar's editor in another tab — is a thing we would
+  -- | otherwise have no way to notice.
+  | EditorMode Boolean
+  -- | The controller's own settings, as a flat byte array. **F1=3, F2=33**, sent
+  -- | unasked when a session opens — 32 bytes, no TLV framing.
+  -- |
+  -- | Undecoded on purpose: we know one of these bytes is "load preset data into
+  -- | editor using switch press", which the app turns off to hold a session and
+  -- | turns back on to release one, and we do not know which byte. Carrying the
+  -- | payload whole lets two captures be compared — hold a session, read the
+  -- | device, and diff against a capture taken with the setting on — which is
+  -- | both how the byte gets identified and, until it is, the only way to check
+  -- | that the write landed at all without opening Morningstar's editor.
+  | ControllerSettings (Array Int)
   | OtherReply Int Int
 
 derive instance Eq MC6Reply
@@ -65,6 +99,8 @@ derive instance Eq MC6Reply
 replyBank :: MC6Reply -> Maybe Int
 replyBank = case _ of
   BankSwitches b _ -> Just b
+  CurrentBank b _ -> Just b
+  CurrentPreset b _ -> Just b
   _ -> Nothing
 
 -- | Decode a frame the MC6 sent us.
@@ -89,6 +125,14 @@ decodeReply bytes = do
     in Just case f1, f2 of
       0x11, 0x05 -> BankNames (map (\(Tuple t v) -> Tuple t (trimAscii v)) (tlvs payload))
       0x09, 0x01 -> BankSwitches f3 (map (\(Tuple _ v) -> trimAscii v) (tlvs payload))
+      -- The bank number is in the *payload*, not in F3 — F3 is 0 on both of
+      -- these — so they have to be read rather than glanced at.
+      0x06, 0x02 -> CurrentBank
+        (tlvByte 0 0 payload)
+        (maybe "" trimAscii (tlvData 3 payload))
+      0x06, 0x01 -> CurrentPreset (tlvByte 0 0 payload) (tlvByte 0 1 payload)
+      0x00, 0x7D -> EditorMode (f3 == 1)
+      0x03, 0x21 -> ControllerSettings payload
       _, _ -> OtherReply f1 f2
 
 -- | `0x7F <type> <length> <data>`, repeated — byte-identical to the framing
@@ -100,6 +144,17 @@ tlvs = go []
     Just 0x7F, Just t, Just len ->
       go (Array.snoc acc (Tuple t (Array.slice 3 (3 + len) p))) (Array.drop (3 + len) p)
     _, _, _ -> acc
+
+-- | The data of one TLV, by type.
+tlvData :: Int -> Array Int -> Maybe (Array Int)
+tlvData wanted payload =
+  map (\(Tuple _ v) -> v) (Array.find (\(Tuple t _) -> t == wanted) (tlvs payload))
+
+-- | One byte out of one TLV, defaulting to 0 rather than failing the whole
+-- | decode: a truncated frame should cost us that field, not the frame.
+tlvByte :: Int -> Int -> Array Int -> Int
+tlvByte wanted offset payload =
+  fromMaybe 0 (tlvData wanted payload >>= \d -> Array.index d offset)
 
 -- | Names come back space-padded to their field width.
 trimAscii :: Array Int -> String

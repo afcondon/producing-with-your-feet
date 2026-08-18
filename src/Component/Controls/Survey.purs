@@ -89,6 +89,12 @@ type SurveyProps i =
   , onSelect :: Int -> i
   , onRead :: i
   , onDeepRead :: i
+  -- | Whether an editor session is being held open, and the action that turns
+  -- | that on or off. Shown here rather than tucked away on a settings page
+  -- | because it changes what the *instrument* will do under your feet, which is
+  -- | the same class of fact as everything else on this card.
+  , sessionHeld :: Boolean
+  , onToggleSession :: i
   -- | True while a read is walking the device. The read is minutes long, so a
   -- | button that looks idle throughout is a button people press twice.
   , reading :: Boolean
@@ -214,6 +220,19 @@ renderHeader props =
             , HE.onClick \_ -> props.onDeepRead
             ]
             [ HH.text (if props.reading then "Reading the device\x2026" else "Read the whole device") ]
+        -- Holding the session is what makes the app able to move the MC6 while
+        -- the board is in use, so it reads as a mode rather than a command: the
+        -- label says which state you are in, not what the button does.
+        , HH.button
+            [ HP.class_ (H.ClassName
+                (if props.sessionHeld
+                   then "controls-btn-small controls-btn-held"
+                   else "controls-btn-small"))
+            , HE.onClick \_ -> props.onToggleSession
+            ]
+            [ HH.text (if props.sessionHeld
+                         then "Session held \x2014 release"
+                         else "Hold a session") ]
         , HH.label [ HP.class_ (H.ClassName "survey-toggle") ]
             [ HH.input
                 [ HP.type_ HP.InputCheckbox

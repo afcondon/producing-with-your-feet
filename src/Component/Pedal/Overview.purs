@@ -27,6 +27,7 @@ import Effect.Aff.Class (class MonadAff)
 import Engine (EngineState, PedalState)
 import Halogen as H
 import Halogen.HTML as HH
+import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Halogen.Subscription as HS
 import Hylograph.HATS.InterpreterTick (clearContainer, rerender)
@@ -46,6 +47,10 @@ type Input =
 data Output
   = BackToGrid
   | ValueChanged PedalId CC MidiValue
+  -- | A card was clicked. Raised rather than handled here because which pedal is
+  -- | active belongs to the app — the header pills set the same field, and two
+  -- | places deciding it separately is how they drift apart.
+  | SelectPedal PedalId
 
 type DragContext =
   { cc :: CC, startY :: Int, startVal :: Int, pedalId :: PedalId
@@ -73,6 +78,7 @@ data Action
   | HatsToggleClick PedalId CC Int
   | DragMove Int Int
   | DragEnd
+  | CellClicked PedalId
 
 type Slot = H.Slot (Const Void) Output
 
@@ -137,6 +143,7 @@ renderCell state pid@(PedalId pidStr) =
     cellStyle = colorBg
     cellProps =
       [ HP.class_ (H.ClassName cls)
+      , HE.onClick \_ -> CellClicked pid
       ] <> if cellStyle /= ""
              then [ HP.attr (HH.AttrName "style") cellStyle ]
              else []
@@ -362,3 +369,12 @@ handleAction = case _ of
         H.modify_ _ { dragging = Nothing, dragSub = Nothing }
       Nothing ->
         H.modify_ _ { dragging = Nothing }
+
+  -- Only when nothing is being dragged. A knob drag on the active card ends with
+  -- the pointer still inside the cell, so the browser delivers a click too —
+  -- and without this guard, finishing a drag would toggle the card shut.
+  CellClicked pid -> do
+    st <- H.get
+    case st.dragging of
+      Just _ -> pure unit
+      Nothing -> H.raise (SelectPedal pid)

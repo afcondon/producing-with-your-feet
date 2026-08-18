@@ -23,7 +23,9 @@ import Data.MC6.Global (GlobalSwitch)
 import Data.MC6.ControlBank (ControlBank, exampleControlBank)
 import Data.MC6.Dump as Dump
 import Data.MC6.Types (MC6NativeBank)
+import Data.MC6.Wire as Wire
 import Data.Array as Array
+import Effect (Effect)
 import Data.Map (Map)
 import Halogen as H
 import Data.Map as Map
@@ -97,6 +99,29 @@ type AppState =
   -- | does not have to believe — and what makes walking the banks checkable
   -- | rather than hopeful.
   , mc6CurrentBank :: Maybe Int
+  -- | An editor session held open across many actions, rather than opened and
+  -- | closed around each one.
+  --
+  -- | The device will not change bank for us at all without a session, so
+  -- | anything that jumps banks while the board is being played needs one of
+  -- | these. Holding it is only safe with "load preset data using switch press"
+  -- | turned off, which is what `HoldMC6Session` does on the way in and undoes
+  -- | on the way out: with that setting on, an open session blocks MIDI clock
+  -- | and the MC6's own bank jump.
+  --
+  -- | `Wire.Open` is opaque and only `Wire.openSession` produces one, so this
+  -- | field is the app's evidence that a session exists rather than a flag
+  -- | asserting it.
+  , mc6Held :: Maybe Wire.Open
+  -- | Whether the device says it is in editor mode. `Nothing` until it has told
+  -- | us — which is not the same as "off", and the difference is the whole
+  -- | point: a session opened by Morningstar's editor in another tab is a thing
+  -- | we can only learn about by being told.
+  , mc6EditorMode :: Maybe Boolean
+  -- | Removes the page-unload handler that releases a held session. Present
+  -- | exactly when a session is held; a handler left installed after release
+  -- | would disconnect a session that is already closed.
+  , mc6UnloadGuard :: Maybe (Effect Unit)
   , controlBanks :: Array ControlBank
   , globalSwitches :: Array GlobalSwitch
   , activeControlBankIdx :: Maybe Int
@@ -208,6 +233,9 @@ initAppState =
   , mc6BoardBankNum: 1
   , mc6Assignments: []
   , mc6CurrentBank: Nothing
+  , mc6Held: Nothing
+  , mc6EditorMode: Nothing
+  , mc6UnloadGuard: Nothing
   , controlBanks: [exampleControlBank]
   , globalSwitches: []
   , activeControlBankIdx: Just 0

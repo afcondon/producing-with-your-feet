@@ -27,7 +27,7 @@ import Data.MC6.Survey as Survey
 import Data.Foldable (any, for_, traverse_)
 import Data.Map as Map
 import Data.Int as Int
-import Data.Maybe (Maybe(..), fromMaybe, isNothing)
+import Data.Maybe (Maybe(..), fromMaybe, isJust, isNothing)
 import Data.Midi (CC, MidiValue, ProgramNumber, makeCC, makeChannel, makeMidiValue, makeProgramNumber, unCC, unChannel, unMidiValue, unProgramNumber, unsafeCC, unsafeMidiValue)
 import Data.Pedal (PedalDef, PedalId)
 import Pedals.Registry as PsRegistry
@@ -55,6 +55,8 @@ import Foreign.FileIO as FileIO
 import Foreign.FolderBackup as FolderBackup
 import Foreign.LooperSocket as LooperSocket
 import Foreign.Remote as Remote
+import Data.MC6.Wire as Wire
+import Foreign.Unload as Unload
 import Foreign.WebMIDI as MIDI
 import Halogen as H
 import Halogen.HTML as HH
@@ -208,6 +210,7 @@ render state = case state.configError of
             , mc6BankNames: state.mc6BankNames
             , mc6BankSwitches: state.mc6BankSwitches
             , mc6ReadStatus: state.mc6ReadStatus
+            , mc6SessionHeld: isJust state.mc6Held
             , mc6Reading: state.mc6Reading
             , mc6ReadAt: state.mc6ReadAt
             , boardPresets: state.boardPresets
@@ -1125,10 +1128,9 @@ handleAction = case _ of
       Nothing ->
         H.modify_ _ { midiTest = Just "no MC6 SysEx output selected" }
       Just output -> do
-        liftEffect $ MIDI.send output SysEx.sysexConnect
+        Wire.sendLoose output SysEx.sysexConnect
         H.modify_ _ { midiTest = Just
-          ("sent SysEx connect (" <> show (Array.length SysEx.sysexConnect)
-            <> " bytes) - MC6 should show an editor session") }
+          "sent the SysEx connect frame - MC6 should show an editor session" }
 
   SetTestCh v -> H.modify_ _ { testCh = fromMaybe 1 (Int.fromString v) }
   SetTestCC v -> H.modify_ _ { testCC = fromMaybe 1 (Int.fromString v) }
@@ -1163,9 +1165,9 @@ handleAction = case _ of
   -- | turns up in between. Established by sweeping the function-code space and
   -- | finding nothing: see `Data.MC6.Read`.
   -- |
-  -- | Deliberately not wrapped in `withEditorSession`: that opens an *upload*
-  -- | session, and asking a question should never be able to leave the device
-  -- | anywhere a half-finished write could land.
+  -- | `Wire.withSession`, not `Wire.withUpload`: asking a question should never
+  -- | be able to leave the device anywhere a half-finished write could land,
+  -- | which is why the two brackets are separate functions rather than a flag.
   ReadMC6Banks -> do
     st <- H.get
     case st.connections.mc6Output of
@@ -1177,11 +1179,12 @@ handleAction = case _ of
           , mc6BankNames = Map.empty
           , mc6BankSwitches = Map.empty
           }
-        sendSysExLogged "read-connect" output SysEx.sysexConnect
-        -- The dump arrives about a second after the acknowledgement and takes
-        -- another moment to finish; disconnecting early truncates it.
-        H.liftAff (delay (Milliseconds 2500.0))
-        sendSysExLogged "read-disconnect" output SysEx.sysexDisconnect
+        -- The device volunteers everything unasked, so the session body has
+        -- nothing to send: it only has to stay open. The dump arrives about a
+        -- second after the acknowledgement and takes another moment to finish;
+        -- disconnecting early truncates it.
+        inFreshSession output \_ ->
+          H.liftAff (delay (Milliseconds 2500.0))
         st' <- H.get
         readAt <- liftEffect Storage.nowISO
         when (not (Map.isEmpty st'.mc6BankNames)) do
@@ -1227,25 +1230,27 @@ handleAction = case _ of
           , mc6FrameCounts = Map.empty
           , mc6ReadStatus = Just "Opening a session\x2026"
           }
-        sendSysExLogged "read-connect" output SysEx.sysexConnect
-        _ <- awaitState 40 (\s -> not (Map.isEmpty s.mc6BankNames))
-        sendSysExLogged "read-all-names" output SysEx.sysexRequestAllPresetNames
-        _ <- awaitState 20 (\s -> Map.size s.mc6BankSwitches >= Survey.bankCount)
-        exhaustBanks output 4
-        H.modify_ _ { mc6ReadStatus = Just "Asking for every preset\x2026" }
-        sendSysExLogged "read-dump-all" output SysEx.sysexRequestFullDump
-        awaitDumpSettled 0 0
-        -- If the all-banks request produced nothing, try the single-bank one.
-        -- They are neighbouring opcodes and the wrong one answers with silence
-        -- rather than an error, so the cheap check is to ask the other way and
-        -- see — and one bank of real messages beats none.
-        stDump <- H.get
-        when (stDump.mc6DumpFrames == 0) do
-          H.modify_ _ { mc6ReadStatus = Just
-            "No presets came back \x2014 trying the single-bank request\x2026" }
-          sendSysExLogged "read-dump-bank" output SysEx.sysexRequestBankDump
+        inFreshSession output \open -> do
+          -- Wait for the device to say something before asking it anything: the
+          -- session is live once the bank names it volunteers arrive, not when
+          -- connect has been written to the port.
+          _ <- awaitState 40 (\s -> not (Map.isEmpty s.mc6BankNames))
+          Wire.send open SysEx.sysexRequestAllPresetNames
+          _ <- awaitState 20 (\s -> Map.size s.mc6BankSwitches >= Survey.bankCount)
+          exhaustBanks open 4
+          H.modify_ _ { mc6ReadStatus = Just "Asking for every preset\x2026" }
+          Wire.send open SysEx.sysexRequestFullDump
           awaitDumpSettled 0 0
-        sendSysExLogged "read-disconnect" output SysEx.sysexDisconnect
+          -- If the all-banks request produced nothing, try the single-bank one.
+          -- They are neighbouring opcodes and the wrong one answers with silence
+          -- rather than an error, so the cheap check is to ask the other way and
+          -- see — and one bank of real messages beats none.
+          stDump <- H.get
+          when (stDump.mc6DumpFrames == 0) do
+            H.modify_ _ { mc6ReadStatus = Just
+              "No presets came back \x2014 trying the single-bank request\x2026" }
+            Wire.send open SysEx.sysexRequestBankDump
+            awaitDumpSettled 0 0
         st2 <- H.get
         let got = Map.size st2.mc6BankSwitches
             missing = Array.filter (\b -> not (Map.member b st2.mc6BankSwitches))
@@ -1291,14 +1296,14 @@ handleAction = case _ of
       Just output -> do
         let banks = Diagnostics.bypassBanks st.mc6DiagBankNum st.mc6BoardBankNum st.registry
         H.modify_ _ { midiTest = Just ("programming " <> show (Array.length banks) <> " bank(s)...") }
-        withEditorSession output do
+        inUpload output \up ->
           for_ banks \cb -> do
             let presets = ControlBank.controlBankToPresets
                       (Global.applyGlobals st.globalSwitches cb)
             for_ presets \pr -> do
-              let bytes = SysEx.sysexPresetData cb.mc6BankNumber pr.switchIndex
-                            pr.shortName pr.longName pr.toToggle pr.messages
-              sendSysExLogged ("diag-" <> show cb.mc6BankNumber <> "-" <> show pr.switchIndex) output bytes
+              Wire.sendUpload up $ SysEx.labelled "diag" $
+                SysEx.sysexPresetData cb.mc6BankNumber pr.switchIndex
+                  pr.shortName pr.longName pr.toToggle pr.messages
               H.liftAff (delay (Milliseconds 100.0))
         H.modify_ _ { midiTest = Just
           ("programmed " <> show (Array.length banks) <> " bypass-test bank(s) from MC6 bank "
@@ -1318,11 +1323,11 @@ handleAction = case _ of
         let cb = Looper.looperBank st.mc6LooperBankNum st.mc6BoardBankNum
             presets = ControlBank.controlBankToPresets cb
         H.modify_ _ { looperProgramStatus = Just "Programming…" }
-        withEditorSession output do
+        inUpload output \up ->
           for_ presets \pr -> do
-            let bytes = SysEx.sysexPresetData cb.mc6BankNumber pr.switchIndex
-                          pr.shortName pr.longName pr.toToggle pr.messages
-            sendSysExLogged ("looper-" <> show pr.switchIndex) output bytes
+            Wire.sendUpload up $ SysEx.labelled "looper" $
+              SysEx.sysexPresetData cb.mc6BankNumber pr.switchIndex
+                pr.shortName pr.longName pr.toToggle pr.messages
             H.liftAff (delay (Milliseconds 100.0))
         -- This writes a bank like any other sync, so what we had read about that
         -- bank is now stale in the same way.
@@ -1408,6 +1413,11 @@ handleAction = case _ of
   HandleOverview output -> case output of
     OverviewView.BackToGrid -> handleAction (SetView OverviewView)
     OverviewView.ValueChanged pid cc val -> handleAction (SetValue pid cc val)
+    -- Deliberately the pill's own action rather than the same field written
+    -- twice: "clicking a card does what pressing its pill does" is the
+    -- requirement, so it should be the same code and stay so.
+    OverviewView.SelectPedal pid ->
+      handleAction (HandleHeader (Header.PedalPillClicked pid))
 
   HandleGrid output -> handleGridOutput output
 
@@ -1474,6 +1484,138 @@ handleAction = case _ of
       handleAssignBoardToSwitch bankNum boardId switchIdx
     ControlsView.UnassignSwitch bankNum switchIdx ->
       handleUnassignSwitch bankNum switchIdx
+    -- The device says which bank it is standing on, unasked, whenever it moves.
+    -- So this can confirm itself rather than assume: if nothing comes back, the
+    -- status line says the request went out and the MC6 did not answer, which is
+    -- the difference between "it moved" and "we sent something".
+    --
+    -- A session is genuinely required, tested rather than assumed. The same
+    -- request addressed to device 0x00 — the device number connect and
+    -- disconnect use, and so the one a controller command would use — was sent
+    -- bare and did nothing: the MC6 neither answered it nor moved, and said it
+    -- was still on the bank it had started on when the session opened a moment
+    -- later. So Morningstar's editor changing banks without the MC6 visibly
+    -- entering edit mode means their web app holds one session open the whole
+    -- time it is loaded, not that a session-free form exists.
+    --
+    -- The remembered bank is dropped before asking, so the confirmation has to
+    -- be earned. Otherwise jumping to the bank the device already reported
+    -- would satisfy the check without a byte arriving — the same
+    -- remembered-value-mistaken-for-observation fault as everywhere else.
+    ControlsView.JumpMC6ToBank n -> do
+      st <- H.get
+      case st.connections.mc6Output of
+        Nothing ->
+          H.modify_ _ { mc6ReadStatus = Just "Cannot jump: no MC6 SysEx output selected." }
+        Just mc6 -> do
+          H.modify_ _ { mc6ReadStatus = Just
+            (if isJust st.mc6Held then "Asking the MC6\x2026" else "Opening a session\x2026") }
+          { live, moved } <- inSession mc6 \open -> do
+            -- A held session has already proven itself; a fresh one has not.
+            live <- if isJust st.mc6Held then pure true
+                    else awaitState 40 (\s -> not (Map.isEmpty s.mc6BankNames))
+            H.modify_ _
+              { mc6CurrentBank = Nothing
+              , mc6ReadStatus = Just ("Asking the MC6 to show bank " <> show n <> "\x2026")
+              }
+            Wire.send open (SysEx.sysexEditorBankChange n)
+            -- Waits on `CurrentBank`, which the device sends the moment it
+            -- moves. This used to wait on the switch-names frame, which says
+            -- the same thing but arrives after the entire controller-settings
+            -- parade — so a jump that had already happened could time out.
+            moved <- awaitState 20 (\s -> s.mc6CurrentBank == Just n)
+            pure { live, moved }
+          when (not moved) $ H.modify_ _ { mc6ReadStatus = Just
+            ( if not live then
+                "Asked for bank " <> show n <> ", but the MC6 never answered the "
+                  <> "session request \x2014 is its input connected?"
+              else
+                "Asked for bank " <> show n <> " inside a session the MC6 answered, "
+                  <> "and it did not report moving. Look at the pedalboard: it may "
+                  <> "have moved without saying so."
+            ) }
+    -- | Hold a session open, and make it safe to hold.
+    -- |
+    -- | An open editor session is what the MC6 requires before it will change
+    -- | bank for us, and opening one per jump costs a connect, a settle and a
+    -- | disconnect — fine for a button, useless for anything that has to happen
+    -- | while playing.
+    -- |
+    -- | But a session on its own is *not* safe to hold. With the controller's
+    -- | "load preset data into editor using switch press" setting on, which is
+    -- | the factory default, the device cannot tell a press meaning "edit this"
+    -- | from one meaning "engage this", so while an editor is connected it
+    -- | blocks the ambiguous functions — its own bank jump, and MIDI clock.
+    -- | Losing clock mid-performance, silently, with nothing about it looking
+    -- | like a session problem, is exactly the failure this project keeps
+    -- | finding. So the setting goes off as the session opens and back on as it
+    -- | closes: the unblocking is scoped to the session rather than left behind
+    -- | us on the instrument.
+    -- |
+    -- | The restore is the weak point, and it is weak in a way worth naming: we
+    -- | write the default back rather than what we found, because the `3/33`
+    -- | reply that carries the controller settings has not been decoded far
+    -- | enough to say which byte this is. It is the one MC6 value the app sets
+    -- | without having read it. If you had turned it off yourself, releasing
+    -- | the session turns it back on.
+    ControlsView.ToggleMC6Session -> do
+      st <- H.get
+      case st.mc6Held, st.connections.mc6Output of
+        Just open, _ -> do
+          Wire.send open (SysEx.sysexSwitchPressLoad true)
+          Wire.closeSession open
+          for_ st.mc6UnloadGuard liftEffect
+          H.modify_ _
+            { mc6Held = Nothing
+            , mc6UnloadGuard = Nothing
+            , mc6ReadStatus = Just
+                ("Session released. The MC6 is its own again \x2014 and "
+                  <> "\x201cload preset data using switch press\x201d is back on.")
+            }
+        Nothing, Nothing ->
+          H.modify_ _ { mc6ReadStatus = Just "Cannot hold a session: no MC6 SysEx output selected." }
+        Nothing, Just mc6 -> do
+          H.modify_ _
+            { mc6ReadStatus = Just "Opening a session to hold\x2026"
+            -- Forget what we knew about editor mode, so that what arrives next
+            -- is the device answering rather than something we remembered.
+            , mc6EditorMode = Nothing
+            }
+          -- `openSession` disconnects before it connects, so a session left by a
+          -- previous page load is closed rather than inherited. The device
+          -- answers a real disconnect with `EditorMode false`, so seeing that is
+          -- how we learn there *was* one.
+          open <- Wire.openSession mc6
+          stAfter <- H.get
+          let tookOver = stAfter.mc6EditorMode == Just false
+          live <- awaitState 40 (\s -> not (Map.isEmpty s.mc6BankNames))
+          if not live
+            then do
+              Wire.closeSession open
+              H.modify_ _ { mc6ReadStatus = Just
+                ("The MC6 did not answer the session request, so nothing is being "
+                  <> "held \x2014 is its input connected?") }
+            else do
+              Wire.send open (SysEx.sysexSwitchPressLoad false)
+              -- A session outlives the tab that opened it, so closing the tab
+              -- without closing the session leaves the instrument in a mode
+              -- nobody chose. Installed only while one is held.
+              guard <- liftEffect $ Unload.onBeforeUnload do
+                Wire.send open (SysEx.sysexSwitchPressLoad true)
+                Wire.closeSession open
+              H.modify_ _
+                { mc6Held = Just open
+                , mc6UnloadGuard = Just guard
+                , mc6ReadStatus = Just
+                    ("Session held. Bank jumps from here are instant, and the MC6 "
+                      <> "keeps its own bank switching and MIDI clock."
+                      <> (if tookOver
+                            then "  Note: something already had a session open \x2014 "
+                                   <> "Morningstar's editor, most likely \x2014 and this "
+                                   <> "took it over."
+                            else "")
+                      <> "  Release it when you are done editing.")
+                }
     ControlsView.SaveGlobalSwitches globals -> do
       H.modify_ _ { globalSwitches = globals }
       liftEffect $ Storage.saveGlobalSwitches globals
@@ -1605,8 +1747,7 @@ handleAction = case _ of
         let f1 = fromMaybe (-1) (Array.index bytes 6)
             f2 = fromMaybe (-1) (Array.index bytes 7)
             cs = fromMaybe 0 (Array.index bytes (Array.length bytes - 2))
-        for_ stAck.connections.mc6Output \out ->
-          liftEffect $ MIDI.send out (SysEx.sysexAcknowledge cs)
+        for_ stAck.connections.mc6Output \out -> Wire.sendAck out cs
         H.modify_ \s -> s
           { mc6FrameCounts = Map.insertWith (+) (show f1 <> "/" <> show f2) 1 s.mc6FrameCounts }
         -- Every dump frame counts towards progress, decoded or not. Tying the
@@ -2067,6 +2208,62 @@ handleBoardRecallFromMC6 ccNum = do
       Nothing -> pure unit
     Nothing -> pure unit
 
+-- | Do something in an editor session: the held one if there is one, a fresh
+-- | bracket otherwise.
+-- |
+-- | Every path to the MC6 goes through this rather than `Wire.withSession`
+-- | directly, because the two ways of having a session must not overlap. A
+-- | bracket opened while one is held would end with a disconnect, silently
+-- | closing the held session and leaving `mc6Held` claiming a session that is
+-- | gone — the same shape as every other fault in this file, and the reason the
+-- | choice is made in one place rather than at each call site.
+inSession
+  :: forall o m a. MonadAff m
+  => MIDI.MIDIOutput
+  -> (Wire.Open -> H.HalogenM AppState Action Slots o m a)
+  -> H.HalogenM AppState Action Slots o m a
+inSession output act = do
+  st <- H.get
+  case st.mc6Held of
+    Just open -> act open
+    Nothing -> Wire.withSession output act
+
+-- | Do something in a session that has *just* been opened, even if one is held.
+-- |
+-- | For the reads, which do not ask the device anything — they rely on what it
+-- | volunteers the moment an editor connects. Handed a session that opened
+-- | minutes ago they would sit waiting for a dump that already happened, and
+-- | report an unresponsive device. So this closes and reopens a held session
+-- | rather than borrowing it, and goes on holding afterwards.
+-- |
+-- | The unblocking survives the cycle because it is a controller *setting*,
+-- | stored on the device, not a property of the session.
+inFreshSession
+  :: forall o m a. MonadAff m
+  => MIDI.MIDIOutput
+  -> (Wire.Open -> H.HalogenM AppState Action Slots o m a)
+  -> H.HalogenM AppState Action Slots o m a
+inFreshSession output act = do
+  st <- H.get
+  case st.mc6Held of
+    Nothing -> Wire.withSession output act
+    Just held -> do
+      Wire.closeSession held
+      H.modify_ _ { mc6Held = Nothing }
+      open <- Wire.openSession output
+      a <- act open
+      H.modify_ _ { mc6Held = Just open }
+      pure a
+
+-- | The same, for a write. An upload needs a session around it either way; this
+-- | only decides whether that session is borrowed or opened.
+inUpload
+  :: forall o m a. MonadAff m
+  => MIDI.MIDIOutput
+  -> (Wire.Uploading -> H.HalogenM AppState Action Slots o m a)
+  -> H.HalogenM AppState Action Slots o m a
+inUpload output act = inSession output \open -> Wire.withUpload open act
+
 -- | Wait for the device to say something, rather than assuming it did.
 -- |
 -- | MIDI has no acknowledgement, so the alternative is a fixed delay long enough
@@ -2113,8 +2310,8 @@ awaitDumpSettled lastCount quietFor = do
 -- | is only a backstop against a device that never answers at all.
 exhaustBanks
   :: forall o m. MonadAff m
-  => MIDI.MIDIOutput -> Int -> H.HalogenM AppState Action Slots o m Unit
-exhaustBanks output sweepsLeft
+  => Wire.Open -> Int -> H.HalogenM AppState Action Slots o m Unit
+exhaustBanks open sweepsLeft
   | sweepsLeft <= 0 = pure unit
   | otherwise = do
       st0 <- H.get
@@ -2122,7 +2319,7 @@ exhaustBanks output sweepsLeft
           missing = Array.filter (\b -> not (Map.member b st0.mc6BankSwitches)) allBanks
           before = Map.size st0.mc6BankSwitches
       if Array.null missing then pure unit else do
-        traverse_ (requestOneBank output) missing
+        traverse_ (requestOneBank open) missing
         st1 <- H.get
         if Map.size st1.mc6BankSwitches == before
           then liftEffect $ Console.log $
@@ -2130,17 +2327,17 @@ exhaustBanks output sweepsLeft
               <> " bank(s) are not answering"
           else do
             H.liftAff (delay (Milliseconds 500.0))
-            exhaustBanks output (sweepsLeft - 1)
+            exhaustBanks open (sweepsLeft - 1)
 
 -- | Ask one bank for its switch names, and wait for the answer rather than for
 -- | a fixed delay, so the read runs at whatever speed the device manages.
 requestOneBank
   :: forall o m. MonadAff m
-  => MIDI.MIDIOutput -> Int -> H.HalogenM AppState Action Slots o m Unit
-requestOneBank output b = do
+  => Wire.Open -> Int -> H.HalogenM AppState Action Slots o m Unit
+requestOneBank open b = do
   H.modify_ _ { mc6ReadStatus = Just
     ("Asking for bank " <> show b <> " of " <> show (Survey.bankCount - 1) <> "\x2026") }
-  sendSysExLogged ("read-bank-" <> show b) output (SysEx.sysexRequestPresetNames b)
+  Wire.send open (SysEx.sysexRequestPresetNames b)
   _ <- awaitState 20 (\s -> Map.member b s.mc6BankSwitches)
   pure unit
 
@@ -2167,42 +2364,19 @@ syncAllBanksToMC6 = do
       H.modify_ _ { mc6ReadStatus = Just
         ("Writing " <> show (Array.length banks) <> " pages ("
           <> show writes <> " presets)\x2026") }
-      withEditorSession output do
+      inUpload output \up ->
         for_ banks \cb -> do
           let presets = ControlBank.controlBankToPresets
                           (Global.applyGlobals st.globalSwitches cb)
           for_ presets \p -> do
-            let bytes = SysEx.sysexPresetData cb.mc6BankNumber p.switchIndex
-                          p.shortName p.longName p.toToggle p.messages
-            sendSysExLogged ("all-" <> show cb.mc6BankNumber <> "-" <> show p.switchIndex) output bytes
+            Wire.sendUpload up $ SysEx.labelled "all" $
+              SysEx.sysexPresetData cb.mc6BankNumber p.switchIndex
+                p.shortName p.longName p.toToggle p.messages
             H.liftAff (delay (Milliseconds 100.0))
       invalidateObservation (map _.mc6BankNumber banks)
       H.modify_ _ { mc6ReadStatus = Just
         ("Wrote " <> show (Array.length banks)
           <> " pages to the MC6. Read the device again to confirm what landed.") }
-
--- | Send SysEx with hex logging
-sendSysExLogged :: forall o m. MonadAff m => String -> MIDI.MIDIOutput -> Array Int -> H.HalogenM AppState Action Slots o m Unit
-sendSysExLogged label output bytes = do
-  liftEffect $ Console.log $ "MC6 SysEx SEND [" <> label <> "]: " <> SysEx.toHexString bytes
-  liftEffect $ MIDI.send output bytes
-
--- | SysEx upload session: connect → start upload → action → complete → disconnect
--- | The MC6 requires the F1=7 upload handshake to accept preset data.
--- | Ideally we'd wait for the MC6's "ready" response; for now we use fixed delays.
-withEditorSession :: forall o m. MonadAff m => MIDI.MIDIOutput -> H.HalogenM AppState Action Slots o m Unit -> H.HalogenM AppState Action Slots o m Unit
-withEditorSession output action = do
-  sendSysExLogged "connect" output SysEx.sysexConnect
-  H.liftAff (delay (Milliseconds 500.0))
-  sendSysExLogged "start-upload" output SysEx.sysexStartUpload
-  -- MC6 responds with "ready for next" (F1=7,F2=0,F3=33); wait for it
-  H.liftAff (delay (Milliseconds 500.0))
-  action
-  H.liftAff (delay (Milliseconds 300.0))
-  sendSysExLogged "complete-upload" output SysEx.sysexCompleteUpload
-  H.liftAff (delay (Milliseconds 500.0))
-  sendSysExLogged "disconnect" output SysEx.sysexDisconnect
-  liftEffect $ Console.log "MC6 SysEx: session complete"
 
 -- | Clear all MC6 switches (A-I) in the active board bank:
 -- | remove webapp assignments, then send SysEx clears to hardware
@@ -2220,10 +2394,9 @@ handleClearMC6Bank = do
     Nothing -> liftEffect $ Console.log "MC6 SysEx: no MC6 output connected (assignments cleared locally)"
     Just output -> do
       liftEffect $ Console.log $ "MC6 SysEx CLEAR: bank " <> show bankNum <> " all switches"
-      withEditorSession output do
+      inUpload output \up ->
         for_ (Array.range 0 (ControlBank.switchCount - 1)) \presetNum -> do
-          let sysexBytes = SysEx.sysexClearPreset bankNum presetNum
-          sendSysExLogged ("clear-" <> show presetNum) output sysexBytes
+          Wire.sendUpload up $ SysEx.labelled "clear" $ SysEx.sysexClearPreset bankNum presetNum
           H.liftAff (delay (Milliseconds 100.0))
 
 -- | Sync a single switch to MC6 hardware via SysEx.
@@ -2244,9 +2417,8 @@ syncSwitchToMC6 bankNum switchIdx mBoard = do
       case mBoard of
         Nothing -> do
           liftEffect $ Console.log $ "MC6 SysEx: clearing switch " <> show switchIdx <> " in bank " <> show bankNum
-          withEditorSession output do
-            let sysexBytes = SysEx.sysexClearPreset bankNum switchIdx
-            sendSysExLogged ("clear-" <> show switchIdx) output sysexBytes
+          inUpload output \up -> do
+            Wire.sendUpload up $ SysEx.labelled "clear" $ SysEx.sysexClearPreset bankNum switchIdx
             H.liftAff (delay (Milliseconds 100.0))
         Just bp -> do
           let messages = Board.boardToMC6Messages st.registry st.presets mControlBankNum bp
@@ -2262,10 +2434,10 @@ syncSwitchToMC6 bankNum switchIdx mBoard = do
                 <> " messages and an MC6 preset holds " <> show Board.messageLimit
                 <> ". Set a pedal to \x2014\x2014 to get under.") }
             else do
-              let sysexBytes = SysEx.sysexPresetData bankNum switchIdx (SCU.take 8 bp.name) bp.name false messages
               liftEffect $ Console.log $ "MC6 SysEx: " <> bp.name <> " → switch " <> show switchIdx <> " (" <> show n <> " messages)"
-              withEditorSession output do
-                sendSysExLogged ("preset-" <> show switchIdx) output sysexBytes
+              inUpload output \up -> do
+                Wire.sendUpload up $ SysEx.labelled "board" $
+                  SysEx.sysexPresetData bankNum switchIdx (SCU.take 8 bp.name) bp.name false messages
                 H.liftAff (delay (Milliseconds 200.0))
       -- The control page carries the jump back to this board bank, so a board
       -- landing on a switch can change what its return switch should say.
@@ -2287,10 +2459,10 @@ syncControlBankToMC6 cb = do
       let presets = ControlBank.controlBankToPresets
                       (Global.applyGlobals st.globalSwitches cb)
       liftEffect $ Console.log $ "MC6 SysEx: syncing control bank '" <> cb.name <> "' to MC6 bank " <> show cb.mc6BankNumber
-      withEditorSession output do
+      inUpload output \up ->
         for_ presets \p -> do
-          let sysexBytes = SysEx.sysexPresetData cb.mc6BankNumber p.switchIndex p.shortName p.longName p.toToggle p.messages
-          sendSysExLogged ("ctrl-" <> show p.switchIndex) output sysexBytes
+          Wire.sendUpload up $ SysEx.labelled "ctrl" $
+            SysEx.sysexPresetData cb.mc6BankNumber p.switchIndex p.shortName p.longName p.toToggle p.messages
           H.liftAff (delay (Milliseconds 100.0))
       invalidateObservation [ cb.mc6BankNumber ]
 
@@ -2643,6 +2815,28 @@ handleReadReply bytes = case Read.decodeReply bytes of
       , mc6CurrentBank = Just bank
       , mc6ReadStatus = Just ("Read bank " <> show bank <> ".")
       }
+  -- Said the instant the device moves, and the fastest honest answer to "which
+  -- bank is it on". The switch names for the same bank turn up much later.
+  Just (Read.CurrentBank bank name) ->
+    H.modify_ \s -> s
+      { mc6CurrentBank = Just bank
+      , mc6ReadStatus = Just
+          ("The MC6 is showing bank " <> show bank
+            <> (if name == "" then "" else " (" <> name <> ")") <> ".")
+      }
+  Just (Read.CurrentPreset bank _) ->
+    H.modify_ _ { mc6CurrentBank = Just bank }
+  Just (Read.EditorMode on) -> do
+    liftEffect $ Console.log $ "MC6 editor mode " <> (if on then "on" else "off")
+    H.modify_ _ { mc6EditorMode = Just on }
+  -- Logged rather than decoded, because one of these bytes is the setting the
+  -- app writes blind. Hold a session, read the device, and diff this line
+  -- against one captured with the setting on: the byte that moved is the
+  -- setting, and that it moved at all is proof the write landed.
+  Just (Read.ControllerSettings payload) ->
+    liftEffect $ Console.log $
+      "MC6 controller settings (" <> show (Array.length payload) <> " bytes): "
+        <> SysEx.toHexString payload
   Just (Read.OtherReply f1 f2) ->
     liftEffect $ Console.log $ "MC6 reply not decoded: F1=" <> show f1 <> " F2=" <> show f2
   Nothing -> pure unit

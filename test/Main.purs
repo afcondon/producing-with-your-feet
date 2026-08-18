@@ -546,7 +546,7 @@ main = do
   -- bytes. Pinned here because the request was reconstructed from their code and
   -- a silent drift in our framing would look like a device that stopped
   -- answering.
-  let req5 = SysEx.sysexRequestPresetNames 5
+  let req5 = SysEx.frameBytes (SysEx.sysexRequestPresetNames 5)
   assert "a bank request is a Morningstar frame"
     (Array.take 5 req5 == [ 0xF0, 0x00, 0x21, 0x24, 0x03 ])
   assert "carrying F1=0 F2=64 and the bank in F3"
@@ -561,22 +561,34 @@ main = do
   -- silence rather than an error — which is exactly how the first attempt at
   -- this looked like a decoder fault. 51 is all banks, 50 is the current one.
   assert "the all-banks dump is F1=7 F2=0 F3=51"
-    (Array.slice 6 9 SysEx.sysexRequestFullDump == [ 0x07, 0x00, 0x33 ])
+    (Array.slice 6 9 (SysEx.frameBytes SysEx.sysexRequestFullDump) == [ 0x07, 0x00, 0x33 ])
   assert "and the single-bank dump is its neighbour, 50"
-    (Array.slice 6 9 SysEx.sysexRequestBankDump == [ 0x07, 0x00, 0x32 ])
+    (Array.slice 6 9 (SysEx.frameBytes SysEx.sysexRequestBankDump) == [ 0x07, 0x00, 0x32 ])
   -- Flow control, not courtesy: the device waits to be told each frame landed,
   -- and echoing the checksum is what says which frame is meant.
   assert "an acknowledgement echoes the checksum it received"
-    (Array.slice 6 9 (SysEx.sysexAcknowledge 0x66) == [ 0x00, 0x7F, 0x66 ])
+    (Array.slice 6 9 (SysEx.frameBytes (SysEx.sysexAcknowledge 0x66)) == [ 0x00, 0x7F, 0x66 ])
+
+  -- The setting that makes a held session usable: off, and the device stops
+  -- blocking its own bank jump and MIDI clock while an editor is connected.
+  -- Pinned because it is the one MC6 value the app writes without being able to
+  -- read it back, so a drift here would change a controller setting to something
+  -- nobody asked for and nothing would say so.
+  assert "switch-press-load off is F1=3 F2=49 F3=0"
+    (Array.slice 6 9 (SysEx.frameBytes (SysEx.sysexSwitchPressLoad false))
+      == [ 0x03, 0x31, 0x00 ])
+  assert "and on is the same frame with the flag set"
+    (Array.slice 6 9 (SysEx.frameBytes (SysEx.sysexSwitchPressLoad true))
+      == [ 0x03, 0x31, 0x01 ])
 
   assert "asking for every bank at once is F2=43 with no bank"
-    (Array.slice 6 9 SysEx.sysexRequestAllPresetNames == [ 0x00, 0x2B, 0x00 ])
+    (Array.slice 6 9 (SysEx.frameBytes SysEx.sysexRequestAllPresetNames) == [ 0x00, 0x2B, 0x00 ])
   -- Bank 0 must be requestable: an off-by-one here would silently read 1..29 and
   -- report a hole at the one bank that is always in use.
   assert "bank 0 is a legal request, not an empty one"
-    (Array.slice 6 9 (SysEx.sysexRequestPresetNames 0) == [ 0x00, 0x40, 0x00 ])
+    (Array.slice 6 9 (SysEx.frameBytes (SysEx.sysexRequestPresetNames 0)) == [ 0x00, 0x40, 0x00 ])
   assert "and the last bank is reachable too"
-    (Array.slice 6 9 (SysEx.sysexRequestPresetNames 29) == [ 0x00, 0x40, 29 ])
+    (Array.slice 6 9 (SysEx.frameBytes (SysEx.sysexRequestPresetNames 29)) == [ 0x00, 0x40, 29 ])
 
   -- The dump decoder is the exact mirror of an encoder that has been writing to
   -- this hardware for months, so the encoder is the right fixture: anything the
@@ -585,7 +597,7 @@ main = do
         [ MC6Msg.ccMessage 3 105 127 ActionPress
         , MC6Msg.bankJumpMessage 4 ActionPress
         ]
-      encoded = SysEx.sysexPresetData 22 6 "Br Tap" "Brig Tap Tempo" true dumpMsgs
+      encoded = SysEx.frameBytes (SysEx.sysexPresetData 22 6 "Br Tap" "Brig Tap Tempo" true dumpMsgs)
       -- Ours go out as F1=7 F2=17 (the editor's upload code); the device's dump
       -- records are F1=7 F2=1. Same payload, so only F2 needs rewriting.
       asDump = asDumpFrame 0x01 encoded
@@ -700,9 +712,42 @@ main = do
   assert "a non-Morningstar SysEx frame is rejected"
     (Read.decodeReply [ 0xF0, 0x7E, 0x00, 0x06, 0x01, 0xF7 ] == Nothing)
   assert "an undecoded function code is named rather than dropped"
-    (Read.decodeReply [ 0xF0, 0x00, 0x21, 0x24, 0x03, 0x03, 0x06, 0x01
+    (Read.decodeReply [ 0xF0, 0x00, 0x21, 0x24, 0x03, 0x03, 0x03, 0x20
                       , 0, 0, 0, 0, 0, 0, 0, 18, 0, 0xF7 ]
-      == Just (Read.OtherReply 0x06 0x01))
+      == Just (Read.OtherReply 0x03 0x20))
+
+  -- Captured from the device on 2026-08-17 while jumping banks. These three
+  -- frames were arriving all along and being logged as "not decoded", which is
+  -- why a jump that had already happened could not be confirmed: the app was
+  -- waiting on the switch-names frame, which says the same thing but only after
+  -- the whole controller-settings parade.
+  --
+  -- Note the bank number is in the payload and F3 is 0 — reading F3, as the
+  -- switch-names frame allows, would have given bank 0 for every one of them.
+  let bankName = [ 80, 97, 116, 99, 104, 32, 84, 119, 111 ]  -- "Patch Two"
+                   <> Array.replicate 15 32
+      currentBankFrame =
+        [ 0xF0, 0x00, 0x21, 0x24, 0x03, 0x03, 0x06, 0x02, 0, 0, 0, 0, 0, 0, 1, 117 ]
+          <> [ 0x7F, 0x00, 0x01, 2 ]
+          <> ([ 0x7F, 0x03, 24 ] <> bankName)
+          <> [ 0x60, 0xF7 ]
+  assert "the device says which bank it moved to, and what it is called"
+    (Read.decodeReply currentBankFrame == Just (Read.CurrentBank 2 "Patch Two"))
+  assert "and which preset it has in hand, agreeing about the bank"
+    (Read.decodeReply
+      ([ 0xF0, 0x00, 0x21, 0x24, 0x03, 0x03, 0x06, 0x01, 0, 0, 0, 0, 0, 0, 2, 16 ]
+        <> [ 0x7F, 0x00, 0x03, 2, 11, 0 ] <> [ 0x09, 0xF7 ])
+      == Just (Read.CurrentPreset 2 11))
+  -- The device announces edit mode rather than leaving us to infer it from
+  -- having asked — so a session opened by something else is visible too.
+  assert "editor mode on is announced as it is entered"
+    (Read.decodeReply [ 0xF0, 0x00, 0x21, 0x24, 0x03, 0x03, 0x00, 0x7D
+                      , 1, 0, 0, 0, 0, 0, 0, 18, 27, 0xF7 ]
+      == Just (Read.EditorMode true))
+  assert "and off as it is left"
+    (Read.decodeReply [ 0xF0, 0x00, 0x21, 0x24, 0x03, 0x03, 0x00, 0x7D
+                      , 0, 0, 0, 0, 0, 0, 0, 18, 26, 0xF7 ]
+      == Just (Read.EditorMode false))
 
   -- No request-frame tests: there are no request frames. Sweeping the
   -- function-code space found nothing that asks for bank data, because the
