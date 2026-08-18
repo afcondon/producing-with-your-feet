@@ -20,7 +20,10 @@ import Engine.Storage (engineToJson, parseEngine, parseCardOrder, parsePresets, 
 import Data.MC6.Board as Board
 import Data.MC6.ControlBank as ControlBank
 import Data.MC6.Message as MC6Msg
-import Data.MC6.Types (MC6Action(..))
+import Data.MC6.Types (MC6Action(..), MC6MsgType(..))
+import Data.Looper as Looper
+import Data.Looper.Banks as LB
+import Data.String as String
 import Data.MC6.Read as Read
 import Data.MC6.SysEx as SysEx
 import Data.MC6.Dump as Dump
@@ -753,6 +756,143 @@ main = do
   -- function-code space found nothing that asks for bank data, because the
   -- device volunteers a full dump on connect instead. All this module does is
   -- decode, and the decoder is tested above against the device's own bytes.
+
+  log ""
+  log "Looper bank family (Data.Looper.Banks)..."
+
+  -- The whole claim of the switch namespace is that a press says which bank it
+  -- came from. That is one round trip, and it either holds for every switch of
+  -- every bank or the claim is not worth making.
+  let everySwitch =
+        do slot <- LB.allSlots
+           i <- Array.range 0 (ControlBank.switchCount - 1)
+           pure { slot, i }
+
+  assert "every switch's CC decodes back to itself"
+    (Array.all
+      (\s -> LB.decodeSwitch LB.switchChannel (LB.switchCC s.slot s.i) 127
+               == Just { slot: s.slot, switch: s.i, down: true })
+      everySwitch)
+
+  assert "and a release decodes as one"
+    (Array.all
+      (\s -> map _.down (LB.decodeSwitch LB.switchChannel (LB.switchCC s.slot s.i) 0)
+               == Just false)
+      everySwitch)
+
+  assert "no two switches in the family share a CC"
+    (let ccs = map (\s -> LB.switchCC s.slot s.i) everySwitch
+     in Array.length (Array.nub ccs) == Array.length ccs)
+
+  -- The four CCs at the top of each block exist only to keep the arithmetic
+  -- readable. Accepting one would mean the decoder inventing a switch the
+  -- device has no way to press.
+  assert "the gap above each block is not a switch"
+    (Array.all
+      (\slot -> Array.all
+        (\off -> LB.decodeSwitch LB.switchChannel (LB.switchCC slot 0 + off) 127 == Nothing)
+        [ 12, 13, 14, 15 ])
+      LB.allSlots)
+
+  assert "CCs below the first block are not switches"
+    (Array.all (\cc -> LB.decodeSwitch LB.switchChannel cc 127 == Nothing)
+      (Array.range 0 15))
+
+  -- Itajara's own pedal CCs run 1-83 on channel 13, and board recall is on
+  -- channel 1. Both overlap this CC range numerically, so the only thing
+  -- keeping them apart is the channel.
+  assert "the switch channel is nobody else's"
+    (LB.switchChannel /= Looper.itajaraChannel
+      && LB.switchChannel /= Board.boardRecallChannel)
+
+  assert "a switch CC on another channel is refused"
+    (LB.decodeSwitch Looper.itajaraChannel (LB.switchCC LB.LoopBank 0) 127 == Nothing)
+
+  let family = LB.banks { base: 22, boardBank: 1 }
+      familySwitches = do
+        cb <- family
+        Array.mapWithIndex (\i sw -> { cb, i, sw }) cb.switches
+
+  assert "six banks, on consecutive numbers from the base"
+    (map _.mc6BankNumber family == Array.range 22 27)
+
+  assert "each bank has its full twelve switches"
+    (Array.all (\cb -> Array.length cb.switches == ControlBank.switchCount) family)
+
+  -- Names are truncated in silence by `shortNameTLV`/`longNameTLV`, so an
+  -- over-long label does not fail, it just arrives on the device meaning
+  -- something slightly different from what this table says.
+  assert "no label is longer than the device shows"
+    (Array.all (\e -> String.length e.sw.label <= 8) familySwitches)
+
+  assert "no long name is longer than the device shows"
+    (Array.all (\e -> String.length e.sw.longName <= 24) familySwitches)
+
+  -- `sysexPresetData` pads with `Array.take 16` and the device says nothing
+  -- about the overflow, which is the same silent-truncation failure again.
+  assert "every switch fits the sixteen-message budget"
+    (Array.all (\e -> Array.length e.sw.messages <= Board.messageLimit) familySwitches)
+
+  assert "a blank switch carries no messages"
+    (Array.all (\e -> e.sw.label /= "" || Array.null e.sw.messages) familySwitches)
+
+  -- Nothing latches on the device: state lives in the app, which is the only
+  -- part of this that can see the engine.
+  assert "nothing uses the device's own toggle"
+    (Array.all (\e -> not e.sw.toToggle) familySwitches)
+
+  -- Every jump this family emits must land inside it or on the board bank. A
+  -- jump to an unwritten bank is a foot that goes somewhere and does not come
+  -- back.
+  assert "every bank jump lands somewhere we wrote"
+    (Array.all
+      (\m -> m.msgType /= MsgBankJump || Array.elem m.data1 (Array.range 22 27 <> [ 1 ]))
+      (Array.concatMap (\e -> e.sw.messages) familySwitches))
+
+  let loopBankSwitches =
+        Array.filter (\e -> e.cb.mc6BankNumber == 22 && e.i < LB.loopSwitches) familySwitches
+
+  assert "each of the six loop switches holds to the config bank"
+    (Array.length loopBankSwitches == LB.loopSwitches
+      && Array.all
+        (\e -> Array.any
+          (\m -> m.msgType == MsgBankJump && m.action == ActionLongPress && m.data1 == 23)
+          e.sw.messages)
+        loopBankSwitches)
+
+  assert "and taps nowhere, because the app decides what a tap means"
+    (Array.all
+      (\e -> Array.all (\m -> m.msgType /= MsgBankJump || m.action /= ActionPress) e.sw.messages)
+      loopBankSwitches)
+
+  -- The pair the app times a hold with. If the release ever stopped being
+  -- written, a hold and a tap would be the same message.
+  assert "a loop switch sends 127 down and 0 up on its own CC"
+    (Array.all
+      (\e -> Array.any (\m -> m.msgType == MsgCC && m.channel == LB.switchChannel
+                              && m.data1 == LB.switchCC LB.LoopBank e.i
+                              && m.data2 == 127 && m.action == ActionPress) e.sw.messages
+          && Array.any (\m -> m.msgType == MsgCC && m.channel == LB.switchChannel
+                              && m.data1 == LB.switchCC LB.LoopBank e.i
+                              && m.data2 == 0 && m.action == ActionRelease) e.sw.messages)
+      loopBankSwitches)
+
+  -- The engine has six loops; the bank offers six places to put a foot. These
+  -- are two copies of one number, and the daemon cannot be asked from here.
+  assert "the loop bank offers as many loops as the engine has"
+    (LB.loopSwitches == 6)
+
+  -- Switches 9-11 are a second FS3X that may not be plugged in. A way out that
+  -- lands there is a bank you can walk into and not leave, and you would find
+  -- that out with a foot rather than a compiler.
+  assert "every bank's way out is reachable without a second FS3X"
+    (Array.all
+      (\cb -> Array.any
+        (\e -> e.i <= 8
+            && Array.any (\m -> m.msgType == MsgBankJump && m.action == ActionPress)
+                 e.sw.messages)
+        (Array.filter (\e -> e.cb.mc6BankNumber == cb.mc6BankNumber) familySwitches))
+      family)
 
   log ""
   log "Done."

@@ -134,6 +134,11 @@ type AppState =
   -- MC6 bank the generated looper transport is written to. Itajara's CCs are
   -- fixed by its pedal definition, so there is no base-CC to configure.
   , mc6LooperBankNum :: Int
+  -- | First of the six consecutive banks the six-loop machine occupies
+  -- | (`Data.Looper.Banks`). One number rather than six, because "which bank is
+  -- | the speed bank" should be arithmetic and not a setting that can be set
+  -- | inconsistently.
+  , mc6LoopBankBase :: Int
   -- Result of the last looper-bank programming run, shown on the Looper page.
   , looperProgramStatus :: Maybe String
   , midiTest :: Maybe String
@@ -242,6 +247,9 @@ initAppState =
   , looper: Nothing
   , looperStatus: { connected: false, everConnected: false, lastError: "", url: "" }
   , mc6LooperBankNum: 21
+  -- 22-27, just above the legacy transport bank and below the two the device
+  -- has left. Wire numbers; the editor shows each one higher.
+  , mc6LoopBankBase: 22
   , looperProgramStatus: Nothing
   , midiTest: Nothing
   , mc6BankNames: Map.empty

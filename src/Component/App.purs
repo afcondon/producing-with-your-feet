@@ -13,6 +13,7 @@ import Data.Array as Array
 import Data.Argonaut.Core (stringify)
 import Data.Argonaut.Parser (jsonParser)
 import Data.Looper as Looper
+import Data.Looper.Banks as LoopBanks
 import Data.MC6.Backup as Backup
 import Data.MC6.ControlBank as ControlBank
 import Data.MC6.Dump as Dump
@@ -85,6 +86,7 @@ data Action
   | ProgramBypassBanks
   | ReadMC6Banks
   | ProgramLooperBank
+  | ProgramLoopBanks
   | SetView View
   | SetValue PedalId CC MidiValue
   | SendMomentary PedalId CC MidiValue
@@ -565,9 +567,45 @@ renderLooperView state =
           , HE.onClick \_ -> ProgramLooperBank
           ]
           [ HH.text "Program MC6 looper bank" ]
+      , loopFamilyCard
       , case state.looperProgramStatus of
           Nothing -> HH.text ""
           Just msg -> HH.p [ HP.class_ (H.ClassName "looper-muted") ] [ HH.text msg ]
+      ]
+
+  -- The six-loop machine's own banks, which are a different thing wearing a
+  -- similar name to the transport bank above: that one drives one loop through
+  -- Itajara's pedal CCs, this one gives the app twelve labelled places to stand
+  -- on each of six pages and lets the app decide what standing there means.
+  loopFamilyCard =
+    HH.div [ HP.class_ (H.ClassName "looper-footswitch") ]
+      [ HH.h3_ [ HH.text "Six-loop banks" ]
+      , HH.p [ HP.class_ (H.ClassName "looper-muted") ]
+          [ HH.text $
+              "Six banks from MC6 bank " <> show state.mc6LoopBankBase
+              <> ", uploaded once. Every switch sends its own CC on channel "
+              <> show LoopBanks.switchChannel
+              <> ", so a press says which bank it came from and the app never has "
+              <> "to remember which page the board is showing."
+          ]
+      , HH.table [ HP.class_ (H.ClassName "docs-table") ]
+          [ HH.tbody_ (map familyRow (LoopBanks.banks
+              { base: state.mc6LoopBankBase, boardBank: state.mc6BoardBankNum })) ]
+      , HH.button
+          [ HP.class_ (H.ClassName "files-btn")
+          , HP.disabled (isNothing state.connections.mc6Output)
+          , HE.onClick \_ -> ProgramLoopBanks
+          ]
+          [ HH.text "Program MC6 loop banks" ]
+      ]
+
+  familyRow cb =
+    HH.tr_
+      [ HH.td [ HP.class_ (H.ClassName "docs-cc") ] [ HH.text (show cb.mc6BankNumber) ]
+      , HH.td_ [ HH.text cb.name ]
+      , HH.td_
+          [ HH.text $ Array.intercalate ", "
+              (Array.filter (_ /= "") (map _.label cb.switches)) ]
       ]
 
   -- Switch letters run A–F on the MC6 itself, then G/H/I on the first FS3X.
@@ -1334,6 +1372,39 @@ handleAction = case _ of
         invalidateObservation [ cb.mc6BankNumber ]
         H.modify_ _ { looperProgramStatus = Just
           ("Written to MC6 bank " <> show st.mc6LooperBankNum <> ". Stomp to test.") }
+
+  -- | Write the six-loop machine's whole bank family in one pass.
+  -- |
+  -- | Six banks and seventy-two presets, which is the better part of a minute
+  -- | of SysEx — and exactly why this runs once rather than as the board is
+  -- | played (`itajara-in-atlantis` §"The MC6 is a keyboard"). What each loop is
+  -- | doing shows on screen; the device only supplies labelled places to stand.
+  -- |
+  -- | Blank switches are written too, so a bank that used to be something else
+  -- | is left with no stragglers from that life.
+  ProgramLoopBanks -> do
+    st <- H.get
+    case st.connections.mc6Output of
+      Nothing ->
+        H.modify_ _ { looperProgramStatus = Just "No MC6 SysEx output selected — pick one on the Connect page." }
+      Just output -> do
+        let family = LoopBanks.banks
+              { base: st.mc6LoopBankBase, boardBank: st.mc6BoardBankNum }
+        H.modify_ _ { looperProgramStatus = Just
+          ("Programming " <> show (Array.length family) <> " banks…") }
+        inUpload output \up ->
+          for_ family \cb ->
+            for_ (ControlBank.controlBankToPresets cb) \pr -> do
+              Wire.sendUpload up $ SysEx.labelled "loopbanks" $
+                SysEx.sysexPresetData cb.mc6BankNumber pr.switchIndex
+                  pr.shortName pr.longName pr.toToggle pr.messages
+              H.liftAff (delay (Milliseconds 100.0))
+        invalidateObservation (map _.mc6BankNumber family)
+        H.modify_ _ { looperProgramStatus = Just
+          ("Written to MC6 banks " <> show st.mc6LoopBankBase <> "–"
+            <> show (st.mc6LoopBankBase + Array.length family - 1)
+            <> " (editor " <> show (st.mc6LoopBankBase + 1) <> "–"
+            <> show (st.mc6LoopBankBase + Array.length family) <> ").") }
 
   SelectTwisterInput portId -> do
     st <- H.get
