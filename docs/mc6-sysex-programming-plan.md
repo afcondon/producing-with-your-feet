@@ -304,3 +304,30 @@ channel alone. Channel 16 is the one `Data.Looper.Banks` took for the switch
 namespace, on the strength of a comment saying it was free, and the device
 labels it `Habit`. Whatever the truth, channel 16 is not an unremarkable
 empty channel on this device.
+
+## Checksum, confirmed independently (2026-08-19)
+
+XOR of every byte from `F0` up to but not including the checksum, masked to
+7 bits. Previously this was only known from our own encoder, which proves
+nothing — an encoder agrees with itself. Verified against a frame captured
+from the device with a third-party monitor: `f0 00 21 24 03 03 01 20 00 00 00
+00 00 00 00 12 46 f7` xors to `0xC6`, and `0xC6 & 0x7F = 0x46`, the byte the
+device sent.
+
+The same frame confirms the length field on data from a different day and a
+different tool: bytes 14-15 are `00 12` and the frame is 18 bytes.
+
+## `01 20` — the device says something changed
+
+Renaming a bank in Morningstar's editor makes the MC6 emit an 18-byte frame
+with **`F1=0x01, F2=0x20` and no payload**. It does not appear anywhere in the
+connect dump, so it is not part of the startup parade; it is a notification.
+
+Byte 5 is `03`, which is what every device-originated frame carries and no
+frame we send does — so this is the device's reply, not the editor's command.
+The write frame itself is still uncaptured, because a MIDI monitor listening
+to sources sees only this half.
+
+If `01 20` turns out to fire on every settings change, it is worth more than
+its size: a store that mirrors the device needs to know when its copy went
+stale, and the alternative is polling a full read.
