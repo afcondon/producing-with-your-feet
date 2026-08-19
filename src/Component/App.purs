@@ -15,6 +15,7 @@ import Data.Argonaut.Parser (jsonParser)
 import Data.Looper as Looper
 import Data.Looper.Banks as LoopBanks
 import Data.MC6.Backup as Backup
+import Data.MC6.ControlBank (ControlBank)
 import Data.MC6.ControlBank as ControlBank
 import Data.MC6.Dump as Dump
 import Data.MC6.Global as Global
@@ -26,6 +27,7 @@ import Data.MC6.Board as Board
 import Data.MC6.Read as Read
 import Data.MC6.Survey as Survey
 import Data.Foldable (any, for_, traverse_)
+import Data.Traversable (for)
 import Data.Map as Map
 import Data.Int as Int
 import Data.Maybe (Maybe(..), fromMaybe, isJust, isNothing)
@@ -1332,20 +1334,16 @@ handleAction = case _ of
       Nothing ->
         H.modify_ _ { midiTest = Just "no MC6 SysEx output selected" }
       Just output -> do
-        let banks = Diagnostics.bypassBanks st.mc6DiagBankNum st.mc6BoardBankNum st.registry
-        H.modify_ _ { midiTest = Just ("programming " <> show (Array.length banks) <> " bank(s)...") }
-        inUpload output \up ->
-          for_ banks \cb -> do
-            let presets = ControlBank.controlBankToPresets
-                      (Global.applyGlobals st.globalSwitches cb)
-            for_ presets \pr -> do
-              Wire.sendUpload up $ SysEx.labelled "diag" $
-                SysEx.sysexPresetData cb.mc6BankNumber pr.switchIndex
-                  pr.shortName pr.longName pr.toToggle pr.messages
-              H.liftAff (delay (Milliseconds 100.0))
-        H.modify_ _ { midiTest = Just
-          ("programmed " <> show (Array.length banks) <> " bypass-test bank(s) from MC6 bank "
-            <> show st.mc6DiagBankNum) }
+        let banks = map (Global.applyGlobals st.globalSwitches)
+              (Diagnostics.bypassBanks st.mc6DiagBankNum st.mc6BoardBankNum st.registry)
+        r <- uploadBanks "diag" output banks \n ->
+          H.modify_ _ { midiTest = Just ("writing bank " <> show n <> "...") }
+        invalidateObservation r.written
+        H.modify_ _ { midiTest = Just $
+          (if Array.null r.written then "wrote nothing"
+           else "programmed bypass-test banks " <> commaList r.written)
+          <> (if Array.null r.refused then ""
+              else "; the MC6 never confirmed moving to " <> commaList r.refused) }
 
   -- | Write the looper transport to its own MC6 bank.
   -- |
@@ -1359,19 +1357,16 @@ handleAction = case _ of
         H.modify_ _ { looperProgramStatus = Just "No MC6 SysEx output selected — pick one on the Connect page." }
       Just output -> do
         let cb = Looper.looperBank st.mc6LooperBankNum st.mc6BoardBankNum
-            presets = ControlBank.controlBankToPresets cb
         H.modify_ _ { looperProgramStatus = Just "Programming…" }
-        inUpload output \up ->
-          for_ presets \pr -> do
-            Wire.sendUpload up $ SysEx.labelled "looper" $
-              SysEx.sysexPresetData cb.mc6BankNumber pr.switchIndex
-                pr.shortName pr.longName pr.toToggle pr.messages
-            H.liftAff (delay (Milliseconds 100.0))
+        r <- uploadBanks "looper" output [ cb ] \_ -> pure unit
         -- This writes a bank like any other sync, so what we had read about that
         -- bank is now stale in the same way.
-        invalidateObservation [ cb.mc6BankNumber ]
-        H.modify_ _ { looperProgramStatus = Just
-          ("Written to MC6 bank " <> show st.mc6LooperBankNum <> ". Stomp to test.") }
+        invalidateObservation r.written
+        H.modify_ _ { looperProgramStatus = Just $
+          if Array.null r.written then
+            "The MC6 never confirmed moving to bank " <> show st.mc6LooperBankNum
+              <> ", so nothing was written."
+          else "Written to MC6 bank " <> show st.mc6LooperBankNum <> ". Stomp to test." }
 
   -- | Write the six-loop machine's whole bank family in one pass.
   -- |
@@ -1390,21 +1385,15 @@ handleAction = case _ of
       Just output -> do
         let family = LoopBanks.banks
               { base: st.mc6LoopBankBase, boardBank: st.mc6BoardBankNum }
-        H.modify_ _ { looperProgramStatus = Just
-          ("Programming " <> show (Array.length family) <> " banks…") }
-        inUpload output \up ->
-          for_ family \cb ->
-            for_ (ControlBank.controlBankToPresets cb) \pr -> do
-              Wire.sendUpload up $ SysEx.labelled "loopbanks" $
-                SysEx.sysexPresetData cb.mc6BankNumber pr.switchIndex
-                  pr.shortName pr.longName pr.toToggle pr.messages
-              H.liftAff (delay (Milliseconds 100.0))
-        invalidateObservation (map _.mc6BankNumber family)
-        H.modify_ _ { looperProgramStatus = Just
-          ("Written to MC6 banks " <> show st.mc6LoopBankBase <> "–"
-            <> show (st.mc6LoopBankBase + Array.length family - 1)
-            <> " (editor " <> show (st.mc6LoopBankBase + 1) <> "–"
-            <> show (st.mc6LoopBankBase + Array.length family) <> ").") }
+        r <- uploadBanks "loopbanks" output family \n ->
+          H.modify_ _ { looperProgramStatus = Just ("Writing bank " <> show n <> "…") }
+        invalidateObservation r.written
+        H.modify_ _ { looperProgramStatus = Just $
+          (if Array.null r.written then "Wrote nothing."
+           else "Written to MC6 banks " <> commaList r.written <> ".")
+          <> (if Array.null r.refused then ""
+              else " The MC6 never confirmed moving to "
+                     <> commaList r.refused <> ", so nothing was written there.")}
 
   SelectTwisterInput portId -> do
     st <- H.get
@@ -2334,6 +2323,65 @@ inUpload
   -> (Wire.Uploading -> H.HalogenM AppState Action Slots o m a)
   -> H.HalogenM AppState Action Slots o m a
 inUpload output act = inSession output \open -> Wire.withUpload open act
+
+-- | Write whole banks, having first made the device show each one.
+-- |
+-- | **The MC6 ignores the bank number in the preset frame.** An upload lands on
+-- | the bank the editor is *currently on*, whatever `sysexPresetData`'s header
+-- | says — which was found the only way it could be found, by writing six banks
+-- | to 22-27, reading the device back, and finding all six had gone to bank 19
+-- | on top of each other, leaving the last one standing. Nothing complained:
+-- | seventy-two frames went out, the device took every one, and the app said
+-- | "written to banks 22-27".
+-- |
+-- | It is also why the looper transport bank has always appeared to work. It
+-- | was written while the device sat on the bank being looked at, so the labels
+-- | duly appeared on the LCD, and "the bank I asked for" and "the bank I was
+-- | looking at" were never once distinguished by the evidence.
+-- |
+-- | So: jump, **wait for the device to say it moved**, then write. And where it
+-- | does not say so, write nothing and report the bank as refused — a silent
+-- | skip here means overwriting a bank nobody named, which is the exact failure
+-- | this whole function exists to have found.
+-- |
+-- | **A session per bank, not a session per run.** With one session around all
+-- | six, the first jump was answered and the other five never were: committing
+-- | an upload leaves the editor somewhere that no longer replies to a bank
+-- | change. The guard caught it — one bank written, five reported refused, and
+-- | a read-back confirming those five were untouched rather than merely
+-- | unconfirmed — which is the difference between a slow afternoon and a
+-- | silently wrong pedalboard.
+-- | Bank numbers as prose, for a status line that has to name several.
+commaList :: Array Int -> String
+commaList = Array.intercalate ", " <<< map show
+
+uploadBanks
+  :: forall o m. MonadAff m
+  => String
+  -> MIDI.MIDIOutput
+  -> Array ControlBank
+  -> (Int -> H.HalogenM AppState Action Slots o m Unit)
+  -> H.HalogenM AppState Action Slots o m { written :: Array Int, refused :: Array Int }
+uploadBanks label output cbs note = do
+  results <- for cbs \cb -> inFreshSession output \open -> do
+    note cb.mc6BankNumber
+    -- Cleared first, or `awaitState` would be satisfied by the answer to the
+    -- *previous* jump and we would write before the device had moved.
+    H.modify_ _ { mc6CurrentBank = Nothing }
+    Wire.send open (SysEx.sysexEditorBankChange cb.mc6BankNumber)
+    moved <- awaitState 30 (\s -> s.mc6CurrentBank == Just cb.mc6BankNumber)
+    when moved $
+      Wire.withUpload open \up ->
+        for_ (ControlBank.controlBankToPresets cb) \pr -> do
+          Wire.sendUpload up $ SysEx.labelled label $
+            SysEx.sysexPresetData cb.mc6BankNumber pr.switchIndex
+              pr.shortName pr.longName pr.toToggle pr.messages
+          H.liftAff (delay (Milliseconds 100.0))
+    pure { bank: cb.mc6BankNumber, ok: moved }
+  pure
+    { written: map _.bank (Array.filter _.ok results)
+    , refused: map _.bank (Array.filter (\r -> not r.ok) results)
+    }
 
 -- | Wait for the device to say something, rather than assuming it did.
 -- |
