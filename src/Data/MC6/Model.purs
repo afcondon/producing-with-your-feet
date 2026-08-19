@@ -29,9 +29,15 @@
 -- |
 -- | The last of those is not hypothetical. The device's own bank jumps carry
 -- | `data3 = 6` and `data1 = 0`; ours carry `data1 = bank` and `data3 = 0`.
--- | Both are called `MsgBankJump`. Until that is settled by experiment rather
--- | than by reading, only the shape *we* emit parses as `JumpToBank`, and the
--- | device's own stay `Raw` — which is the honest statement of what is known.
+-- | Both are called `MsgBankJump`, and **both work** — ours was stomped on
+-- | 2026-08-19 and navigates correctly, and the device's own Home switches have
+-- | always navigated. So `MsgBankJump` is two messages sharing a type byte,
+-- | which is precisely the situation the `Raw` fallthrough exists for: the
+-- | shape we emit parses as `JumpToBank`, the other stays raw and keeps working
+-- | untouched, and nothing had to be guessed to get there.
+-- |
+-- | What `data3 = 6` means is still unknown. It is not needed to write a jump,
+-- | which is the only reason that is comfortable.
 -- |
 -- | ## Names cannot be over-long, rather than being truncated
 -- |
