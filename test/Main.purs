@@ -963,12 +963,34 @@ main = do
       == [ [ "< Board" ], [ "< Loops" ], [ "< Loops" ]
          , [ "< Loops" ], [ "< Loops" ], [ "< Loops" ] ])
 
-  -- The code has to say it too, or six tables agree until one of them does not.
+  -- The code has to say it too, or two tables agree until one of them does not.
   assert "and the meaning table answers the toolbar without consulting the bank"
     (Array.all
       (\slot -> Machine.act { loops: [], focus: 2 } (Gestures.Tap slot 9)
         == [ Machine.Command "2c" ])
       LB.allSlots)
+
+  -- **The join that was missing.** The pedal's label and the command on the
+  -- wire used to be two tables keyed by a switch number, with nothing but that
+  -- number holding them together: the layout said switch 9 was "Clear", the
+  -- meaning table said switch 9 sent `c`, and moving Clear would have left a
+  -- switch labelled one thing and doing another without failing to compile.
+  -- Now both are renderings of one `Duty`, and this is what says so.
+  -- A labelled switch that does nothing, and an unlabelled one that does
+  -- something, are exactly the two failures the old split allowed.
+  assert "every switch's label and its command come from the same value"
+    (Array.all
+      (\r ->
+         let
+           labelled = maybe false (\d -> LB.dutyLabel d /= "") (LB.dutyAt r.slot r.i)
+           acts = Machine.act { loops: [], focus: 0 } (Gestures.Tap r.slot r.i)
+           blank = Array.any (String.contains (String.Pattern "has nothing on"))
+             (map Machine.describe acts)
+         in labelled /= blank)
+      (do
+         slot <- LB.allSlots
+         i <- Array.range 0 11
+         pure { slot, i }))
 
   -- The letters are the device's, so they have to come from the same place the
   -- switch numbering does rather than from a second list in the view.
@@ -995,15 +1017,20 @@ main = do
     (Machine.act { loops: [], focus: 4 } (Gestures.Tap LB.ConfigBank 5)
       == [ Machine.Command "4pend" ])
 
-  -- What is not built says what it is waiting for. A switch that shrugs is
-  -- indistinguishable from a broken cable.
-  assert "the one that still needs real engine work names it"
-    (map Machine.describe (Machine.act (rigOf []) (Gestures.Tap LB.ConfigBank 2))
-      == [ "chance needs a random source in the audio callback" ])
-
-  assert "an unwired switch still says so rather than vanishing"
+  -- What is not built says what it is waiting for, and says it in the SAME
+  -- words on the pedal and on screen — the gap carries its own name now, so a
+  -- switch that shrugs cannot be told apart from a broken cable only by
+  -- reading two files.
+  assert "an unimplemented switch names itself and what it waits for"
     (map Machine.describe (Machine.act (rigOf []) (Gestures.Tap LB.ChanceBank 3))
-      == [ "chance switch 3 is not wired yet" ])
+      == [ "1 in 4: chance needs a random source in the audio callback" ]
+      && LB.dutyLabel (LB.Grid 4) == "4 Bars")
+
+  -- A switch with nothing on it is a different answer from one that is waiting
+  -- for the engine, and both are different from silence.
+  assert "and a switch with nothing on it says that instead"
+    (map Machine.describe (Machine.act (rigOf []) (Gestures.Tap LB.PanBank 99))
+      == [ "pan switch 99 has nothing on it" ])
 
   -- The letters are only true where the board can reach the loops. With the
   -- board on config, A is Quantise, so labelling the first loop "A" there
@@ -1012,6 +1039,17 @@ main = do
     (map (LB.faceLoopKey (LB.face (Just LB.LoopBank))) [ 0, 3 ] == [ "A", "D" ]
       && map (LB.faceLoopKey (LB.face (Just LB.ConfigBank))) [ 0, 3 ] == [ "1", "4" ]
       && map (LB.faceLoopKey (LB.face Nothing)) [ 0, 3 ] == [ "1", "4" ])
+
+  -- The device refuses a name it cannot print rather than truncating it, so a
+  -- label that does not fit is a build-time problem and not a mystery on the
+  -- pedal. Now that the labels are computed from duties rather than written by
+  -- hand, that is worth checking here instead of finding out at upload.
+  assert "every generated label fits the fields the MC6 has for it"
+    (Array.all
+      (\b -> Array.all
+        (\sw -> String.length sw.label <= 8 && String.length sw.longName <= 24)
+        b.switches)
+      (LB.banks { base: 22, boardBank: 1 }))
 
   -- The MC6 numbers from the bottom, so the far row is D E F.
   assert "the board's rows are the device's, not the index order"

@@ -42,7 +42,8 @@ module Data.Looper.Machine
 import Prelude
 
 import Data.Array as Array
-import Data.Looper.Banks (BankSlot(..), loopSwitches, mc6OwnSwitches)
+import Data.Looper.Banks (BankSlot(..), loopSwitches)
+import Data.Looper.Banks as LB
 import Data.Looper.Gestures (Gesture(..))
 import Data.Maybe (Maybe(..))
 import Foreign.LooperSocket (LoopState)
@@ -74,61 +75,83 @@ type Rig =
   }
 
 -- | The whole meaning table.
+-- |
+-- | **Keyed by what the switch is for, never by which switch it is.** This used
+-- | to be a set of per-bank tables indexed by a switch number, running in
+-- | parallel with the labels in `Data.Looper.Banks` and joined to them by
+-- | nothing but that number. The layout said switch 9 was "Clear"; this said
+-- | switch 9 sent `c`; moving Clear would have left a switch labelled one thing
+-- | and doing another, and nothing would have failed to compile.
+-- |
+-- | Now a press is resolved to a `Duty` first and the meaning is a total
+-- | function of that. The label on the pedal, the words on screen and the
+-- | command on the wire are three renderings of one value, so they cannot
+-- | disagree — and a new duty is a compile error here until it is given a
+-- | meaning, rather than a switch that silently does nothing.
 act :: Rig -> Gesture -> Array Action
 act rig = case _ of
 
-  Tap LoopBank i | i < loopSwitches -> Array.cons (Focus i) (onTap i (loopAt rig i))
-  DoubleTap LoopBank i | i < loopSwitches -> Array.cons (Focus i) (onDouble i (loopAt rig i))
+  Tap slot i -> case LB.dutyAt slot i of
+    Just d -> onDuty rig slot d
+    Nothing -> [ missing slot i ]
+
+  DoubleTap slot i -> case LB.dutyAt slot i of
+    Just (LB.SelectLoop n) -> Array.cons (Focus n) (onDouble n (loopAt rig n))
+    Just d -> [ Handled ("double tap on " <> LB.dutyLabel d) ]
+    Nothing -> [ missing slot i ]
+
   -- The MC6 jumps to the config bank on its own long press; all this has to do
   -- is agree about which loop that bank is now talking about.
-  Hold LoopBank i | i < loopSwitches ->
-    [ Focus i, Handled ("configuring loop " <> show (i + 1)) ]
+  Hold slot i -> case LB.dutyAt slot i of
+    Just (LB.SelectLoop n) -> [ Focus n, Handled ("configuring loop " <> show (n + 1)) ]
+    Just d -> [ Handled ("hold on " <> LB.dutyLabel d) ]
+    Nothing -> [ missing slot i ]
 
-  -- **The toolbar, before any per-bank table.** G to L mean the same six things
-  -- on every bank in the family, so they are answered in one place and the
-  -- bank is not consulted — which is the code saying the same thing the layout
-  -- says, rather than six tables that happen to agree.
-  Tap _ i | i >= mc6OwnSwitches -> toolbar rig.focus i
+missing :: BankSlot -> Int -> Action
+missing slot i = Unavailable (show' slot <> " switch " <> show i <> " has nothing on it")
 
-  -- The config family. Everything here acts on `focus` — the loop last touched,
-  -- which is what a hold on a loop switch sets. One config bank for six loops
-  -- only works because the press that got here said which loop it meant.
-  Tap ConfigBank i -> config rig.focus i
-  Tap QuantiseBank i -> quantise rig.focus i
-  Tap SpeedBank i -> speed rig.focus i
-  Tap PanBank i -> pan rig.focus i
-  Tap slot i -> [ Unavailable (show' slot <> " switch " <> show i <> " is not wired yet") ]
-
-  DoubleTap slot i -> [ Handled ("double tap on " <> show' slot <> " " <> show i) ]
-  Hold slot i -> [ Handled ("hold on " <> show' slot <> " " <> show i) ]
-
-
--- | The six unmarked switches, which do the same thing from anywhere.
+-- | What a tap means, given what the switch is for.
 -- |
--- | **Because a footswitch with no label is remembered as a position.** A
--- | switch that clears a loop on one page and sets an end-state on the next
--- | cannot be learned: you would have to know which bank you were on before you
--- | could know what your foot was about to do. That is precisely what a
--- | footswitch is for avoiding, and it is why this function does not take a
--- | bank — there is nothing it could usefully do with one.
--- |
--- | All six act on the focused loop or on everything, so all six are meaningful
--- | from any depth in the family. That is not a coincidence; it is the test for
--- | whether something belongs up here at all.
-toolbar :: Int -> Int -> Array Action
-toolbar f = case _ of
-  -- The MC6 makes the jump itself, from the table it was programmed with.
-  6 -> [ Handled "out" ]
+-- | Total over `Duty`, which is the point: adding a switch to a bank cannot
+-- | leave it doing nothing, because the compiler asks what it means.
+onDuty :: Rig -> BankSlot -> LB.Duty -> Array Action
+onDuty rig slot = case _ of
+  LB.SelectLoop i -> Array.cons (Focus i) (onTap i (loopAt rig i))
+
+  -- Navigation the MC6 performs itself, from the jumps it was programmed with.
+  -- The app only has to agree that it happened.
+  LB.Enter to -> [ Handled ("showing " <> show' to) ]
+  LB.Back _ -> [ Handled "out" ]
+
   -- Stop all, as six commands rather than one. There is no all-loops form in
   -- the daemon's dispatch, and inventing one for a gesture that is not
   -- sample-critical would be protocol for its own sake — these land within a
   -- millisecond of each other, and stopping is not a downbeat.
-  7 -> map (\i -> Command (cmd i "h0")) (Array.range 0 (loopSwitches - 1))
-  8 -> [ Command (cmd f "u") ]
-  9 -> [ Command (cmd f "c") ]
-  10 -> [ Command "w" ]
-  11 -> [ Command "k" ]
-  i -> [ Unavailable ("switch " <> show i <> " is not on the toolbar") ]
+  LB.StopAll -> map (\i -> Command (cmd i "h0")) (Array.range 0 (loopSwitches - 1))
+  LB.Undo -> [ Command (cmd rig.focus "u") ]
+  LB.ClearLoop -> [ Command (cmd rig.focus "c") ]
+  LB.SaveTake -> [ Command "w" ]
+  LB.ClickToggle -> [ Command "k" ]
+
+  LB.Reverse -> [ Command (cmd rig.focus "rev") ]
+  LB.Pendulum -> [ Command (cmd rig.focus "pend") ]
+
+  LB.Free -> [ Command (cmd rig.focus "g0") ]
+  -- **The engine's grid is the anchor loop's cycle, not a bar**, decided when
+  -- quantised close landed: tempo gives a bar's length but not where the bar
+  -- falls, so until the frame-to-wall-clock join exists no loop can be put on
+  -- "bar 1". The flag is real; the count is a promise, and saying so is more
+  -- use than four switches that quietly all mean the same thing.
+  LB.Grid _ ->
+    [ Command (cmd rig.focus "g1")
+    , Handled "on the grid — bar counts need the frame-to-bar join"
+    ]
+
+  LB.Rate r -> [ Command (cmd rig.focus "sp" <> show r) ]
+  LB.Place p -> [ Command (cmd rig.focus "pan" <> show p) ]
+
+  LB.NotYet what why -> [ Unavailable (what <> ": " <> why) ]
+  LB.Nothing_ -> [ Unavailable (show' slot <> " has nothing on that switch") ]
 
 -- | Whether closing a loop should send the board to the config bank.
 -- |
@@ -198,85 +221,6 @@ onDouble i = case _ of
     -- something you cannot hear is a way to record a mistake twice.
     | st.muted -> [ Command (cmd i "h1"), Command (cmd i "r") ]
     | otherwise -> [ Command (cmd i "r") ]
-
--- | The config bank, against the focused loop.
--- |
--- | Three of the twelve are engine features that exist, three are navigation
--- | the MC6 does itself, and the rest name what they are waiting for. Speed and
--- | chance are the two that need real work — interpolation and a callback-safe
--- | RNG — and saying so is more use than a switch that shrugs.
-config :: Int -> Int -> Array Action
-config f = case _ of
-  0 -> [ Handled "quantise: pick a grid" ]
-  1 -> [ Handled "speed: pick a rate" ]
-  2 -> [ Unavailable "chance needs a random source in the audio callback" ]
-  3 -> [ Handled "pan: pick a placement" ]
-  4 -> [ Command (cmd f "rev") ]
-  -- Forward then back, so a cycle takes twice as long. It came free with speed,
-  -- being a triangle where a plain loop is a sawtooth — the fold happens at the
-  -- same place the wrap already did.
-  5 -> [ Command (cmd f "pend") ]
-  i -> [ Unavailable ("config switch " <> show i <> " is not wired yet") ]
-
--- | The quantise bank.
--- |
--- | **The engine's grid is the anchor loop's cycle, not a bar**, which is a
--- | decision made when quantised close landed: tempo gives a bar's length but
--- | not where the bar falls, so until the frame-to-wall-clock join exists no
--- | loop can be put on "bar 1". So `g` is a boolean and the bar counts on this
--- | bank have nothing to select yet. Free and Grid are real; the rest say what
--- | they are waiting for rather than quietly all meaning the same thing.
-quantise :: Int -> Int -> Array Action
-quantise f = case _ of
-  0 -> [ Command (cmd f "g0") ]
-  i | i >= 1 && i <= 4 ->
-      [ Command (cmd f "g1")
-      , Handled "on the grid — bar counts need the frame-to-bar join"
-      ]
-  5 -> [ Handled "back to loop config" ]
-  i -> [ Unavailable ("quantise switch " <> show i <> " is not wired yet") ]
-
--- | The speed bank: five rates forward on the top row, the same five backwards
--- | on the bottom.
--- |
--- | **Direction is the sign, not a second control.** The engine keeps one
--- | `speed` and reads backwards off its sign, so `Rev 1/2` is one press that
--- | says both things rather than two that have to be pressed in the right
--- | order. That also means the top row is not "forward" so much as "positive":
--- | pressing `x 1` on a reversed loop turns it round, which is what the label
--- | says and what a player expects from a row of absolute settings.
--- |
--- | Recording is refused while a loop is at a speed — the input arrives at rate
--- | one and the grid is moving under it — so the daemon answers a press of
--- | record with the reason rather than doing something nobody asked for.
-speed :: Int -> Int -> Array Action
-speed f = case _ of
-  0 -> [ rate f 0.25 ]
-  1 -> [ rate f 0.5 ]
-  2 -> [ rate f 1.0 ]
-  3 -> [ rate f 1.5 ]
-  4 -> [ rate f 2.0 ]
-  5 -> [ Handled "back to loop config" ]
-  i -> [ Unavailable ("speed switch " <> show i <> " is not wired yet") ]
-  where
-  rate i v = Command (cmd i "sp" <> show v)
-
--- | The pan bank: ten placements across the field, and two ways back.
--- |
--- | Equal-power in the engine, so moving a loop off centre does not make it
--- | quieter — which matters when six of them are being placed against each
--- | other rather than one being auditioned alone.
-pan :: Int -> Int -> Array Action
-pan f = case _ of
-  0 -> [ place f 0 ]
-  1 -> [ place f 32 ]
-  2 -> [ place f 64 ]
-  3 -> [ place f 96 ]
-  4 -> [ place f 127 ]
-  5 -> [ Handled "back to loop config" ]
-  i -> [ Unavailable ("pan switch " <> show i <> " is not wired yet") ]
-  where
-  place i v = Command (cmd i "pan" <> show v)
 
 -- | The daemon's loop-prefixed command form: `3r` is "record on loop 3".
 cmd :: Int -> String -> String

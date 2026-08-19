@@ -92,6 +92,10 @@ module Data.Looper.Banks
   , mc6OwnSwitches
   , switchLetter
   , auxLegend
+  , Duty(..)
+  , dutyAt
+  , dutyLabel
+  , dutyName
   , Face
   , Switch
   , face
@@ -221,7 +225,7 @@ decodeSwitch channel ccNum value =
 -- | the two ever disagree, the disagreement is between the device and this
 -- | table rather than between two copies of the table.
 labelOf :: BankSlot -> Int -> Maybe String
-labelOf slot i = map _.longName (Array.index (layout slot) i)
+labelOf slot i = map dutyName (dutyAt slot i)
 
 -- | How many switches the MC6 has of its own, and so where the aux ones start.
 -- |
@@ -262,30 +266,8 @@ auxLegendAt slot = Array.catMaybes (map entry (Array.range mc6OwnSwitches (switc
   where
   entry i = do
     key <- switchLetter i
-    spec <- Array.index (layout slot) i
-    if spec.label == "" then Nothing else Just { index: i, key, what: spec.label }
-
--- | Where a switch sends the board. `ToBoard` is the way out of the looper
--- | entirely; everything else stays in the family.
-data Jump = ToSlot BankSlot | ToBoard
-
-type SwitchSpec =
-  { label :: String
-  , longName :: String
-  -- | A bank jump on press. Navigation, and the device does it alone.
-  , tap :: Maybe Jump
-  -- | A bank jump on long press. Only the loop switches carry one.
-  , hold :: Maybe Jump
-  }
-
-say :: String -> String -> SwitchSpec
-say label longName = { label, longName, tap: Nothing, hold: Nothing }
-
-goto :: Jump -> String -> String -> SwitchSpec
-goto j label longName = (say label longName) { tap = Just j }
-
-blank :: SwitchSpec
-blank = say "" ""
+    d <- dutyAt slot i
+    if d == Nothing_ then Nothing else Just { index: i, key, what: dutyLabel d }
 
 -- | The MC6's own six switches, in the rows they physically occupy.
 -- |
@@ -306,19 +288,21 @@ boardRows = [ [ 3, 4, 5 ], [ 0, 1, 2 ] ]
 -- | the copy was right when written and wrong later. Types cannot stop somebody
 -- | typing a word into a div, but they can stop a second *table* existing, and
 -- | a second table is what actually rots.
-newtype Switch = Switch { index :: Int, key :: String, label :: String }
+newtype Switch = Switch { index :: Int, key :: String, duty :: Duty }
 
 switchKey :: Switch -> String
 switchKey (Switch s) = s.key
 
+-- | The words, fished out of the duty rather than stored beside it.
 switchLabel :: Switch -> String
-switchLabel (Switch s) = s.label
+switchLabel (Switch s) = dutyLabel s.duty
 
 -- | What the board is showing, as everything a view may say about it.
 -- |
--- | `Nothing` is a real state and not a missing value: `< Board` leaves the
--- | looper family entirely, and a face that kept naming the loop bank's
--- | switches there would be describing a board nobody is standing on.
+-- | `Nothing` is a real state and not a missing value: leaving for the board
+-- | bank leaves the looper family entirely, and a face that kept naming the
+-- | loop bank's switches there would be describing a board nobody is standing
+-- | on.
 newtype Face = Face (Maybe BankSlot)
 
 face :: Maybe BankSlot -> Face
@@ -335,8 +319,12 @@ faceName (Face m) = case m of
 faceAux :: Face -> Array Switch
 faceAux (Face m) = case m of
   Nothing -> []
-  Just slot -> map (\e -> Switch { index: e.index, key: e.key, label: e.what })
-    (auxLegendAt slot)
+  Just slot -> Array.catMaybes (map entry (Array.range mc6OwnSwitches (switchCount - 1)))
+    where
+    entry i = do
+      key <- switchLetter i
+      d <- dutyAt slot i
+      if d == Nothing_ then Nothing else Just (Switch { index: i, key, duty: d })
 
 -- | What to print on a loop's slot: the switch that reaches it, or its number
 -- | when the board is somewhere that cannot reach it.
@@ -348,6 +336,138 @@ faceLoopKey :: Face -> Int -> String
 faceLoopKey (Face m) i = case m of
   Just LoopBank -> fromMaybe (show (i + 1)) (switchLetter i)
   _ -> show (i + 1)
+
+data Jump = ToSlot BankSlot | ToBoard
+
+derive instance Eq Jump
+
+-- | What a switch is *for*.
+-- |
+-- | **The one table.** Three things have to agree about every switch: the eight
+-- | characters the MC6 prints on its screen, the words the app shows for the
+-- | six that have no screen, and the command the press actually sends. They
+-- | used to be two tables keyed by a switch index — the layout said switch 9
+-- | was "Clear", `Data.Looper.Machine` said switch 9 sent `c`, and nothing
+-- | linked them but the number. A layout edit that moved Clear would have left
+-- | a switch labelled one thing and doing another, and nothing would have
+-- | failed to compile.
+-- |
+-- | So a switch carries a value rather than a string, and the label, the long
+-- | name and the meaning are all *functions of that value*. Relabelling and
+-- | rewiring stop being separate acts. It is the same move as `Emit` in
+-- | `Data.MC6.Model`: closed alternatives are an ADT, never a string.
+data Duty
+  -- | One of the six loops. The index is the loop, not the switch, because on
+  -- | the loop bank they coincide and everywhere else they must not.
+  = SelectLoop Int
+  -- | Deeper into the family. Labelled with the destination's own name.
+  | Enter BankSlot
+  -- | Up, or out. Labelled with where it goes, so "< Config" and "< Board"
+  -- | cannot drift from the jump the device was programmed with.
+  | Back Jump
+  | StopAll
+  | Undo
+  | ClearLoop
+  | SaveTake
+  | ClickToggle
+  | Reverse
+  | Pendulum
+  | Free
+  -- | Quantised launch. The bar count is carried and does not yet do anything —
+  -- | the engine's grid is the anchor loop's cycle, not a bar — so this is a
+  -- | promise the meaning table has to keep honestly.
+  | Grid Int
+  | Rate Number
+  | Place Int
+  -- | Named, unimplemented, and still occupying its switch. Carries what it
+  -- | would be called and what it is waiting for, so a press answers with the
+  -- | reason rather than with silence.
+  | NotYet String String
+  | Nothing_
+
+derive instance Eq Duty
+
+-- | The eight characters the MC6 prints. Refused rather than truncated by
+-- | `Data.MC6.Model.shortName` downstream, so a label that will not fit is a
+-- | build-time problem and not a mystery on the device.
+dutyLabel :: Duty -> String
+dutyLabel = case _ of
+  SelectLoop i -> "Loop " <> show (i + 1)
+  Enter slot -> slotName slot
+  Back (ToSlot slot) -> "< " <> shortSlot slot
+  Back ToBoard -> "< Board"
+  StopAll -> "Stop All"
+  Undo -> "Undo"
+  ClearLoop -> "Clear"
+  SaveTake -> "Take"
+  ClickToggle -> "Click"
+  Reverse -> "Reverse"
+  Pendulum -> "Pendulum"
+  Free -> "Free"
+  Grid n -> show n <> (if n == 1 then " Bar" else " Bars")
+  Rate r -> "x " <> rateWord r
+  Place p -> placeWord p
+  NotYet l _ -> l
+  Nothing_ -> ""
+
+-- | Twenty-four characters, for the device's long name and for reporting a
+-- | press the app did not expect as words rather than as a CC number.
+dutyName :: Duty -> String
+dutyName = case _ of
+  SelectLoop i -> "Loop " <> show (i + 1) <> ", hold to set up"
+  Enter ConfigBank -> "Set up this loop"
+  Enter slot -> "Set " <> slotName slot
+  Back (ToSlot slot) -> "Back to " <> slotName slot
+  Back ToBoard -> "Leave the looper"
+  StopAll -> "Stop every loop"
+  Undo -> "Undo the last layer"
+  ClearLoop -> "Clear the chosen loop"
+  SaveTake -> "Save the take to disk"
+  ClickToggle -> "Click on or off"
+  Reverse -> "Play the loop backwards"
+  Pendulum -> "Forward, then back"
+  Free -> "Free length and launch"
+  Grid n -> "Round to " <> show n <> (if n == 1 then " bar" else " bars")
+  Rate r -> rateWord r <> " speed"
+  Place p -> placeWord p <> " in the field"
+  NotYet l _ -> l
+  Nothing_ -> ""
+
+shortSlot :: BankSlot -> String
+shortSlot = case _ of
+  ConfigBank -> "Config"
+  slot -> slotName slot
+
+rateWord :: Number -> String
+rateWord r
+  | r == 0.25 = "1/4"
+  | r == 0.5 = "1/2"
+  | r == 1.5 = "1 1/2"
+  | r == 2.0 = "2"
+  | otherwise = "1"
+
+placeWord :: Int -> String
+placeWord p
+  | p <= 10 = "Left"
+  | p <= 52 = "L 50"
+  | p <= 74 = "Centre"
+  | p <= 116 = "R 50"
+  | otherwise = "Right"
+
+-- | Where a press sends the board, from the duty rather than from a second
+-- | list. A bank jump is a *consequence* of what the switch is for.
+dutyTap :: Duty -> Maybe Jump
+dutyTap = case _ of
+  Enter slot -> Just (ToSlot slot)
+  Back j -> Just j
+  _ -> Nothing
+
+-- | Only a loop switch carries a long press, and it always opens the config
+-- | bank for the loop that was held.
+dutyHold :: Duty -> Maybe Jump
+dutyHold = case _ of
+  SelectLoop _ -> Just (ToSlot ConfigBank)
+  _ -> Nothing
 
 -- | Where a press sends the board, if anywhere.
 -- |
@@ -362,21 +482,20 @@ faceLoopKey (Face m) i = case m of
 -- | It does not have to wait. It wrote the jumps; it can read them back.
 sendsTo :: BankSlot -> Int -> Boolean -> Maybe Jump
 sendsTo slot i long = do
-  spec <- Array.index (layout slot) i
-  if long then spec.hold else spec.tap
+  d <- dutyAt slot i
+  if long then dutyHold d else dutyTap d
+
+-- | What a given switch on a given bank is for. The whole surface, in one
+-- | lookup that everything else goes through.
+dutyAt :: BankSlot -> Int -> Maybe Duty
+dutyAt slot = Array.index (layout slot)
 
 -- | The twelve switches of each bank.
 -- |
--- | Switches 0-5 are the MC6's own A-F; 6-8 are the first FS3X; 9-11 a second
--- | one, which may not be plugged in — so **nothing that must be reachable
--- | lives past 8**, and the way back is what that rule is for. It sits at 5 on
--- | every bank whose loops are elsewhere, and at 6 on the loop bank, whose six
--- | loops take the unit's own switches and leave no room lower down.
--- |
--- | The duplicate "< Loops" at 11 on the sub-banks is a convenience for a board
--- | that does have the second FS3X, never the only way out of anywhere.
-layout :: BankSlot -> Array SwitchSpec
-layout slot = Array.take mc6OwnSwitches (own slot <> Array.replicate mc6OwnSwitches blank)
+-- | Switches 0-5 are the MC6's own A-F, which the device labels on its screen;
+-- | 6-11 are two FS3X units, which have no screen and no markings.
+layout :: BankSlot -> Array Duty
+layout slot = Array.take mc6OwnSwitches (own slot <> Array.replicate mc6OwnSwitches Nothing_)
   <> toolbar slot
 
 -- | The six unmarked switches, and they are the same six everywhere.
@@ -396,104 +515,59 @@ layout slot = Array.take mc6OwnSwitches (own slot <> Array.replicate mc6OwnSwitc
 -- | up here — the every-N counts, the leaving-states, momentary — is not
 -- | implemented and had nowhere honest to sit anyway.
 -- |
--- | G is "out", which is the one that changes destination: from the loops it
--- | leaves the looper entirely, and from anywhere else it goes home to the
--- | loops. Same role, same place, one press, from any depth.
-toolbar :: BankSlot -> Array SwitchSpec
+-- | `Back` is the one that changes destination: from the loops it leaves the
+-- | looper entirely, and from anywhere else it goes home to the loops. Same
+-- | role, same place, one press, from any depth.
+toolbar :: BankSlot -> Array Duty
 toolbar slot =
-  [ case slot of
-      LoopBank -> goto ToBoard "< Board" "Leave the looper"
-      _ -> goto (ToSlot LoopBank) "< Loops" "Back to the loops"
-  , say "Stop All" "Stop every loop"
-  , say "Undo" "Undo the last layer"
-  , say "Clear" "Clear the chosen loop"
-  , say "Take" "Save the take to disk"
-  , say "Click" "Click on or off"
+  [ Back (case slot of LoopBank -> ToBoard
+                       _ -> ToSlot LoopBank)
+  , StopAll
+  , Undo
+  , ClearLoop
+  , SaveTake
+  , ClickToggle
   ]
 
 -- | The MC6's own six, which the device labels on its screen and which each
 -- | bank is therefore free to spend as it likes.
-own :: BankSlot -> Array SwitchSpec
+own :: BankSlot -> Array Duty
 own = case _ of
 
   -- Six loops on six switches: a loop is *where you put your foot*, not a mode
   -- you enter. Which is also why the loop bank has no room for anything else.
-  LoopBank -> Array.mapWithIndex loopSwitch (Array.replicate loopSwitches unit)
+  LoopBank -> map SelectLoop (Array.range 0 (loopSwitches - 1))
 
   -- The four that lead somewhere sit first, because they are the ones with a
   -- value to choose; the two that act sit last.
   ConfigBank ->
-    [ goto (ToSlot QuantiseBank) "Quantise" "Set the launch grid"
-    , goto (ToSlot SpeedBank) "Speed" "Set playback speed"
-    , goto (ToSlot ChanceBank) "Chance" "Set chance and every"
-    , goto (ToSlot PanBank) "Pan" "Set stereo placement"
-    , say "Reverse" "Play the loop backwards"
-    , say "Pendulum" "Forward, then back"
+    [ Enter QuantiseBank, Enter SpeedBank, Enter ChanceBank, Enter PanBank
+    , Reverse, Pendulum
     ]
 
   -- Free is the default and sits first, because ambient wants it and because a
   -- loop that quantises when you did not ask is a loop that starts late for a
   -- reason you cannot see.
-  QuantiseBank ->
-    [ say "Free" "Free length and launch"
-    , say "1 Bar" "Round to one bar"
-    , say "2 Bars" "Round to two bars"
-    , say "4 Bars" "Round to four bars"
-    , say "8 Bars" "Round to eight bars"
-    , goto (ToSlot ConfigBank) "< Config" "Back to loop config"
-    ]
+  QuantiseBank -> [ Free, Grid 1, Grid 2, Grid 4, Grid 8, Back (ToSlot ConfigBank) ]
 
   -- No reverse row: direction is the sign of speed, so backwards at half speed
   -- is Reverse on the config bank and then a half here. Two presses for a thing
   -- that was ten switches, and one fewer place for the two to disagree.
-  SpeedBank ->
-    [ say "x 1/4" "Quarter speed"
-    , say "x 1/2" "Half speed"
-    , say "x 1" "Normal speed"
-    , say "x 1 1/2" "One and a half speed"
-    , say "x 2" "Double speed"
-    , goto (ToSlot ConfigBank) "< Config" "Back to loop config"
-    ]
+  SpeedBank -> [ Rate 0.25, Rate 0.5, Rate 1.0, Rate 1.5, Rate 2.0, Back (ToSlot ConfigBank) ]
 
   ChanceBank ->
-    [ say "Always" "Sound every cycle"
-    , say "3 in 4" "Three cycles in four"
-    , say "1 in 2" "Sound half the cycles"
-    , say "1 in 4" "Sound one cycle in four"
-    , say "1 in 8" "One cycle in eight"
-    , goto (ToSlot ConfigBank) "< Config" "Back to loop config"
+    [ NotYet "Always" chanceGap, NotYet "3 in 4" chanceGap, NotYet "1 in 2" chanceGap
+    , NotYet "1 in 4" chanceGap, NotYet "1 in 8" chanceGap, Back (ToSlot ConfigBank)
     ]
 
   -- Five places across the field rather than the eight this had, which is
   -- plenty for placing six loops against each other and is what fits where the
   -- device can print the names.
-  PanBank ->
-    [ say "Left" "Hard left"
-    , say "L 50" "Half left"
-    , say "Centre" "Centre"
-    , say "R 50" "Half right"
-    , say "Right" "Hard right"
-    , goto (ToSlot ConfigBank) "< Config" "Back to loop config"
-    ]
+  PanBank -> [ Place 0, Place 32, Place 64, Place 96, Place 127, Back (ToSlot ConfigBank) ]
 
--- | One of the six loop switches.
--- |
--- | The only difference between them is the switch index, which is exactly the
--- | point: a loop is *where you put your foot*, not a mode you enter.
-loopSwitch :: Int -> Unit -> SwitchSpec
-loopSwitch i _ =
-  { label: "Loop " <> show (i + 1)
-  , longName: "Loop " <> show (i + 1) <> ", hold to set up"
-  , tap: Nothing
-  , hold: Just (ToSlot ConfigBank)
-  }
+chanceGap :: String
+chanceGap = "chance needs a random source in the audio callback"
 
-
--- | Compile the family onto consecutive MC6 banks from `base`.
--- |
--- | Six consecutive banks, taken as a block, so that "which bank is the speed
--- | bank" is arithmetic rather than six separate settings that can be set
--- | inconsistently.
 banks :: { base :: Int, boardBank :: Int } -> Array ControlBank
 banks cfg = map toBank allSlots
   where
@@ -518,13 +592,15 @@ banks cfg = map toBank allSlots
       <> show (switchCC slot 0) <> "-" <> show (switchCC slot (switchCount - 1))
       <> " on channel " <> show switchChannel
 
-  padTo :: Array SwitchSpec -> Array SwitchSpec
-  padTo specs = Array.take switchCount (specs <> Array.replicate switchCount blank)
+  padTo :: Array Duty -> Array Duty
+  padTo ds = Array.take switchCount (ds <> Array.replicate switchCount Nothing_)
 
-  compile :: BankSlot -> Int -> SwitchSpec -> ControlBankSwitch
-  compile slot i spec =
-    { label: spec.label
-    , longName: spec.longName
+  compile :: BankSlot -> Int -> Duty -> ControlBankSwitch
+  compile slot i d =
+    -- The device's own words come out of the duty, so a switch cannot be
+    -- labelled one thing on the pedal and mean another in the app.
+    { label: dutyLabel d
+    , longName: dutyName d
     -- Never the MC6's native toggle. A latching switch keeps state on the
     -- device, and the device is the one thing here that cannot be told it is
     -- wrong — every piece of state lives in the app, which can see the engine.
@@ -532,7 +608,7 @@ banks cfg = map toBank allSlots
     -- Blank switches are written blank rather than left alone, so uploading
     -- over whatever the bank held before leaves no stragglers doing something
     -- from a previous life.
-    , messages: if spec.label == "" then [] else pressPair slot i <> jumps spec
+    , messages: if d == Nothing_ then [] else pressPair slot i <> jumps d
     }
 
   pressPair :: BankSlot -> Int -> Array MC6Message
@@ -541,9 +617,9 @@ banks cfg = map toBank allSlots
     , MC6Msg.ccMessage switchChannel (switchCC slot i) 0 ActionRelease
     ]
 
-  jumps :: SwitchSpec -> Array MC6Message
-  jumps spec =
-    jumpFor ActionPress spec.tap <> jumpFor ActionLongPress spec.hold
+  jumps :: Duty -> Array MC6Message
+  jumps d =
+    jumpFor ActionPress (dutyTap d) <> jumpFor ActionLongPress (dutyHold d)
 
   jumpFor :: MC6Action -> Maybe Jump -> Array MC6Message
   jumpFor action = case _ of
