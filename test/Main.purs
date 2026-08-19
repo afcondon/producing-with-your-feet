@@ -842,11 +842,12 @@ main = do
     (Machine.act (rigOf [ idle 0 ]) (Gestures.Tap LB.LoopBank 0)
       == [ Machine.Focus 0, Machine.Command "0r" ])
 
-  -- The one bank change the app drives, because only the app knows this was
-  -- the second press.
-  assert "tapping a recording loop closes it and shows the config bank"
+  -- Closing is a command and, when the config bank is wired, a bank change too.
+  -- It is off for now because a courtesy that lands on a page of unwired
+  -- switches strands the player after every loop they record.
+  assert "tapping a recording loop closes it"
     (Machine.act (rigOf [ withState 0 "recordingFirst" 0 ]) (Gestures.Tap LB.LoopBank 0)
-      == [ Machine.Focus 0, Machine.Command "0r", Machine.ShowBank LB.ConfigBank ])
+      == [ Machine.Focus 0, Machine.Command "0r" ])
 
   -- Transport, once the engine grew one. Explicit h0/h1 rather than a flipping
   -- h, because a stopped loop is invisible and a dropped toggle would leave the

@@ -105,6 +105,26 @@ act rig = case _ of
   Hold slot i -> [ Handled ("hold on " <> show' slot <> " " <> show i) ]
 
 
+-- | Whether closing a loop should send the board to the config bank.
+-- |
+-- | The plan wants this, and calls it the only genuinely app-driven bank change
+-- | — only the app knows a press was the *second* one. It is also the one thing
+-- | here that has been actively unpleasant in use, and the reason is worth
+-- | keeping rather than fixing quietly:
+-- |
+-- | **A courtesy that lands somewhere useless is not a courtesy.** With the
+-- | config bank unwired, closing a loop moved the board to a page where every
+-- | switch answers "not wired yet" — so the next thing the player does with
+-- | their foot does nothing, after every single loop they record. The MC6's own
+-- | "< Loops" switch is the way back, which is fine once you know and baffling
+-- | until you do.
+-- |
+-- | Off until the config bank does something. Deliberately a flag with an
+-- | explanation rather than deleted code: the behaviour is right, its
+-- | precondition simply is not met yet.
+jumpToConfigOnClose :: Boolean
+jumpToConfigOnClose = false
+
 -- | A tap on a loop switch, given what that loop is doing.
 -- |
 -- | Note that every branch is a *state the daemon reported*, not one we kept.
@@ -115,9 +135,10 @@ onTap i = case _ of
     -- Empty: start. Quantised loops answer with "starts on the grid in N s",
     -- which is why the display shows a countdown rather than nothing.
     "idle" | st.layers == 0 -> [ Command (cmd i "r") ]
-    -- Recording the first layer: close it. This is the one place the app drives
-    -- a bank change, because only the app knows this was the second press.
-    "recordingFirst" -> [ Command (cmd i "r"), ShowBank ConfigBank ]
+    -- Recording the first layer: close it.
+    "recordingFirst" ->
+      Array.cons (Command (cmd i "r"))
+        (if jumpToConfigOnClose then [ ShowBank ConfigBank ] else [])
     "overdubbing" -> [ Command (cmd i "r") ]
     "multiplying" -> [ Command (cmd i "r") ]
     -- Stop and start. Explicit `h0`/`h1` rather than the flipping `h`, so a
