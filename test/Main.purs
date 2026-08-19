@@ -912,11 +912,18 @@ main = do
 
   case sectionOf 0x21 of
     Settings.General g -> do
-      -- The number the loop banks' hold gesture has to agree with.
-      assert "the general config carries longPressTime 12"
-        (Settings.longPressTime g == Just 12)
-      assert "and bankChangeDisplayTime 60"
-        (Settings.bankChangeDisplayTime g == Just 60)
+      -- Offset 3, confirmed by moving the setting 750 -> 700 with the write
+      -- captured and then reading the device back. In this August capture it
+      -- reads 2; the editor wrote 4 for 700 ms and the device now reports 4.
+      assert "the long-press setting is offset 3, reading 2 in this capture"
+        (Settings.longPressSetting g == Just 2)
+      -- Offset 13 held 12 here, in the editor's write, and in a read taken with
+      -- the setting at a different value. A constant cannot be the field, which
+      -- is what retired the earlier guess.
+      assert "and offset 13 is constant across captures, so it is not the field"
+        (Array.index g.bytes 13 == Just 12)
+      assert "bankChangeDisplayTime is 60, on weaker evidence and labelled so"
+        (Settings.bankChangeDisplayTimeProbably g == Just 60)
     _ -> assert "03 21 is the general configuration" false
 
   -- Still not understood, and kept whole rather than dropped.

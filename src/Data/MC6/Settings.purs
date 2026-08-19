@@ -50,8 +50,8 @@ module Data.MC6.Settings
   , GeneralConfig
   , decodeSection
   , sectionName
-  , longPressTime
-  , bankChangeDisplayTime
+  , longPressSetting
+  , bankChangeDisplayTimeProbably
   ) where
 
 import Prelude
@@ -114,28 +114,59 @@ type MidiEvent =
 -- | The general configuration, as bytes plus the fields we can point at.
 -- |
 -- | Deliberately not a record of sixteen named fields. The backup names sixteen
--- | settings and this payload is thirty-two bytes; only two of them can be
--- | placed with confidence from a single capture, because a value of 1 or 0
--- | appears a dozen times and matching by uniqueness is guessing with extra
--- | steps. Naming the other fourteen would be inventing a layout.
+-- | settings and this payload is thirty-two bytes; naming them all from one
+-- | capture would be inventing a layout, since a 0 or a 1 appears a dozen times
+-- | over and matching a field by the uniqueness of its value is guessing with
+-- | extra steps. Exactly one field here was placed that way and exactly one
+-- | field here turned out to be wrong.
 -- |
--- | Pinning the rest costs one experiment: change one setting in Morningstar's
--- | editor, capture again, and diff. Whichever byte moved is that field.
+-- | Pinning the rest costs one experiment each, and the experiment is cheap and
+-- | read-only: change one setting in Morningstar's editor, read the device
+-- | before and after, and diff. Whichever byte moved is that field. Two reads
+-- | minutes apart beat two reads three days apart, which is how offset 13 got
+-- | away with being wrong for a while.
+-- |
+-- | **Not every byte here is the editor's to set.** Offsets 7 and 8 read `8, 8`
+-- | on the device, the editor's write put `0, 0` in them, and a read afterwards
+-- | showed `8, 8` still. So a settings write is not a blind overwrite of the
+-- | block — the device keeps what the writer does not own, which makes writing
+-- | this back considerably less frightening than it first looked.
 type GeneralConfig = { bytes :: Array Int }
 
--- | `longPressTime`, at offset 13.
+-- | The long-press setting, at **offset 3**, as the device stores it.
 -- |
--- | Placed because 12 occurs exactly once in the payload and the backup says
--- | `longPressTime: 12`. Worth the risk of a single-sample match because this
--- | is the number the loop banks' hold gesture has to agree with — the app arms
--- | its timer on the press, and if the two thresholds disagree, a hold changes
--- | bank on the device while the app records it as a tap.
-longPressTime :: GeneralConfig -> Maybe Int
-longPressTime g = Array.index g.bytes 13
+-- | Confirmed by a controlled change rather than by a value match: the setting
+-- | was moved from 750 ms to 700 ms in Morningstar's editor with the write
+-- | captured, and this byte is the one that moved — 2 in the August read, 4 in
+-- | the editor's write, and 4 when the device was read back afterwards.
+-- |
+-- | **This is not milliseconds.** 4 is 700 ms; one data point does not give the
+-- | scale, and inventing one would put the app's hold timer at a threshold the
+-- | device does not share. Returned raw for that reason, with the conversion
+-- | left as the small experiment it is: set two known values, read twice.
+-- |
+-- | It matters because the loop banks' hold gesture has to agree with it. The
+-- | app arms its timer on the press; if the two thresholds disagree, a hold
+-- | changes bank on the device while the app records it as a tap.
+-- |
+-- | **Offset 13 was the previous answer here and was wrong.** It was placed
+-- | because 12 occurs exactly once in the payload and the March backup names a
+-- | `longPressTime: 12`. It reads 12 in all three captures — including one
+-- | taken with the setting at a different value — so the agreement was a
+-- | coincidence. Matching a field by the uniqueness of its value is guessing
+-- | with extra steps, which was said at the time and then done anyway.
+longPressSetting :: GeneralConfig -> Maybe Int
+longPressSetting g = Array.index g.bytes 3
 
--- | `bankChangeDisplayTime`, at offset 6. Same reasoning: 60 occurs once.
-bankChangeDisplayTime :: GeneralConfig -> Maybe Int
-bankChangeDisplayTime g = Array.index g.bytes 6
+-- | Offset 6, which is 60 in every capture and which the March backup calls
+-- | `bankChangeDisplayTime: 60`.
+-- |
+-- | Left in because it is useful and marked here because it rests on exactly
+-- | the evidence that just turned out to be worthless for offset 13: a unique
+-- | value agreeing with a name. Believe it no further than that until a
+-- | controlled change moves it.
+bankChangeDisplayTimeProbably :: GeneralConfig -> Maybe Int
+bankChangeDisplayTimeProbably g = Array.index g.bytes 6
 
 -- | A settings section, or an honest refusal to claim one.
 data Section
