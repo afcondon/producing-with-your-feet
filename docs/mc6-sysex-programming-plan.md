@@ -175,3 +175,78 @@ the only channel that carries the settings.
   nothing on 16. The labels are cosmetic on the device — routing is
   `sendToPort` — but it is exactly the second-source-of-truth this work exists
   to remove, and `Data.Looper.Banks` claims channel 16.
+
+## The SysEx frame map, as far as it is known (2026-08-19)
+
+Long-term this matters more than any one feature: if Morningstar stop
+supporting the MC6, what we have written down *is* the device. So this table
+is kept honest about the difference between what has been confirmed against
+bytes and what is inferred from a size and a plausible story.
+
+Function codes are bytes 6 and 7 of the frame (`F1`, `F2`), after the
+Morningstar header `F0 00 21 24 <dev>`.
+
+### Host → device (what we can send)
+
+| F1 F2 | Meaning | How known |
+|---|---|---|
+| `00 1B` | connect / enter editor session | confirmed, in daily use |
+| `00 1C` | disconnect | confirmed |
+| `00 1F` | editor bank change (+ bank, `01`) | confirmed — it is what makes uploads land |
+| `00 2B` | request all preset names | confirmed |
+| `07 00 30` | start upload | confirmed |
+| `07 00 31` | complete upload | confirmed |
+| `07 00 33` | request full dump | confirmed |
+| `07 11` | preset data (TLV) | confirmed |
+
+That is the entire known write surface, and it writes one kind of thing.
+
+### Device → host (what it volunteers)
+
+Captured in `test/mc6-connect-dump-20260816.json`, 119 frames on connect.
+
+| F1 F2 | Bytes | Carries | How known |
+|---|---|---|---|
+| `00 7D` | 18 | editor mode on/off | confirmed, decoded by `Data.MC6.Read` |
+| `03 20` | 674 | **midi_channels** | confirmed — MC6, MOOD, Clean, Hedra, Flint, Lex, Brig, Habit, LoopyPro all legible as ASCII |
+| `03 23` | 82 | **omniports** | confirmed — payload holds 41/42/43 and 38/39/40, the fixed switch assignments in the backup |
+| `03 25` | 55 | sequencer_engines | probable — carries 119, 39, 127, matching `arr` |
+| `03 21` | 50 | general_configurations | inferred from size |
+| `03 22` | 58 | ? | unknown |
+| `03 24` | 35 | waveform_engines | inferred — 4 engines × 4 fields |
+| `03 26` | 67 | scroll_counters | inferred |
+| `03 27` | 242 | midi_events or resistor_ladder_aux | inferred, the two large tables |
+| `03 28` | 50 | ? | unknown |
+| `03 29` | 52 | ? | unknown |
+| `03 00`, `03 01` | 18 | device identity? | unknown |
+| `06 01` | 272 | preset data (messages) | confirmed, decoded by `Data.MC6.Dump` |
+| `06 02` | 245 | preset data (names) | confirmed |
+| `08 00` | 31 | ? | unknown |
+| `09 01` | 150 | switch names of the current bank | confirmed, decoded by `Data.MC6.Read` |
+| `10 04`, `10 05` | 18 | ? | unknown |
+| `11 00` | 50 | ? | unknown |
+| `11 03` | 37 | ? | unknown |
+| `11 05` | 828 | **bank_arrangement** — all 30 bank names | confirmed, all legible |
+
+**The read half is nearly free.** The device volunteers every settings section
+on connect and the app currently acknowledges each frame, tallies it by
+function code, and throws the payload away. Decoding `03 2x` is a
+parsing job against bytes already in the repo — no device required.
+
+### The write half needs one experiment
+
+Note the pattern that already holds for presets: the device *sends* preset
+data as `06 01`/`06 02` and *accepts* it as `07 11`. Read and write are
+different codes. So the settings write codes are very likely a parallel
+family, plausibly `07 2x` against `03 2x` — but **that must not be swept**.
+Sweeping unknown reads costs nothing; sweeping unknown writes puts arbitrary
+payloads into a device's flash.
+
+The right experiment is the one that produced the read protocol: run
+Morningstar's editor with a MIDI monitor between it and the device, change
+one bank name, and capture what it sends. One capture per settings section we
+want, each cheap and each answering exactly one question.
+
+Priority, by how often the thing changes: bank names and bank-level messages
+first, then waveform engines and scroll counters. Omniports last — a port
+type is set once in the life of the board.
