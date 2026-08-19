@@ -834,7 +834,7 @@ main = do
 
   let idle n = { index: n, state: "idle", layers: 0, loopFrames: 0, loopSecs: 0.0
                , pos: 0, phase: 0.0, armed: false, recording: false, quant: false
-               , pendingAt: -1, shapes: [] }
+               , muted: false, pendingAt: -1, shapes: [] }
       withState n s ls = (idle n) { state = s, layers = ls }
       rigOf ls = { loops: ls, focus: 0 }
 
@@ -848,12 +848,33 @@ main = do
     (Machine.act (rigOf [ withState 0 "recordingFirst" 0 ]) (Gestures.Tap LB.LoopBank 0)
       == [ Machine.Focus 0, Machine.Command "0r", Machine.ShowBank LB.ConfigBank ])
 
-  -- The gap, named rather than substituted. `r` on a playing loop would
-  -- overdub, which is not what a tap was asked to do.
-  assert "tapping a playing loop reports the missing transport instead of overdubbing"
+  -- Transport, once the engine grew one. Explicit h0/h1 rather than a flipping
+  -- h, because a stopped loop is invisible and a dropped toggle would leave the
+  -- app and the engine disagreeing with nothing on screen to show it.
+  assert "tapping a playing loop stops it"
     (Machine.act (rigOf [ withState 0 "playing" 1 ]) (Gestures.Tap LB.LoopBank 0)
-      == [ Machine.Focus 0
-         , Machine.Unavailable "pause — the engine has no play or stop yet" ])
+      == [ Machine.Focus 0, Machine.Command "0h0" ])
+
+  assert "and tapping a stopped one brings it back"
+    (Machine.act (rigOf [ (withState 0 "playing" 1) { muted = true } ])
+       (Gestures.Tap LB.LoopBank 0)
+      == [ Machine.Focus 0, Machine.Command "0h1" ])
+
+  -- Overdubbing onto something you cannot hear is a way to record a mistake
+  -- twice, so the loop comes back first.
+  assert "double tapping a stopped loop unmutes before overdubbing"
+    (Machine.act (rigOf [ (withState 0 "playing" 1) { muted = true } ])
+       (Gestures.DoubleTap LB.LoopBank 0)
+      == [ Machine.Focus 0, Machine.Command "0h1", Machine.Command "0r" ])
+
+  assert "stop all reaches every loop"
+    (Machine.act (rigOf []) (Gestures.Tap LB.LoopBank 7)
+      == map (\i -> Machine.Command (show i <> "h0")) (Array.range 0 5))
+
+  -- A tap on a loop with nothing in it and no transport to offer.
+  assert "an empty loop that is somehow not idle still says something"
+    (Machine.act (rigOf [ withState 0 "weird" 0 ]) (Gestures.Tap LB.LoopBank 0)
+      == [ Machine.Focus 0, Machine.Unavailable "loop 1 has nothing to play" ])
 
   assert "but a double tap on a playing loop does overdub, which the engine has"
     (Machine.act (rigOf [ withState 0 "playing" 1 ]) (Gestures.DoubleTap LB.LoopBank 0)

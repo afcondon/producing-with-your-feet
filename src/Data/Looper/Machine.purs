@@ -85,7 +85,11 @@ act rig = case _ of
     [ Focus i, Handled ("configuring loop " <> show (i + 1)) ]
 
   Tap LoopBank 6 -> [ Handled "back to the board bank" ]
-  Tap LoopBank 7 -> [ Unavailable "stop all — the engine has no play or stop yet" ]
+  -- Stop all, as six commands rather than one. There is no all-loops form in
+  -- the daemon's dispatch, and inventing one for a gesture that is not
+  -- sample-critical would be protocol for its own sake — these land within a
+  -- millisecond of each other, and stopping is not a downbeat.
+  Tap LoopBank 7 -> map (\i -> Command (cmd i "h0")) (Array.range 0 (loopSwitches - 1))
   Tap LoopBank 8 -> [ Command (cmd rig.focus "u") ]
   Tap LoopBank 9 -> [ Command (cmd rig.focus "c") ]
   Tap LoopBank 10 -> [ Command "w" ]
@@ -116,19 +120,26 @@ onTap i = case _ of
     "recordingFirst" -> [ Command (cmd i "r"), ShowBank ConfigBank ]
     "overdubbing" -> [ Command (cmd i "r") ]
     "multiplying" -> [ Command (cmd i "r") ]
-    "playing" -> [ Unavailable "pause — the engine has no play or stop yet" ]
-    -- Has layers but is not playing. The same missing command from the other
-    -- side, and worth its own words because the player wants the opposite thing.
-    _ -> [ Unavailable "play — the engine has no play or stop yet" ]
+    -- Stop and start. Explicit `h0`/`h1` rather than the flipping `h`, so a
+    -- dropped command cannot leave the app and the engine disagreeing about
+    -- something a stopped loop makes invisible by definition.
+    "playing" | st.muted -> [ Command (cmd i "h1") ]
+    "playing" -> [ Command (cmd i "h0") ]
+    _ | st.layers > 0 && st.muted -> [ Command (cmd i "h1") ]
+    _ | st.layers > 0 -> [ Command (cmd i "h0") ]
+    _ -> [ Unavailable ("loop " <> show (i + 1) <> " has nothing to play") ]
 
 -- | A double tap: overdub, per the plan.
 onDouble :: Int -> Maybe LoopState -> Array Action
 onDouble i = case _ of
   Nothing -> [ Unavailable ("loop " <> show (i + 1) <> " is not in the snapshot") ]
   Just st -> case st.state of
+    -- Overdub. A stopped loop is brought back first, because overdubbing onto
+    -- something you cannot hear is a way to record a mistake twice.
+    "playing" | st.muted -> [ Command (cmd i "h1"), Command (cmd i "r") ]
     "playing" -> [ Command (cmd i "r") ]
-    "idle" | st.layers > 0 ->
-      [ Unavailable "play and overdub — the engine has no play or stop yet" ]
+    "idle" | st.layers > 0 && st.muted -> [ Command (cmd i "h1"), Command (cmd i "r") ]
+    "idle" | st.layers > 0 -> [ Command (cmd i "r") ]
     -- Double-tapping an empty loop is a single tap said twice; the first one
     -- already started it and the second would close a loop a fifth of a second
     -- long. Refusing is kinder than obeying.

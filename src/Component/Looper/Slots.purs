@@ -159,7 +159,11 @@ playhead _ st
                 -- Just wrapped, or standing still: go straight there. Gliding
                 -- would run the whole track backwards in the first case and
                 -- pretend to motion in the second.
-                <> (if st.phase < wrapGuard || st.state == "idle"
+                -- Note that a *stopped* loop keeps its moving playhead. That
+                -- is not an oversight: stopping is phase-locked, the loop is
+                -- still turning, and showing it frozen would promise it comes
+                -- back at the start when it does not.
+                <> (if st.phase < wrapGuard || (st.state == "idle" && st.layers == 0)
                       then "transition:none;"
                       else "transition:left 110ms linear;")
           ]
@@ -207,15 +211,19 @@ letter i = case Array.index [ "A", "B", "C", "D", "E", "F" ] i of
 -- | is a state name; "recording" is what you need to know while playing.
 stateWord :: LoopState -> String
 stateWord st = case st.state of
+  _ | st.muted && st.layers > 0 -> "stopped"
   "armed" -> if st.pendingAt >= 0 then "waiting" else "armed"
   "recordingFirst" -> "recording"
   "overdubbing" -> "overdub"
   "multiplying" -> "multiply"
   "playing" -> "playing"
-  _ -> if st.layers > 0 then "stopped" else ""
+  _ -> if st.layers > 0 then "idle" else ""
 
 stateClass :: LoopState -> String
 stateClass st = case st.state of
+  -- Stopped comes first, and beats even "recording": a loop being recorded
+  -- into while silenced is a thing the player most needs told.
+  _ | st.muted && st.layers > 0 -> "is-stopped"
   "armed" -> "is-armed"
   "recordingFirst" -> "is-recording"
   "overdubbing" -> "is-recording"

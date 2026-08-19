@@ -1897,6 +1897,11 @@ body {
 }
 .loop-slot.is-empty     { background: #f6f5f2; }
 .loop-slot.is-stopped   { border-top-color: #b9b3a9; }
+/* A stopped loop keeps its structure visible but drained of colour — it is
+   still turning, and its playhead still moves, which is what phase-locked
+   means. Hiding it would promise a restart from the top. */
+.loop-slot.is-stopped .loop-block.sounds { background: #b9b3a9; }
+.loop-slot.is-stopped .loop-playhead { opacity: 0.35; }
 .loop-slot.is-playing   { border-top-color: #3a7d6c; }
 .loop-slot.is-recording { border-top-color: #c0392b; }
 .loop-slot.is-armed     { border-top-color: #c8922f; }
