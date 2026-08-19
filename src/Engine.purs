@@ -22,6 +22,7 @@ import Config.Types (MidiRouting)
 import Data.MC6.Global (GlobalSwitch)
 import Data.MC6.ControlBank (ControlBank, exampleControlBank)
 import Data.MC6.Dump as Dump
+import Data.MC6.Settings as Settings
 import Data.MC6.Types (MC6NativeBank)
 import Data.MC6.Wire as Wire
 import Data.Array as Array
@@ -156,6 +157,11 @@ type AppState =
   , mc6DumpedBanks :: Array MC6NativeBank
   -- | Raw dump frames as they arrive, before being gathered into banks.
   , mc6DumpedPresets :: Array Dump.DumpPreset
+  -- | Everything the device says about itself that is not a preset, by `03 2x`
+  -- | sub-code (`Data.MC6.Settings`). Volunteered on every connect, so this
+  -- | fills itself without being asked — and it is the only place in the app
+  -- | that knows facts like which channels the *device* considers spoken for.
+  , mc6Settings :: Map Int Settings.Section
   -- | Every SysEx frame the device has sent, tallied by function code. Exists so
   -- | that "the request returned nothing" can be answered with what *did*
   -- | arrive, without needing a browser console to find out.
@@ -257,6 +263,7 @@ initAppState =
   , mc6ReadAt: Nothing
   , mc6DumpedBanks: []
   , mc6DumpedPresets: []
+  , mc6Settings: Map.empty
   , mc6FrameCounts: Map.empty
   , mc6DumpFrames: 0
   , mc6DumpDone: false

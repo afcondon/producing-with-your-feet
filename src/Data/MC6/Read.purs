@@ -43,6 +43,11 @@
 module Data.MC6.Read
   ( MC6Reply(..)
   , decodeReply
+  -- | Shared with `Data.MC6.Settings`, which decodes the payloads this module
+  -- | only carries. Exported rather than copied: a six-line parser duplicated
+  -- | across two modules is a six-line parser that will disagree with itself.
+  , tlvs
+  , trimAscii
   , replyBank
   ) where
 
@@ -91,7 +96,11 @@ data MC6Reply
   -- | device, and diff against a capture taken with the setting on — which is
   -- | both how the byte gets identified and, until it is, the only way to check
   -- | that the write landed at all without opening Morningstar's editor.
-  | ControllerSettings (Array Int)
+  -- | A `03 2x` settings frame, with its sub-code and payload intact.
+  -- | Decoded by `Data.MC6.Settings`, which is a separate module rather than
+  -- | a case here so that this one stays about *frames* — and so that Settings
+  -- | can borrow this module's TLV parser without the two importing each other.
+  | ControllerSettings Int (Array Int)
   | OtherReply Int Int
 
 derive instance Eq MC6Reply
@@ -132,7 +141,11 @@ decodeReply bytes = do
         (maybe "" trimAscii (tlvData 3 payload))
       0x06, 0x01 -> CurrentPreset (tlvByte 0 0 payload) (tlvByte 0 1 payload)
       0x00, 0x7D -> EditorMode (f3 == 1)
-      0x03, 0x21 -> ControllerSettings payload
+      -- The whole family, not just 0x21. Ten frames arrive on connect and
+      -- nine of them used to fall through to `OtherReply` and be logged as a
+      -- function code, which is how the device's own channel table sat
+      -- unread while the app took a channel on the word of a comment.
+      0x03, _ | f2 >= 0x20 && f2 <= 0x29 -> ControllerSettings f2 payload
       _, _ -> OtherReply f1 f2
 
 -- | `0x7F <type> <length> <data>`, repeated — byte-identical to the framing

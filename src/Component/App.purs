@@ -25,6 +25,7 @@ import Data.MC6.SysEx as SysEx
 import Data.MC6.Types (MC6Action(..), MC6NativeBank, MC6Preset)
 import Data.MC6.Board as Board
 import Data.MC6.Read as Read
+import Data.MC6.Settings as Settings
 import Data.MC6.Survey as Survey
 import Data.Foldable (any, for_, traverse_)
 import Data.Traversable (for)
@@ -2948,14 +2949,22 @@ handleReadReply bytes = case Read.decodeReply bytes of
   Just (Read.EditorMode on) -> do
     liftEffect $ Console.log $ "MC6 editor mode " <> (if on then "on" else "off")
     H.modify_ _ { mc6EditorMode = Just on }
-  -- Logged rather than decoded, because one of these bytes is the setting the
-  -- app writes blind. Hold a session, read the device, and diff this line
-  -- against one captured with the setting on: the byte that moved is the
-  -- setting, and that it moved at all is proof the write landed.
-  Just (Read.ControllerSettings payload) ->
+  -- Decoded now rather than logged as a hex blob. These ten frames carry
+  -- everything about the device that is not a preset — the channel table, the
+  -- omniports that make the FS3X switches exist, the engines and counters —
+  -- and the app used to acknowledge each one and throw the payload away.
+  --
+  -- Still logged as well as stored, because the hex is what a future diff is
+  -- taken against: change one setting in the editor, capture again, and the
+  -- byte that moved is the field.
+  Just (Read.ControllerSettings f2 payload) -> do
+    let section = Settings.decodeSection f2 payload
     liftEffect $ Console.log $
-      "MC6 controller settings (" <> show (Array.length payload) <> " bytes): "
+      "MC6 " <> Settings.sectionName section
+        <> " (" <> show (Array.length payload) <> " bytes): "
         <> SysEx.toHexString payload
+    H.modify_ \s -> s
+      { mc6Settings = Map.insert f2 section s.mc6Settings }
   Just (Read.OtherReply f1 f2) ->
     liftEffect $ Console.log $ "MC6 reply not decoded: F1=" <> show f1 <> " F2=" <> show f2
   Nothing -> pure unit

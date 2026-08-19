@@ -22,6 +22,8 @@ import Data.MC6.ControlBank as ControlBank
 import Data.MC6.Message as MC6Msg
 import Data.MC6.Types (MC6Action(..), MC6MsgType(..), MC6TogglePosition(..))
 import Data.MC6.Model as Model
+import Data.MC6.Settings as Settings
+import Test.MC6Capture as Capture
 import Data.Looper as Looper
 import Data.Looper.Banks as LB
 import Data.String as String
@@ -715,10 +717,21 @@ main = do
 
   assert "a non-Morningstar SysEx frame is rejected"
     (Read.decodeReply [ 0xF0, 0x7E, 0x00, 0x06, 0x01, 0xF7 ] == Nothing)
+  -- `03 20` used to be this test's example of an undecoded code. It is the
+  -- channel table, decoded now, so the example moves to `08 00` — which is in
+  -- the capture and genuinely still unknown. The assertion is the same one:
+  -- what we cannot read is named, not dropped.
   assert "an undecoded function code is named rather than dropped"
+    (Read.decodeReply [ 0xF0, 0x00, 0x21, 0x24, 0x03, 0x03, 0x08, 0x00
+                      , 0, 0, 0, 0, 0, 0, 0, 18, 0, 0xF7 ]
+      == Just (Read.OtherReply 0x08 0x00))
+
+  assert "and the whole 03 2x family now comes back as settings, sub-code intact"
     (Read.decodeReply [ 0xF0, 0x00, 0x21, 0x24, 0x03, 0x03, 0x03, 0x20
                       , 0, 0, 0, 0, 0, 0, 0, 18, 0, 0xF7 ]
-      == Just (Read.OtherReply 0x03 0x20))
+      -- Payload is empty: this frame is header and checksum only, which is the
+      -- point — the sub-code survives even when there is nothing to decode.
+      == Just (Read.ControllerSettings 0x20 []))
 
   -- Captured from the device on 2026-08-17 while jumping banks. These three
   -- frames were arriving all along and being logged as "not decoded", which is
@@ -757,6 +770,124 @@ main = do
   -- function-code space found nothing that asks for bank data, because the
   -- device volunteers a full dump on connect instead. All this module does is
   -- decode, and the decoder is tested above against the device's own bytes.
+
+  log ""
+  log "Controller settings (Data.MC6.Settings)..."
+
+  -- Against the bytes the device sent, decoded and then checked against the
+  -- March backup — two independent descriptions of the same hardware, which is
+  -- the only reason any of this counts as confirmed rather than plausible.
+  let payloadOf f2 = Array.drop 16 (Array.dropEnd 2 (Capture.settingsFrame f2))
+      sectionOf f2 = Settings.decodeSection f2 (payloadOf f2)
+
+  -- Bytes 14-15 are the frame length as two septets. Verified on every settings
+  -- frame at once rather than on the two that first suggested it.
+  assert "every frame declares its own length, as two septets"
+    (Array.all
+      (\f2 -> let b = Capture.settingsFrame f2
+              in case Array.index b 14, Array.index b 15 of
+                   Just hi, Just lo -> hi * 128 + lo == Array.length b
+                   _, _ -> false)
+      Capture.settingsCodes)
+
+  assert "each sub-code decodes to the section we say it is"
+    (map (Settings.sectionName <<< sectionOf) Capture.settingsCodes
+      == [ "MIDI channels", "general configuration", "bank order (probably)"
+         , "omniports", "waveform engines", "sequencer engines"
+         , "scroll counters", "MIDI events", "aux switch ladder"
+         , "unknown settings frame 03 41"
+         ])
+
+  case sectionOf 0x20 of
+    Settings.MidiChannels chs -> do
+      assert "sixteen channels come back"
+        (Array.length chs == 16)
+      -- The reason this decoder exists: the app could not consult the device
+      -- about a channel, so it consulted a comment, and the comment was stale.
+      assert "and they name the board the device knows"
+        (map _.name chs ==
+          [ "MC6", "(Brothers)", "MOOD", "Clean", "Hedra", "", "Flint", "Lex"
+          , "", "Iridium", "Riverside", "Mercury7", "", "Brig", "Habit", "LoopyPro" ])
+      assert "channel 15 is Habit, as the pedal answering on it agrees"
+        (map _.name (Array.filter (\c -> c.channel == 15) chs) == [ "Habit" ])
+      -- The two-septet mask, and the one channel that is not like the others.
+      assert "every channel sends to all ports but one"
+        (Array.length (Array.filter (\c -> c.sendToPort == 2047) chs) == 15
+          && map _.sendToPort (Array.filter (\c -> c.channel == 16) chs) == [ 2034 ])
+      assert "and channel 9, which we took, is unnamed and unrestricted"
+        (map (\c -> { n: c.name, p: c.sendToPort })
+          (Array.filter (\c -> c.channel == LB.switchChannel) chs)
+            == [ { n: "", p: 2047 } ])
+    _ -> assert "03 20 is the channel table" false
+
+  -- The section a factory reset would destroy and we could not put back.
+  case sectionOf 0x23 of
+    Settings.Omniports ports -> do
+      assert "both omniports come back, in the FS3X three-switch mode"
+        (map _.portType ports == [ 8, 8 ])
+      assert "with the fixed switch numbers the backup records"
+        (map (\p -> { n: p.portNum, t: p.tip, r: p.ring, tr: p.tipRing }) ports ==
+          [ { n: 0, t: [41,127,127], r: [42,127,127], tr: [43,127,127] }
+          , { n: 1, t: [38,127,127], r: [39,127,127], tr: [40,127,127] }
+          ])
+    _ -> assert "03 23 is the omniports" false
+
+  case sectionOf 0x24 of
+    Settings.WaveformEngines ws ->
+      assert "four waveform engines, matching the backup"
+        (map (\w -> [ w.num, w.min, w.max, w.waveform ]) ws
+          == [ [0,20,100,4], [1,0,127,2], [2,0,127,5], [3,0,0,0] ])
+    _ -> assert "03 24 is the waveform engines" false
+
+  case sectionOf 0x25 of
+    Settings.SequencerEngines es ->
+      -- Engine 0 matches the March backup byte for byte; engine 1 does not,
+      -- because it was edited between March and August. That the first still
+      -- matches across five months is the check that counts.
+      assert "the first sequencer engine matches the backup step for step"
+        (map _.steps (Array.take 1 es)
+          == [ [4,0,127,2,0,127,5,0,0,0,0,119,127,39,127,127] ])
+    _ -> assert "03 25 is the sequencer engines" false
+
+  case sectionOf 0x26 of
+    Settings.ScrollCounters cs ->
+      assert "sixteen scroll counters, all 0 to 127 from 0"
+        (Array.length cs == 16
+          && Array.all (\c -> c.min == 0 && c.max == 127 && c.start == 0) cs)
+    _ -> assert "03 26 is the scroll counters" false
+
+  case sectionOf 0x27 of
+    Settings.MidiEvents evs ->
+      assert "sixteen MIDI event slots with the backup's field order"
+        (Array.length evs == 16
+          && Array.all (\e -> e.numberFrom == 127 && e.channelFrom == 15
+                              && e.typeFrom == 7 && e.flags == [1,1,1]) evs)
+    _ -> assert "03 27 is the MIDI events" false
+
+  -- The one that does not add up, reported rather than rounded away.
+  case sectionOf 0x28 of
+    Settings.AuxLadder aux -> do
+      assert "the aux ladder claims eight switches"
+        (aux.claimed == 8)
+      assert "and the frame carries seven, which we say out loud"
+        (Array.length aux.switches == 7 && aux.truncated)
+    _ -> assert "03 28 is the aux ladder" false
+
+  case sectionOf 0x21 of
+    Settings.General g -> do
+      -- The number the loop banks' hold gesture has to agree with.
+      assert "the general config carries longPressTime 12"
+        (Settings.longPressTime g == Just 12)
+      assert "and bankChangeDisplayTime 60"
+        (Settings.bankChangeDisplayTime g == Just 60)
+    _ -> assert "03 21 is the general configuration" false
+
+  -- Still not understood, and kept whole rather than dropped.
+  case sectionOf 0x29 of
+    Settings.UnknownSettings code p ->
+      assert "the section we cannot read is kept, not discarded"
+        (code == 0x29 && Array.length p == 34)
+    _ -> assert "03 29 is still unknown" false
 
   log ""
   log "Typed model (Data.MC6.Model)..."
