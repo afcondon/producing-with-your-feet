@@ -1871,6 +1871,83 @@ body {
 
 /* The MC6 starter bank, and the button that writes it. Sits below the
    transport because you program it once and then rarely look again. */
+/* ── Six-loop display ──────────────────────────────────────────────────────
+   The grid mirrors the MC6: three across, two down, A-F. Restrained on
+   purpose — this is glanced at from standing height while playing, so it
+   carries state and structure and nothing decorative. */
+
+.looper-face-toggle { display: flex; gap: 0; margin: 0 0 18px 0; }
+.face-tab {
+  font: inherit; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 6px 14px; background: transparent; cursor: pointer;
+  border: 1px solid #d8d4cc; border-right-width: 0; color: #6d6862;
+}
+.face-tab:last-child { border-right-width: 1px; }
+.face-tab.on { background: #3a7d6c; border-color: #3a7d6c; color: #fff; }
+
+.loops-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 14px; margin-bottom: 12px;
+}
+
+.loop-slot {
+  border: 1px solid #ded9d1; border-top: 3px solid #ded9d1;
+  padding: 10px 12px 12px; background: #fbfaf8;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.loop-slot.is-empty     { background: #f6f5f2; }
+.loop-slot.is-stopped   { border-top-color: #b9b3a9; }
+.loop-slot.is-playing   { border-top-color: #3a7d6c; }
+.loop-slot.is-recording { border-top-color: #c0392b; }
+.loop-slot.is-armed     { border-top-color: #c8922f; }
+.loop-slot.is-selected  { box-shadow: 0 0 0 2px rgba(58,125,108,0.22); }
+
+.loop-head { display: flex; align-items: baseline; gap: 8px; }
+.loop-letter {
+  font-size: 20px; font-weight: 600; line-height: 1;
+  color: #2f2b27; min-width: 1.1em;
+}
+.loop-state {
+  font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #6d6862;
+}
+.loop-slot.is-recording .loop-state { color: #c0392b; }
+.loop-slot.is-armed .loop-state { color: #c8922f; }
+.loop-layers { margin-left: auto; font-size: 11px; color: #8b857d; }
+
+/* One cycle, top to bottom one row per layer. Fixed height so a slot does not
+   change size as layers arrive — the grid must not move under your feet. */
+.loop-track {
+  position: relative; height: 56px; background: #efece7;
+  display: flex; flex-direction: column; gap: 1px; padding: 1px; overflow: hidden;
+}
+.loop-layer { display: flex; flex: 1 1 0; min-height: 3px; gap: 1px; }
+.loop-block { height: 100%; }
+.loop-block.sounds { background: #3a7d6c; }
+.loop-block.rest   { background: repeating-linear-gradient(
+    45deg, #e2ded7, #e2ded7 3px, #eeebe6 3px, #eeebe6 6px); }
+.loop-slot.is-recording .loop-block.sounds { background: #c0392b; }
+
+/* Position comes from the snapshot; the transition only fills the 100 ms
+   between snapshots. Nothing here accumulates time — see Slots.purs for what
+   happened when something did. */
+.loop-playhead {
+  position: absolute; top: 0; bottom: 0; width: 2px;
+  background: #2f2b27; opacity: 0.85; pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) { .loop-playhead { transition: none !important; } }
+
+.loop-foot {
+  display: flex; justify-content: space-between;
+  font-size: 11px; color: #8b857d; font-variant-numeric: tabular-nums;
+}
+.loop-quant { letter-spacing: 0.06em; text-transform: uppercase; }
+
+.loops-legend {
+  display: flex; gap: 18px; font-size: 11px; color: #8b857d;
+  border-top: 1px solid #ece8e2; padding-top: 8px; margin-bottom: 22px;
+}
+.loops-warn { color: #c0392b; }
+
 .looper-footswitch {
   margin-top: 28px;
   padding: 16px;

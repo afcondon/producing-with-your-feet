@@ -140,6 +140,10 @@ type AppState =
   -- | the speed bank" should be arithmetic and not a setting that can be set
   -- | inconsistently.
   , mc6LoopBankBase :: Int
+  -- | Which face the Looper page is showing. The six-slot display is what the
+  -- | board drives; the old transport is kept because it can drive the engine
+  -- | by hand, which is how the six-slot display gets something to show.
+  , looperShowsSlots :: Boolean
   -- Result of the last looper-bank programming run, shown on the Looper page.
   , looperProgramStatus :: Maybe String
   , midiTest :: Maybe String
@@ -256,6 +260,7 @@ initAppState =
   -- 22-27, just above the legacy transport bank and below the two the device
   -- has left. Wire numbers; the editor shows each one higher.
   , mc6LoopBankBase: 22
+  , looperShowsSlots: true
   , looperProgramStatus: Nothing
   , midiTest: Nothing
   , mc6BankNames: Map.empty

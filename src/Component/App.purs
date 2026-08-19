@@ -14,6 +14,7 @@ import Data.Argonaut.Core (stringify)
 import Data.Argonaut.Parser (jsonParser)
 import Data.Looper as Looper
 import Data.Looper.Banks as LoopBanks
+import Component.Looper.Slots as Slots
 import Data.MC6.Backup as Backup
 import Data.MC6.ControlBank (ControlBank)
 import Data.MC6.ControlBank as ControlBank
@@ -90,6 +91,7 @@ data Action
   | ReadMC6Banks
   | ProgramLooperBank
   | ProgramLoopBanks
+  | SetLooperFace Boolean
   | SetView View
   | SetValue PedalId CC MidiValue
   | SendMomentary PedalId CC MidiValue
@@ -415,11 +417,15 @@ renderLooperView state =
     [ HH.h2_ [ HH.text "Looper" ]
     , connectionLine
     , audioLine
+    , faceToggle
+    , case state.looper of
+        Just lp | state.looperShowsSlots -> Slots.render lp
+        _ -> HH.text ""
     , HH.div [ HP.class_ (H.ClassName "looper-columns") ]
         [ HH.div [ HP.class_ (H.ClassName "looper-left") ]
             [ case state.looper of
-                Nothing -> HH.text ""
-                Just lp -> HH.div_ [ transport lp, readout lp ]
+                Just lp | not state.looperShowsSlots -> HH.div_ [ transport lp, readout lp ]
+                _ -> HH.text ""
             , footswitchCard
             ]
         -- The pedal face, on the page it belongs to rather than in the board
@@ -437,6 +443,21 @@ renderLooperView state =
     ]
   where
   st = state.looperStatus
+
+  -- Two faces, not two pages. The old transport is the only thing that can
+  -- drive the engine by hand, which is exactly what the six-slot display needs
+  -- in order to have anything to show while the state machine does not exist
+  -- yet — so it stays one click away rather than behind a nav item.
+  faceToggle =
+    HH.div [ HP.class_ (H.ClassName "looper-face-toggle") ]
+      [ tab true "Loops", tab false "Transport" ]
+
+  tab wants label =
+    HH.button
+      [ HP.class_ (H.ClassName (if state.looperShowsSlots == wants then "face-tab on" else "face-tab"))
+      , HE.onClick \_ -> SetLooperFace wants
+      ]
+      [ HH.text label ]
 
   -- A connected socket says nothing about whether audio is running: the push
   -- thread reads shared atomics and will serve a confident snapshot from an
@@ -1368,6 +1389,8 @@ handleAction = case _ of
             "The MC6 never confirmed moving to bank " <> show st.mc6LooperBankNum
               <> ", so nothing was written."
           else "Written to MC6 bank " <> show st.mc6LooperBankNum <> ". Stomp to test." }
+
+  SetLooperFace slots -> H.modify_ _ { looperShowsSlots = slots }
 
   -- | Write the six-loop machine's whole bank family in one pass.
   -- |
