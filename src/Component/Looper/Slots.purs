@@ -89,8 +89,40 @@ render lp =
   HH.div [ HP.class_ (HH.ClassName "loops") ]
     [ HH.div [ HP.class_ (HH.ClassName "loops-grid") ]
         (Array.mapWithIndex (slot lp) (Array.take 6 lp.loops))
+    , utilities
     , legend lp
     ]
+
+-- | What the six switches past the loops do.
+-- |
+-- | **Because nothing else can say.** The MC6's LCD names its own six switches
+-- | and stops there; G to L are FS3X footswitches with no display and no
+-- | markings at all. Six functions were put on them and the player was left to
+-- | remember which — with the predictable result that Clear was pressed for
+-- | some minutes without ever being pressed, while Undo was hit until the loop
+-- | gave up.
+-- |
+-- | This is the same argument as the whole display: the board has no way to
+-- | tell you anything, so the screen must. It belongs here rather than in the
+-- | documentation, because it is needed at exactly the moment nobody is reading
+-- | documentation.
+utilities :: forall w i. HH.HTML w i
+utilities =
+  HH.div [ HP.class_ (HH.ClassName "loops-utils") ]
+    (map one
+      [ { key: "G", what: "back to board" }
+      , { key: "H", what: "stop all" }
+      , { key: "I", what: "undo" }
+      , { key: "J", what: "clear" }
+      , { key: "K", what: "save take" }
+      , { key: "L", what: "click" }
+      ])
+  where
+  one u =
+    HH.div [ HP.class_ (HH.ClassName "loops-util") ]
+      [ HH.span [ HP.class_ (HH.ClassName "util-key") ] [ HH.text u.key ]
+      , HH.span_ [ HH.text u.what ]
+      ]
 
 -- | One loop.
 slot :: forall w i. LooperState -> Int -> LoopState -> HH.HTML w i
@@ -211,7 +243,12 @@ letter i = case Array.index [ "A", "B", "C", "D", "E", "F" ] i of
 -- | is a state name; "recording" is what you need to know while playing.
 stateWord :: LoopState -> String
 stateWord st = case st.state of
-  _ | st.muted && st.layers > 0 -> "stopped"
+  -- Layers first, because a loop undone to nothing keeps its length and its
+  -- state: the engine still calls it "playing" and there is nothing to play.
+  -- The footer still shows the length, which is the useful half — that is what
+  -- the next take will land on.
+  _ | st.layers == 0 -> if st.loopFrames > 0 then "empty" else ""
+  _ | st.muted -> "stopped"
   "armed" -> if st.pendingAt >= 0 then "waiting" else "armed"
   "recordingFirst" -> "recording"
   "overdubbing" -> "overdub"
@@ -221,9 +258,11 @@ stateWord st = case st.state of
 
 stateClass :: LoopState -> String
 stateClass st = case st.state of
-  -- Stopped comes first, and beats even "recording": a loop being recorded
-  -- into while silenced is a thing the player most needs told.
-  _ | st.muted && st.layers > 0 -> "is-stopped"
+  -- Stopped beats even "recording": a loop being recorded into while silenced
+  -- is a thing the player most needs told. Both come after emptiness, which is
+  -- a fact about layers rather than about state.
+  _ | st.layers == 0 && st.state /= "recordingFirst" && st.state /= "armed" -> "is-empty"
+  _ | st.muted -> "is-stopped"
   "armed" -> "is-armed"
   "recordingFirst" -> "is-recording"
   "overdubbing" -> "is-recording"

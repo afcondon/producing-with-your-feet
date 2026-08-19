@@ -842,6 +842,21 @@ main = do
     (Machine.act (rigOf [ idle 0 ]) (Gestures.Tap LB.LoopBank 0)
       == [ Machine.Focus 0, Machine.Command "0r" ])
 
+  -- The one that was wrong in use. Undo removes a layer and deliberately keeps
+  -- the loop's length, so undoing the last one leaves layers 0, a length, and a
+  -- state still reading "playing". Testing emptiness as `state == "idle" &&
+  -- layers == 0` made that a playing loop: tapping offered stop, and a loop
+  -- undone to nothing could never be recorded into from the board again.
+  assert "a loop undone to nothing records again, length and state notwithstanding"
+    (Machine.act (rigOf [ (withState 0 "playing" 0) { loopFrames = 155215 } ])
+       (Gestures.Tap LB.LoopBank 0)
+      == [ Machine.Focus 0, Machine.Command "0r" ])
+
+  assert "and double-tapping it does not close a loop a fifth of a second long"
+    (Machine.act (rigOf [ (withState 0 "playing" 0) { loopFrames = 155215 } ])
+       (Gestures.DoubleTap LB.LoopBank 0)
+      == [ Machine.Focus 0, Machine.Handled "already recording" ])
+
   -- Closing is a command and, when the config bank is wired, a bank change too.
   -- It is off for now because a courtesy that lands on a page of unwired
   -- switches strands the player after every loop they record.
@@ -872,10 +887,10 @@ main = do
     (Machine.act (rigOf []) (Gestures.Tap LB.LoopBank 7)
       == map (\i -> Machine.Command (show i <> "h0")) (Array.range 0 5))
 
-  -- A tap on a loop with nothing in it and no transport to offer.
-  assert "an empty loop that is somehow not idle still says something"
+  -- Whatever the engine calls it, no layers means record.
+  assert "any state with no layers records"
     (Machine.act (rigOf [ withState 0 "weird" 0 ]) (Gestures.Tap LB.LoopBank 0)
-      == [ Machine.Focus 0, Machine.Unavailable "loop 1 has nothing to play" ])
+      == [ Machine.Focus 0, Machine.Command "0r" ])
 
   assert "but a double tap on a playing loop does overdub, which the engine has"
     (Machine.act (rigOf [ withState 0 "playing" 1 ]) (Gestures.DoubleTap LB.LoopBank 0)

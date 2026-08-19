@@ -131,40 +131,48 @@ jumpToConfigOnClose = false
 onTap :: Int -> Maybe LoopState -> Array Action
 onTap i = case _ of
   Nothing -> [ Unavailable ("loop " <> show (i + 1) <> " is not in the snapshot") ]
-  Just st -> case st.state of
-    -- Empty: start. Quantised loops answer with "starts on the grid in N s",
-    -- which is why the display shows a countdown rather than nothing.
-    "idle" | st.layers == 0 -> [ Command (cmd i "r") ]
-    -- Recording the first layer: close it.
-    "recordingFirst" ->
-      Array.cons (Command (cmd i "r"))
-        (if jumpToConfigOnClose then [ ShowBank ConfigBank ] else [])
-    "overdubbing" -> [ Command (cmd i "r") ]
-    "multiplying" -> [ Command (cmd i "r") ]
+  Just st
+    -- Something is being recorded: close it. Asked first because these are
+    -- claims about what is happening now, and they outrank what is stored.
+    | st.state == "recordingFirst" ->
+        Array.cons (Command (cmd i "r"))
+          (if jumpToConfigOnClose then [ ShowBank ConfigBank ] else [])
+    | st.state == "overdubbing" -> [ Command (cmd i "r") ]
+    | st.state == "multiplying" -> [ Command (cmd i "r") ]
+
+    -- **Empty is a fact about layers, not about state.**
+    --
+    -- Undo removes a layer and deliberately keeps the loop's length — so the
+    -- next take lands on the same grid and the click stays at the tempo you
+    -- found. Undo the last layer and the loop is `layers: 0` with a length and
+    -- a state still reading `playing`. This used to test emptiness as
+    -- `state == "idle" && layers == 0`, so it saw a playing loop, offered stop,
+    -- and toggled silence on silence for ever: a loop undone to nothing could
+    -- not be recorded into again from the board.
+    --
+    -- Quantised loops answer this with "starts on the grid in N s", which is
+    -- why the display shows a countdown rather than nothing.
+    | st.layers == 0 -> [ Command (cmd i "r") ]
+
     -- Stop and start. Explicit `h0`/`h1` rather than the flipping `h`, so a
     -- dropped command cannot leave the app and the engine disagreeing about
     -- something a stopped loop makes invisible by definition.
-    "playing" | st.muted -> [ Command (cmd i "h1") ]
-    "playing" -> [ Command (cmd i "h0") ]
-    _ | st.layers > 0 && st.muted -> [ Command (cmd i "h1") ]
-    _ | st.layers > 0 -> [ Command (cmd i "h0") ]
-    _ -> [ Unavailable ("loop " <> show (i + 1) <> " has nothing to play") ]
+    | st.muted -> [ Command (cmd i "h1") ]
+    | otherwise -> [ Command (cmd i "h0") ]
 
 -- | A double tap: overdub, per the plan.
 onDouble :: Int -> Maybe LoopState -> Array Action
 onDouble i = case _ of
   Nothing -> [ Unavailable ("loop " <> show (i + 1) <> " is not in the snapshot") ]
-  Just st -> case st.state of
+  Just st
+    -- Double-tapping an empty loop is a single tap said twice: the first
+    -- already started it, and the second would close a loop a fifth of a
+    -- second long. Refusing is kinder than obeying.
+    | st.layers == 0 -> [ Handled "already recording" ]
     -- Overdub. A stopped loop is brought back first, because overdubbing onto
     -- something you cannot hear is a way to record a mistake twice.
-    "playing" | st.muted -> [ Command (cmd i "h1"), Command (cmd i "r") ]
-    "playing" -> [ Command (cmd i "r") ]
-    "idle" | st.layers > 0 && st.muted -> [ Command (cmd i "h1"), Command (cmd i "r") ]
-    "idle" | st.layers > 0 -> [ Command (cmd i "r") ]
-    -- Double-tapping an empty loop is a single tap said twice; the first one
-    -- already started it and the second would close a loop a fifth of a second
-    -- long. Refusing is kinder than obeying.
-    _ -> [ Handled "already recording" ]
+    | st.muted -> [ Command (cmd i "h1"), Command (cmd i "r") ]
+    | otherwise -> [ Command (cmd i "r") ]
 
 -- | The daemon's loop-prefixed command form: `3r` is "record on loop 3".
 cmd :: Int -> String -> String

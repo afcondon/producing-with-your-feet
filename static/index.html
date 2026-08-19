@@ -1952,6 +1952,23 @@ body {
   padding: 6px 10px; background: #f3f1ec; border-left: 3px solid #3a7d6c;
 }
 
+/* The six switches the board cannot label. G-L are FS3X footswitches with no
+   display and no markings, so this is the only place their meaning exists at
+   the moment it is needed. */
+.loops-utils {
+  display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px;
+  margin: 0 0 10px 0;
+}
+.loops-util {
+  display: flex; align-items: baseline; gap: 7px;
+  font-size: 11px; color: #6d6862;
+  border-top: 1px solid #e6e2dc; padding-top: 6px;
+}
+.util-key {
+  font-weight: 600; font-size: 13px; color: #2f2b27;
+  min-width: 1em; font-variant-numeric: tabular-nums;
+}
+
 .loops-legend {
   display: flex; gap: 18px; font-size: 11px; color: #8b857d;
   border-top: 1px solid #ece8e2; padding-top: 8px; margin-bottom: 22px;
