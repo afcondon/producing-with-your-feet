@@ -890,6 +890,21 @@ main = do
     (LB.switchChannel /= Looper.itajaraChannel
       && LB.switchChannel /= Board.boardRecallChannel)
 
+  -- Asked of the registry rather than of a comment. This namespace first
+  -- shipped on channel 16 because `Data.Looper` said 9, 13 and 16 were free;
+  -- 13 had since been taken by Itajara, and 16 is LoopyPro on the device. A
+  -- comment cannot go stale in a way anything notices. This can.
+  assert "and no pedal in the registry answers on it"
+    (Array.null (pedalsOnChannel LB.switchChannel liveEngine))
+
+  -- And an honest note about how far that goes. The registry holds *our*
+  -- pedals, so it would not have caught the original collision either:
+  -- LoopyPro is not a pedal in this app, it is a destination the MC6 routes to,
+  -- and only the device's own channel table knows that. Asserting it here would
+  -- be asserting a fact nothing in this process holds.
+  assert "though the registry does not know what else is on the wire"
+    (Array.null (pedalsOnChannel 16 liveEngine))
+
   assert "a switch CC on another channel is refused"
     (LB.decodeSwitch Looper.itajaraChannel (LB.switchCC LB.LoopBank 0) 127 == Nothing)
 

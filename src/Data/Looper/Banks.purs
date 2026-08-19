@@ -34,13 +34,29 @@
 -- | CC 0-15 are left alone because CC 0 and 32 are bank select and the low
 -- | numbers are where every other device's defaults live.
 -- |
--- | ## Channel 16 is the app's own
+-- | ## Channel 9 is the app's own
 -- |
--- | The pedals hold channels 2-8, 10-12, 14 and 15; channel 1 is board recall
--- | and channel 13 is Itajara's pedal surface. Channel 16 is free, and taking a
--- | whole channel for "the MC6 talking to the app about its own switches" keeps
--- | this namespace from ever colliding with a message meant for a pedal. It is
--- | a control plane, not a pedal.
+-- | Taking a whole channel for "the MC6 talking to the app about its own
+-- | switches" keeps this namespace from ever colliding with a message meant for
+-- | a pedal. It is a control plane, not a pedal.
+-- |
+-- | **Nine, because it is the only one left, and that was checked against the
+-- | device rather than against a comment.** This first shipped on channel 16 on
+-- | the strength of a note in `Data.Looper` saying 9, 13 and 16 were free.
+-- | Thirteen had since been taken by Itajara, and sixteen is **LoopyPro** — the
+-- | device's own channel table says so, and its `sendToPort` is 2034 where every
+-- | other channel is 2047, three ports masked off exactly as a channel routed to
+-- | the iPad and nowhere else would be.
+-- |
+-- | The device's table, read from the August connect dump, is the authority:
+-- | 1 MC6, 2 (Brothers), 3 MOOD, 4 Clean, 5 Hedra, 7 Flint, 8 Lex, 10 Iridium,
+-- | 11 Riverside, 12 Mercury7, 14 Brig, 15 Habit, 16 LoopyPro — plus 6
+-- | Lost + Found and 13 Itajara, which the app knows about and the device does
+-- | not name. That leaves nine, alone.
+-- |
+-- | Note that the March backup has Habit and LoopyPro the other way round. They
+-- | were swapped at some point between, which is precisely why a channel is not
+-- | something to take on the word of a comment.
 -- |
 -- | Note the split from `Data.Looper.looperBank`, which is a different thing
 -- | wearing a similar name: that bank drives the *single-loop* transport
@@ -86,7 +102,7 @@ import Data.Maybe (Maybe(..))
 
 -- | The channel the MC6 uses to address the app about its own switches.
 switchChannel :: Int
-switchChannel = 16
+switchChannel = 9
 
 -- | How far apart two banks' CC blocks sit. Sixteen rather than twelve so the
 -- | block boundary falls on a round number and the switch index is the low
