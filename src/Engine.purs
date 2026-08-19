@@ -23,6 +23,7 @@ import Data.MC6.Global (GlobalSwitch)
 import Data.MC6.ControlBank (ControlBank, exampleControlBank)
 import Data.MC6.Dump as Dump
 import Data.MC6.Settings as Settings
+import Data.Looper.Gestures as Gestures
 import Data.MC6.Types (MC6NativeBank)
 import Data.MC6.Wire as Wire
 import Data.Array as Array
@@ -140,6 +141,16 @@ type AppState =
   -- | the speed bank" should be arithmetic and not a setting that can be set
   -- | inconsistently.
   , mc6LoopBankBase :: Int
+  -- | The footswitch recogniser, mid-stream. A `Mealy` from
+  -- | `purescript-machines`: its state is the closure, so this field IS the
+  -- | machine's memory and stepping it replaces it.
+  , looperGestures :: Gestures.Recogniser
+  -- | The loop the config bank acts on — the last one a foot touched.
+  , looperFocus :: Int
+  -- | What the last footswitch press did, in words. Every press produces one,
+  -- | including the refusals: a press that leaves no trace anywhere is the
+  -- | thing the whole looper surface exists to prevent.
+  , looperLastAction :: Maybe String
   -- | Which face the Looper page is showing. The six-slot display is what the
   -- | board drives; the old transport is kept because it can drive the engine
   -- | by hand, which is how the six-slot display gets something to show.
@@ -260,6 +271,13 @@ initAppState =
   -- 22-27, just above the legacy transport bank and below the two the device
   -- has left. Wire numbers; the editor shows each one higher.
   , mc6LoopBankBase: 22
+  -- 600 ms is a placeholder with a known replacement. The device's own
+  -- long-press setting is readable (`03 21`, offset 3, currently 4) but its
+  -- scale is not yet known — 4 is 700 ms and one point gives no conversion —
+  -- so agreeing by hand is honest until a second reading pins it.
+  , looperGestures: Gestures.recogniser { holdMs: 600.0, doubleTapMs: 260.0 }
+  , looperFocus: 0
+  , looperLastAction: Nothing
   , looperShowsSlots: true
   , looperProgramStatus: Nothing
   , midiTest: Nothing

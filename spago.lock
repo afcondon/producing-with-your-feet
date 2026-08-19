@@ -53,6 +53,7 @@
             {
               "js-date": ">=8.0.0 <9.0.0"
             },
+            "machines",
             {
               "maybe": ">=6.0.0 <7.0.0"
             },
@@ -777,7 +778,10 @@
       "httpurple": "4.0.0",
       "hylograph-graph": "0.3.0",
       "hylograph-selection": "0.5.3",
-      "hylograph-transitions": "0.1.0"
+      "hylograph-transitions": "0.1.0",
+      "machines": {
+        "path": "../../purescript-ports/purescript-machines"
+      }
     }
   },
   "packages": {
@@ -1585,6 +1589,27 @@
         "prelude",
         "typelevel-prelude",
         "unsafe-coerce"
+      ]
+    },
+    "machines": {
+      "type": "local",
+      "path": "../../purescript-ports/purescript-machines",
+      "dependencies": [
+        "arrays",
+        "console",
+        "control",
+        "effect",
+        "either",
+        "foldable-traversable",
+        "identity",
+        "lists",
+        "maybe",
+        "newtype",
+        "prelude",
+        "profunctor",
+        "tailrec",
+        "transformers",
+        "tuples"
       ]
     },
     "maybe": {

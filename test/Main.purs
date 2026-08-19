@@ -26,6 +26,8 @@ import Data.MC6.Settings as Settings
 import Test.MC6Capture as Capture
 import Data.Looper as Looper
 import Data.Looper.Banks as LB
+import Data.Looper.Gestures as Gestures
+import Data.Looper.Machine as Machine
 import Data.String as String
 import Data.MC6.Read as Read
 import Data.MC6.SysEx as SysEx
@@ -33,7 +35,7 @@ import Data.MC6.Dump as Dump
 import Data.MC6.Global as Global
 import Data.MC6.Survey as Survey
 import Data.MC6.Verb as Verb
-import Data.Tuple (Tuple(..))
+import Data.Tuple (Tuple(..), fst, snd)
 import Pedals.Registry as Registry
 
 -- Golden fixture: JS-format engine state with 3 pedals, numeric-string CC keys
@@ -770,6 +772,119 @@ main = do
   -- function-code space found nothing that asks for bank data, because the
   -- device volunteers a full dump on connect instead. All this module does is
   -- decode, and the decoder is tested above against the device's own bytes.
+
+  log ""
+  log "Gestures, as a Mealy machine..."
+
+  -- The recogniser is where the only real state in the input path lives, and
+  -- it is entirely testable without a device, a socket or a foot: feed it
+  -- events with timestamps and read the gestures out.
+  let th = { holdMs: 600.0, doubleTapMs: 250.0 }
+      pressA = { slot: LB.LoopBank, switch: 0, down: true }
+      pressB = { slot: LB.LoopBank, switch: 1, down: true }
+      -- Fold a script of events, collecting everything emitted.
+      run evs = Array.concat (Array.reverse (_.out (Array.foldl
+        (\acc e -> let r = Gestures.feed acc.m e
+                   in { m: fst r, out: Array.cons (snd r) acc.out })
+        { m: Gestures.recogniser th, out: [] } evs)))
+
+  assert "a press and a release, then silence, is a tap"
+    (run [ Gestures.Down pressA 0.0, Gestures.Up pressA 80.0, Gestures.Tick 400.0 ]
+      == [ Gestures.Tap LB.LoopBank 0 ])
+
+  -- The window has not expired, so nothing has been decided. Emitting a tap
+  -- here and a double-tap later would mean acting twice on one gesture.
+  assert "and inside the window it has decided nothing"
+    (run [ Gestures.Down pressA 0.0, Gestures.Up pressA 80.0, Gestures.Tick 200.0 ] == [])
+
+  assert "a second press inside the window is a double tap, and only that"
+    (run [ Gestures.Down pressA 0.0, Gestures.Up pressA 80.0
+         , Gestures.Down pressA 200.0, Gestures.Up pressA 260.0, Gestures.Tick 900.0 ]
+      == [ Gestures.DoubleTap LB.LoopBank 0 ])
+
+  -- Fires on the timer, not on the release, so it lands at the same instant the
+  -- MC6's own long press does — and so it does not matter whether the device
+  -- sends a release after a long press.
+  assert "a hold fires at the threshold, while the switch is still down"
+    (run [ Gestures.Down pressA 0.0, Gestures.Tick 300.0, Gestures.Tick 700.0 ]
+      == [ Gestures.Hold LB.LoopBank 0 ])
+
+  assert "and the release after a hold says nothing more"
+    (run [ Gestures.Down pressA 0.0, Gestures.Tick 700.0
+         , Gestures.Up pressA 900.0, Gestures.Tick 2000.0 ]
+      == [ Gestures.Hold LB.LoopBank 0 ])
+
+  -- A press on another switch while the first is still deciding. The first
+  -- press was a tap; it just had not been allowed to say so. Dropping it would
+  -- lose a press the player made.
+  assert "a different switch resolves the waiting one as a tap"
+    (run [ Gestures.Down pressA 0.0, Gestures.Up pressA 50.0
+         , Gestures.Down pressB 100.0, Gestures.Up pressB 150.0, Gestures.Tick 900.0 ]
+      == [ Gestures.Tap LB.LoopBank 0, Gestures.Tap LB.LoopBank 1 ])
+
+  -- Reachable after a reload, or if a down went missing.
+  assert "a release with no press invents nothing"
+    (run [ Gestures.Up pressA 10.0, Gestures.Tick 900.0 ] == [])
+
+  assert "and ticks on an idle recogniser stay quiet"
+    (run [ Gestures.Tick 100.0, Gestures.Tick 5000.0 ] == [])
+
+  log ""
+  log "What a gesture means (Data.Looper.Machine)..."
+
+  let idle n = { index: n, state: "idle", layers: 0, loopFrames: 0, loopSecs: 0.0
+               , pos: 0, phase: 0.0, armed: false, recording: false, quant: false
+               , pendingAt: -1, shapes: [] }
+      withState n s ls = (idle n) { state = s, layers = ls }
+      rigOf ls = { loops: ls, focus: 0 }
+
+  assert "tapping an empty loop records it"
+    (Machine.act (rigOf [ idle 0 ]) (Gestures.Tap LB.LoopBank 0)
+      == [ Machine.Focus 0, Machine.Command "0r" ])
+
+  -- The one bank change the app drives, because only the app knows this was
+  -- the second press.
+  assert "tapping a recording loop closes it and shows the config bank"
+    (Machine.act (rigOf [ withState 0 "recordingFirst" 0 ]) (Gestures.Tap LB.LoopBank 0)
+      == [ Machine.Focus 0, Machine.Command "0r", Machine.ShowBank LB.ConfigBank ])
+
+  -- The gap, named rather than substituted. `r` on a playing loop would
+  -- overdub, which is not what a tap was asked to do.
+  assert "tapping a playing loop reports the missing transport instead of overdubbing"
+    (Machine.act (rigOf [ withState 0 "playing" 1 ]) (Gestures.Tap LB.LoopBank 0)
+      == [ Machine.Focus 0
+         , Machine.Unavailable "pause — the engine has no play or stop yet" ])
+
+  assert "but a double tap on a playing loop does overdub, which the engine has"
+    (Machine.act (rigOf [ withState 0 "playing" 1 ]) (Gestures.DoubleTap LB.LoopBank 0)
+      == [ Machine.Focus 0, Machine.Command "0r" ])
+
+  assert "a hold only moves the focus; the MC6 changes bank by itself"
+    (Machine.act (rigOf [ withState 0 "playing" 1 ]) (Gestures.Hold LB.LoopBank 2)
+      == [ Machine.Focus 2, Machine.Handled "configuring loop 3" ])
+
+  assert "undo and clear act on the focused loop"
+    (Machine.act { loops: [ idle 0, idle 1, idle 2 ], focus: 2 } (Gestures.Tap LB.LoopBank 8)
+      == [ Machine.Command "2u" ]
+      && Machine.act { loops: [ idle 0 ], focus: 1 } (Gestures.Tap LB.LoopBank 9)
+        == [ Machine.Command "1c" ])
+
+  -- A press this app cannot yet act on still produces a sentence. A switch that
+  -- says "not wired" is debuggable; one that does nothing is indistinguishable
+  -- from a broken cable.
+  assert "an unwired switch says so rather than vanishing"
+    (map Machine.describe (Machine.act (rigOf []) (Gestures.Tap LB.QuantiseBank 3))
+      == [ "quantise switch 3 is not wired yet" ])
+
+  assert "every action can say what it did"
+    (Array.all (\a -> Machine.describe a /= "")
+      [ Machine.Command "0r", Machine.ShowBank LB.ConfigBank, Machine.Focus 0
+      , Machine.Unavailable "x", Machine.Handled "y" ])
+
+  -- A loop the snapshot does not contain is not a loop we may guess about.
+  assert "a gesture for a loop that is not in the snapshot is refused, not assumed"
+    (Machine.act (rigOf []) (Gestures.Tap LB.LoopBank 0)
+      == [ Machine.Focus 0, Machine.Unavailable "loop 1 is not in the snapshot" ])
 
   log ""
   log "Write frames, against Morningstar's own editor..."

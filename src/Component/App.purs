@@ -15,6 +15,9 @@ import Data.Argonaut.Parser (jsonParser)
 import Data.Looper as Looper
 import Data.Looper.Banks as LoopBanks
 import Component.Looper.Slots as Slots
+import Data.Looper.Gestures as Gestures
+import Data.Looper.Machine as Machine
+import Data.JSDate as JSDate
 import Data.MC6.Backup as Backup
 import Data.MC6.ControlBank (ControlBank)
 import Data.MC6.ControlBank as ControlBank
@@ -32,7 +35,7 @@ import Data.Foldable (any, for_, traverse_)
 import Data.Traversable (for)
 import Data.Map as Map
 import Data.Int as Int
-import Data.Maybe (Maybe(..), fromMaybe, isJust, isNothing)
+import Data.Maybe (Maybe(..), fromMaybe, isJust, isNothing, maybe)
 import Data.Midi (CC, MidiValue, ProgramNumber, makeCC, makeChannel, makeMidiValue, makeProgramNumber, unCC, unChannel, unMidiValue, unProgramNumber, unsafeCC, unsafeMidiValue)
 import Data.Pedal (PedalDef, PedalId)
 import Pedals.Registry as PsRegistry
@@ -42,7 +45,7 @@ import Data.Preset as Preset
 import Data.String as String
 import Data.String.CodeUnits (contains)
 import Data.String.Pattern (Pattern(..))
-import Data.Tuple (Tuple(..))
+import Data.Tuple (Tuple(..), fst, snd)
 import Data.Twister (SideBtn(..), TwisterEncoder(..), TwisterMsg(..), parseTwisterMsg)
 import Effect.Aff (Milliseconds(..), delay)
 import Effect.Aff.Class (class MonadAff)
@@ -124,6 +127,7 @@ data Action
   | BackupSaveNowAction
   | BackupDisconnectAction
   | LooperPoll
+  | LooperTick
   | LooperCommand String
 
 type Slots =
@@ -421,6 +425,13 @@ renderLooperView state =
     , case state.looper of
         Just lp | state.looperShowsSlots -> Slots.render lp
         _ -> HH.text ""
+    -- What the last press did, in words. Present for refusals as much as for
+    -- commands: the machine names every gap it meets rather than swallowing
+    -- the press, and a footswitch that silently does nothing is the failure
+    -- this whole surface exists to design against.
+    , case state.looperLastAction of
+        Nothing -> HH.text ""
+        Just msg -> HH.p [ HP.class_ (H.ClassName "looper-lastaction") ] [ HH.text msg ]
     , HH.div [ HP.class_ (H.ClassName "looper-columns") ]
         [ HH.div [ HP.class_ (H.ClassName "looper-left") ]
             [ case state.looper of
@@ -1804,6 +1815,21 @@ handleAction = case _ of
           Just c, Just v -> handleAction (SetValue Looper.itajaraId c v)
           _, _ -> pure unit
 
+      -- The app's own switch namespace (`Data.Looper.Banks`). A press here says
+      -- which switch on which bank, so nothing has to be inferred from a memory
+      -- of the last bank change — and both edges arrive, because the recogniser
+      -- times the gap between them.
+      [status, ccNum, val] | status == 0xB0 + LoopBanks.switchChannel - 1 ->
+        case LoopBanks.decodeSwitch LoopBanks.switchChannel ccNum val of
+          Just press -> do
+            t <- liftEffect (JSDate.getTime <$> JSDate.now)
+            feedGesture (if press.down then Gestures.Down press t else Gestures.Up press t)
+          -- A CC on our channel that is not one of our switches. Worth saying
+          -- out loud: it means the board is sending something this app wrote
+          -- and no longer understands.
+          Nothing -> liftEffect $ Console.log $
+            "MC6: CC " <> show ccNum <> " on the switch channel is not a switch."
+
       -- Channel 1 CC with value 127 = a board-recall footswitch press.
       [status, ccNum, 127] | status == 0xB0 ->
         handleBoardRecallFromMC6 ccNum
@@ -1871,6 +1897,12 @@ handleAction = case _ of
   -- | a second forever, which is how the Overview's footswitches died. Only
   -- | touch state when the daemon actually said something new; with no daemon
   -- | running this settles to zero work.
+  -- | Time is an input like any other: a tap becomes a tap by the double-tap
+  -- | window expiring, and a transducer only moves when it is fed.
+  LooperTick -> do
+    t <- liftEffect (JSDate.getTime <$> JSDate.now)
+    feedGesture (Gestures.Tick t)
+
   LooperPoll -> do
     st' <- liftEffect LooperSocket.status
     snap <- liftEffect LooperSocket.latest
@@ -1917,6 +1949,7 @@ looperPollLoop :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m
 looperPollLoop = do
   H.liftAff (delay (Milliseconds 100.0))
   handleAction LooperPoll
+  handleAction LooperTick
   looperPollLoop
 
 -- Grid output handler (shared by HandleGrid)
@@ -2375,6 +2408,62 @@ inUpload output act = inSession output \open -> Wire.withUpload open act
 -- | a read-back confirming those five were untouched rather than merely
 -- | unconfirmed — which is the difference between a slow afternoon and a
 -- | silently wrong pedalboard.
+-- | Step the recogniser, and act on whatever it decided.
+-- |
+-- | `Mealy` returns the *next machine* alongside the output, so stepping it is
+-- | a state update — which is why the machine lives in `AppState` rather than
+-- | in a closure somewhere. The library's shape and Halogen's agree here
+-- | without either being bent.
+feedGesture
+  :: forall o m. MonadAff m
+  => Gestures.Event -> H.HalogenM AppState Action Slots o m Unit
+feedGesture ev = do
+  st <- H.get
+  let stepped = Gestures.feed st.looperGestures ev
+  H.modify_ _ { looperGestures = fst stepped }
+  traverse_ runGesture (snd stepped)
+
+-- | What a gesture means, and then doing it.
+-- |
+-- | The meaning is a pure function of the gesture and the *daemon's* report of
+-- | the loops — this app models no loop state of its own, so there is nothing
+-- | here that can fall out of step with the engine.
+runGesture
+  :: forall o m. MonadAff m
+  => Gestures.Gesture -> H.HalogenM AppState Action Slots o m Unit
+runGesture g = do
+  st <- H.get
+  let rig = { loops: maybe [] _.loops st.looper, focus: st.looperFocus }
+  traverse_ runAction (Machine.act rig g)
+
+runAction
+  :: forall o m. MonadAff m
+  => Machine.Action -> H.HalogenM AppState Action Slots o m Unit
+runAction a = do
+  liftEffect $ Console.log $ "looper: " <> Machine.describe a
+  case a of
+    Machine.Command c -> do
+      ok <- liftEffect $ LooperSocket.send c
+      note (if ok then Machine.describe a else "no daemon — " <> c <> " went nowhere")
+    Machine.Focus i -> H.modify_ _ { looperFocus = i }
+    -- **Forked on purpose.** The loop closes and plays on the engine's own
+    -- schedule; the bank change is a courtesy that either lands or does not.
+    -- Audio must never wait on the display, and opening an editor session takes
+    -- the better part of a second.
+    Machine.ShowBank slot -> do
+      stB <- H.get
+      case stB.connections.mc6Output of
+        Nothing -> note "no MC6 output — cannot change bank"
+        Just out -> do
+          note (Machine.describe a)
+          void $ H.fork $ inSession out \open ->
+            Wire.send open (SysEx.sysexEditorBankChange
+              (stB.mc6LoopBankBase + LoopBanks.slotIndex slot))
+    Machine.Unavailable why -> note why
+    Machine.Handled what -> note what
+  where
+  note msg = H.modify_ _ { looperLastAction = Just msg }
+
 -- | Bank numbers as prose, for a status line that has to name several.
 commaList :: Array Int -> String
 commaList = Array.intercalate ", " <<< map show
