@@ -116,3 +116,44 @@ settingsFrame = case _ of
 -- | Which sub-codes the capture contains.
 settingsCodes :: Array Int
 settingsCodes = [ 32, 33, 34, 35, 36, 37, 38, 39, 40, 41 ]
+
+-- | Frames Morningstar's own editor sent to the device, captured with MIDI
+-- | Monitor spying on destinations while a bank was renamed and a general
+-- | setting changed (`Bank rename and long press time.syx.mmon`, 2026-08-19).
+-- |
+-- | These are the writes. Our own encoder is held to reproducing them byte for
+-- | byte, which is a stronger check than sending anything: if the bytes match
+-- | the editor's, the frame is right without a device having to accept it.
+editorFrame_bankWrite :: Array Int
+editorFrame_bankWrite =
+  [ 240, 0, 33, 36, 3, 0, 6, 18, 27, 0, 0, 0, 0, 0, 0, 0, 127, 0, 1, 27, 127,
+  1, 2, 0, 0, 127, 2, 9, 0, 0, 0, 0, 0, 1, 0, 0, 0, 127, 2, 9, 1, 0, 0, 0,
+  0, 1, 0, 0, 0, 127, 2, 9, 2, 0, 0, 0, 0, 1, 0, 0, 0, 127, 2, 9, 3, 0, 0,
+  0, 0, 1, 0, 0, 0, 127, 2, 9, 4, 0, 0, 0, 0, 1, 0, 0, 0, 127, 2, 9, 5, 0,
+  0, 0, 0, 1, 0, 0, 0, 127, 2, 9, 6, 0, 0, 0, 0, 1, 0, 0, 0, 127, 2, 9, 7,
+  0, 0, 0, 0, 1, 0, 0, 0, 127, 2, 9, 8, 0, 0, 0, 0, 1, 0, 0, 0, 127, 2, 9,
+  9, 0, 0, 0, 0, 1, 0, 0, 0, 127, 2, 9, 10, 0, 0, 0, 0, 1, 0, 0, 0, 127, 2,
+  9, 11, 0, 0, 0, 0, 1, 0, 0, 0, 127, 2, 9, 12, 0, 0, 0, 0, 1, 0, 0, 0, 127,
+  2, 9, 13, 0, 0, 0, 0, 1, 0, 0, 0, 127, 2, 9, 14, 0, 0, 0, 0, 1, 0, 0, 0,
+  127, 2, 9, 15, 0, 0, 0, 0, 1, 0, 0, 0, 127, 3, 24, 84, 119, 101, 110, 116,
+  121, 32, 69, 105, 103, 104, 116, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32,
+  32, 32, 86, 247
+  ]
+
+editorFrame_settingsBegin :: Array Int
+editorFrame_settingsBegin =
+  [ 240, 0, 33, 36, 3, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 114, 247
+  ]
+
+editorFrame_settingsData :: Array Int
+editorFrame_settingsData =
+  [ 240, 0, 33, 36, 3, 0, 4, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 4, 1, 0, 60,
+  0, 0, 0, 0, 0, 0, 12, 1, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 71, 247
+  ]
+
+editorFrame_settingsCommit :: Array Int
+editorFrame_settingsCommit =
+  [ 240, 0, 33, 36, 3, 0, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 115, 247
+  ]
+

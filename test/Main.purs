@@ -772,6 +772,43 @@ main = do
   -- decode, and the decoder is tested above against the device's own bytes.
 
   log ""
+  log "Write frames, against Morningstar's own editor..."
+
+  -- Captured with MIDI Monitor spying on destinations while the editor renamed
+  -- wire bank 27 to "Twenty Eight" and changed a general setting. Holding our
+  -- encoder to those bytes is a stronger check than sending anything: if the
+  -- bytes match the editor's, the frame is right without a device having to
+  -- accept it, and without a bad guess reaching anybody's flash.
+
+  assert "our bank write is the editor's bank write, byte for byte"
+    (SysEx.frameBytes (SysEx.sysexBankData 27 "Twenty Eight" [])
+      == Capture.editorFrame_bankWrite)
+
+  -- The name field is 24, which is why this is here rather than assumed: the
+  -- longest name on the device is 16 characters, so inferring from data would
+  -- have set the limit four characters short of what the device accepts.
+  assert "a 24-character bank name still fits the frame it was measured from"
+    (Array.length (SysEx.frameBytes (SysEx.sysexBankData 3 "123456789012345678901234" []))
+      == Array.length Capture.editorFrame_bankWrite)
+
+  assert "the settings write is bracketed, and the bracket matches"
+    (SysEx.frameBytes SysEx.sysexSettingsBegin == Capture.editorFrame_settingsBegin
+      && SysEx.frameBytes SysEx.sysexSettingsCommit == Capture.editorFrame_settingsCommit)
+
+  -- The load-bearing one. `04 02` carries the same payload `03 21` returns, so
+  -- whatever Data.MC6.Settings decodes can be handed straight back — which is
+  -- what makes settings writable rather than merely readable.
+  assert "and 04 02 carries exactly what 03 21 returned"
+    (SysEx.frameBytes
+      (SysEx.sysexSettingsData
+        (Array.drop 16 (Array.dropEnd 2 Capture.editorFrame_settingsData)))
+      == Capture.editorFrame_settingsData)
+
+  assert "which is the same width as the settings frame the device sends"
+    (Array.length (Array.drop 16 (Array.dropEnd 2 Capture.editorFrame_settingsData))
+      == Array.length (Array.drop 16 (Array.dropEnd 2 (Capture.settingsFrame 0x21))))
+
+  log ""
   log "Controller settings (Data.MC6.Settings)..."
 
   -- Against the bytes the device sent, decoded and then checked against the
@@ -953,9 +990,12 @@ main = do
     (isJust (Model.longName "Loop 1, hold to set up  ")
       && isNothing (Model.longName "Loop 1, hold to set up   "))
 
-  assert "bank names hold the 16 the device showed us"
-    (isJust (Model.bankName "Ableton Controls")
-      && isNothing (Model.bankName "Ableton Controls!"))
+  -- 24, from the editor's write frame — not the 16 that the longest name on
+  -- this board happens to be. A bound inferred from the largest value you have
+  -- seen is a bound that refuses what the device accepts.
+  assert "bank names hold the 24 the write frame carries"
+    (isJust (Model.bankName "123456789012345678901234")
+      && isNothing (Model.bankName "1234567890123456789012345"))
 
   -- Positions are bounded by the hardware, so an out-of-range one should not be
   -- constructible rather than being caught at the encoder.

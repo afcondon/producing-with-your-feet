@@ -13,6 +13,10 @@ module Data.MC6.SysEx
   , sysexStartUpload
   , sysexCompleteUpload
   , sysexPresetData
+  , sysexBankData
+  , sysexSettingsBegin
+  , sysexSettingsData
+  , sysexSettingsCommit
   , sysexClearPreset
   , sysexRequestPresetNames
   , sysexRequestAllPresetNames
@@ -154,6 +158,109 @@ sysexPresetData bankNum presetNum shortName longName toToggle messages =
       payload = hdr <> msgTlvs <> nameTlvs <> cfg
   in sysexFrame ("preset-" <> show bankNum <> "-" <> show presetNum)
        mc6mk2DeviceId funcIds payload
+
+-- | Write a bank's own properties: its name and its sixteen bank-level
+-- | messages. **F1=6, F2=18, F3=bank.**
+-- |
+-- | The thing `sysexPresetData` could never do. A preset write carries twelve
+-- | switches and says nothing about the bank holding them, which is why every
+-- | bank this app has ever generated arrived unnamed — and why bank 19 kept
+-- | showing "Ableton" long after it had stopped being the Ableton bank.
+-- |
+-- | Read out of a capture of Morningstar's editor renaming a bank rather than
+-- | guessed, and held to that capture byte for byte in the tests. The layout
+-- | mirrors a preset almost exactly, which is the sign it was read and not
+-- | invented: header TLV carrying the bank number, sixteen nine-byte message
+-- | TLVs, then the name.
+-- |
+-- | **The name field is twenty-four bytes**, not the sixteen the longest name
+-- | on this device happens to be. Worth having measured rather than inferred:
+-- | refusing at sixteen would have refused names the device accepts.
+sysexBankData :: Int -> String -> Array MC6Message -> Frame Session
+sysexBankData bankNum name messages =
+  let funcIds = [0x06, 0x12, bankNum, 0x00, 0x00, 0x00]
+      -- The bank number twice, in F3 and again in the payload, exactly as a
+      -- preset write repeats it. Belt and braces are theirs, not ours.
+      hdr = [0x7F, 0x00, 0x01, bankNum]
+      -- Two bytes the editor sends as zero. Not named, because a capture of one
+      -- rename does not say what they are, and `bankClearToggle` is only the
+      -- most likely candidate rather than a known one.
+      flags = [0x7F, 0x01, 0x02, 0x00, 0x00]
+      msgTlvs = Array.concatMap bankMessageTLV (padBankMessages messages)
+      payload = hdr <> flags <> msgTlvs <> bankNameTLV name
+  in sysexFrame ("bank-" <> show bankNum) mc6mk2DeviceId funcIds payload
+
+-- | Pad bank messages to sixteen, with **`ToggleOff` in the empty slots**.
+-- |
+-- | A separate function from `padMessages` for one byte. The shared version
+-- | fills empties with `ToggleBoth`, and the editor's own bank write uses
+-- | `ToggleOff` — the only difference between our frame and theirs across all
+-- | 246 bytes, and found only because the frame was compared to a capture
+-- | rather than reasoned about.
+-- |
+-- | The preset path is left alone deliberately. Its empty-slot toggle byte has
+-- | never been checked against an editor capture, and presets currently work;
+-- | changing both on the evidence of one would be spending a confirmed fix on
+-- | an unconfirmed guess.
+padBankMessages :: Array MC6Message -> Array MC6Message
+padBankMessages msgs =
+  let existing = Array.length msgs
+      pad = if existing < 16 then map emptyBankMsg (Array.range existing 15) else []
+  in Array.take 16 (msgs <> pad)
+  where
+  emptyBankMsg idx =
+    { msgType: MsgEmpty, channel: 1
+    , data1: 0, data2: 0, data3: 0, data4: 0
+    , action: ActionNone, togglePosition: ToggleOff, msgIndex: idx
+    }
+
+-- | Tag 7F, Type 03 in a bank frame: the bank name, 24 bytes, space-padded.
+-- |
+-- | Type 03 means the toggle name in a *preset* frame and the bank name here.
+-- | The tag numbering is per-frame, not global, which is exactly the kind of
+-- | thing that would have been assumed wrong if this had been reasoned about
+-- | instead of captured.
+bankNameTLV :: String -> Array Int
+bankNameTLV name =
+  let chars = map toCharCode (SCU.toCharArray (SCU.take 24 name))
+      padded = Array.take 24 (chars <> Array.replicate 24 0x20)
+  in [0x7F, 0x03, 0x18] <> padded
+
+-- | Tag 7F, Type 02 in a bank frame: one bank-level message, nine bytes.
+bankMessageTLV :: MC6Message -> Array Int
+bankMessageTLV msg =
+  [ 0x7F, 0x02, 0x09
+  , msg.msgIndex
+  , msg.data1
+  , msg.data2
+  , msg.data3
+  , mc6MsgTypeToInt msg.msgType
+  , msg.channel
+  , mc6ActionToInt msg.action
+  , mc6ToggleToInt msg.togglePosition
+  , msg.data4
+  ]
+
+-- | The controller-settings write, in three frames: **`04 00` begin, `04 02`
+-- | the payload, `04 01` commit.**
+-- |
+-- | Mirrors the preset upload's `07 00 30` / `07 00 31` bracket, and mirrors it
+-- | closely enough that the pattern is worth stating: on this device a write is
+-- | bracketed and a read is not.
+-- |
+-- | `04 02` carries **the same thirty-two byte payload that `03 21` returns** —
+-- | the read code and the write code differ, the payload does not. That is what
+-- | makes settings writable at all: whatever `Data.MC6.Settings` decodes can be
+-- | handed straight back.
+sysexSettingsBegin :: Frame Session
+sysexSettingsBegin = sysexFrame "settings-begin" mc6mk2DeviceId [0x04, 0x00] []
+
+sysexSettingsData :: Array Int -> Frame Session
+sysexSettingsData payload =
+  sysexFrame "settings-data" mc6mk2DeviceId [0x04, 0x02] payload
+
+sysexSettingsCommit :: Frame Session
+sysexSettingsCommit = sysexFrame "settings-commit" mc6mk2DeviceId [0x04, 0x01] []
 
 -- | Ask for one bank's twelve switch names. **F1=0, F2=64, F3=bank.**
 -- |

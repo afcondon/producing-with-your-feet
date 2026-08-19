@@ -42,8 +42,15 @@
 -- | shortening is a separate function you have to *ask* for by name.
 -- |
 -- | Limits are taken from a real device rather than from the manual: across the
--- | 360 presets of the March backup, short and toggle names run to 8, long
--- | names to 24, bank names to 16.
+-- | 360 presets of the March backup, short and toggle names run to 8 and long
+-- | names to 24.
+-- |
+-- | **Bank names are 24, and that correction is the argument for measuring
+-- | rather than inferring.** The longest bank name on this board is "Ableton
+-- | Controls", sixteen characters, so the observed data said 16 and this module
+-- | first said 16 too. The editor's own bank-write frame carries a 24-byte
+-- | field. Inferring a bound from the largest value you happen to have seen
+-- | gives you a bound that refuses things the device accepts.
 module Data.MC6.Model
   ( ShortName
   , shortName
@@ -144,10 +151,10 @@ derive newtype instance Ord BankName
 derive newtype instance Show BankName
 
 bankName :: String -> Maybe BankName
-bankName s = if SCU.length s <= 16 then Just (BankName s) else Nothing
+bankName s = if SCU.length s <= 24 then Just (BankName s) else Nothing
 
 clipBankName :: String -> BankName
-clipBankName = BankName <<< SCU.take 16
+clipBankName = BankName <<< SCU.take 24
 
 unBankName :: BankName -> String
 unBankName (BankName s) = s
