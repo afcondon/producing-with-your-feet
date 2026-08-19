@@ -423,7 +423,7 @@ renderLooperView state =
     , audioLine
     , faceToggle
     , case state.looper of
-        Just lp | state.looperShowsSlots -> Slots.render lp state.looperBankShown
+        Just lp | state.looperShowsSlots -> Slots.render lp (LoopBanks.face state.looperBankShown)
         _ -> HH.text ""
     -- What the last press did, in words. Present for refusals as much as for
     -- commands: the machine names every gap it meets rather than swallowing
@@ -1825,7 +1825,7 @@ handleAction = case _ of
             -- The board says which bank it is on with every press, so the
             -- display never has to guess — including after a bank change made
             -- with a foot, which nothing else would have told us about.
-            H.modify_ _ { looperBankShown = press.slot }
+            H.modify_ _ { looperBankShown = Just press.slot }
             t <- liftEffect (JSDate.getTime <$> JSDate.now)
             feedGesture (if press.down then Gestures.Down press t else Gestures.Up press t)
           -- A CC on our channel that is not one of our switches. Worth saying
@@ -2438,7 +2438,38 @@ runGesture
 runGesture g = do
   st <- H.get
   let rig = { loops: maybe [] _.loops st.looper, focus: st.looperFocus }
+  followBoard g
   traverse_ runAction (Machine.act rig g)
+
+-- | Keep track of which bank the board is showing, including the jumps it makes
+-- | on its own.
+-- |
+-- | A press tells us the bank it came *from*; this works out the bank it leaves
+-- | the board on, by reading the same jump table the device was programmed with.
+-- | Without it the app is permanently one press behind — the long press that
+-- | opens the config bank is performed entirely by the MC6, so the app sees a
+-- | *loop* switch and hears nothing more until something on the config bank is
+-- | pressed. The legend then names the wrong six switches, which is how "J is
+-- | Clear" came to be printed under a foot standing on End Stop.
+-- |
+-- | `Nothing` means the looper is not on screen at all: `< Board` leaves the
+-- | family, and a legend that kept describing the loop bank there would be
+-- | inventing a board.
+followBoard
+  :: forall o m. MonadAff m
+  => Gestures.Gesture -> H.HalogenM AppState Action Slots o m Unit
+followBoard g = do
+  let
+    Tuple from (Tuple i long) = case g of
+      Gestures.Tap slot i' -> Tuple slot (Tuple i' false)
+      Gestures.DoubleTap slot i' -> Tuple slot (Tuple i' false)
+      Gestures.Hold slot i' -> Tuple slot (Tuple i' true)
+  H.modify_ _ { looperBankShown = case LoopBanks.sendsTo from i long of
+      Just (LoopBanks.ToSlot to) -> Just to
+      Just LoopBanks.ToBoard -> Nothing
+      -- Not a navigating switch, so the board stayed where the press came from.
+      Nothing -> Just from
+    }
 
 runAction
   :: forall o m. MonadAff m

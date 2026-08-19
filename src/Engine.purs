@@ -168,7 +168,7 @@ type AppState =
   -- | It matters because G to L have no markings, so the screen is the only
   -- | thing that can say what they do — and saying it for the wrong bank is
   -- | worse than saying nothing.
-  , looperBankShown :: LooperBanks.BankSlot
+  , looperBankShown :: Maybe LooperBanks.BankSlot
   -- Result of the last looper-bank programming run, shown on the Looper page.
   , looperProgramStatus :: Maybe String
   , midiTest :: Maybe String
@@ -293,7 +293,7 @@ initAppState =
   , looperFocus: 0
   , looperLastAction: Nothing
   , looperShowsSlots: true
-  , looperBankShown: LooperBanks.LoopBank
+  , looperBankShown: Just LooperBanks.LoopBank
   , looperProgramStatus: Nothing
   , midiTest: Nothing
   , mc6BankNames: Map.empty

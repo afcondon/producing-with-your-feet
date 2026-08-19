@@ -42,7 +42,7 @@ module Data.Looper.Machine
 import Prelude
 
 import Data.Array as Array
-import Data.Looper.Banks (BankSlot(..), loopSwitches)
+import Data.Looper.Banks (BankSlot(..), loopSwitches, mc6OwnSwitches)
 import Data.Looper.Gestures (Gesture(..))
 import Data.Maybe (Maybe(..))
 import Foreign.LooperSocket (LoopState)
@@ -84,16 +84,11 @@ act rig = case _ of
   Hold LoopBank i | i < loopSwitches ->
     [ Focus i, Handled ("configuring loop " <> show (i + 1)) ]
 
-  Tap LoopBank 6 -> [ Handled "back to the board bank" ]
-  -- Stop all, as six commands rather than one. There is no all-loops form in
-  -- the daemon's dispatch, and inventing one for a gesture that is not
-  -- sample-critical would be protocol for its own sake — these land within a
-  -- millisecond of each other, and stopping is not a downbeat.
-  Tap LoopBank 7 -> map (\i -> Command (cmd i "h0")) (Array.range 0 (loopSwitches - 1))
-  Tap LoopBank 8 -> [ Command (cmd rig.focus "u") ]
-  Tap LoopBank 9 -> [ Command (cmd rig.focus "c") ]
-  Tap LoopBank 10 -> [ Command "w" ]
-  Tap LoopBank 11 -> [ Command "k" ]
+  -- **The toolbar, before any per-bank table.** G to L mean the same six things
+  -- on every bank in the family, so they are answered in one place and the
+  -- bank is not consulted — which is the code saying the same thing the layout
+  -- says, rather than six tables that happen to agree.
+  Tap _ i | i >= mc6OwnSwitches -> toolbar rig.focus i
 
   -- The config family. Everything here acts on `focus` — the loop last touched,
   -- which is what a hold on a loop switch sets. One config bank for six loops
@@ -107,6 +102,33 @@ act rig = case _ of
   DoubleTap slot i -> [ Handled ("double tap on " <> show' slot <> " " <> show i) ]
   Hold slot i -> [ Handled ("hold on " <> show' slot <> " " <> show i) ]
 
+
+-- | The six unmarked switches, which do the same thing from anywhere.
+-- |
+-- | **Because a footswitch with no label is remembered as a position.** A
+-- | switch that clears a loop on one page and sets an end-state on the next
+-- | cannot be learned: you would have to know which bank you were on before you
+-- | could know what your foot was about to do. That is precisely what a
+-- | footswitch is for avoiding, and it is why this function does not take a
+-- | bank — there is nothing it could usefully do with one.
+-- |
+-- | All six act on the focused loop or on everything, so all six are meaningful
+-- | from any depth in the family. That is not a coincidence; it is the test for
+-- | whether something belongs up here at all.
+toolbar :: Int -> Int -> Array Action
+toolbar f = case _ of
+  -- The MC6 makes the jump itself, from the table it was programmed with.
+  6 -> [ Handled "out" ]
+  -- Stop all, as six commands rather than one. There is no all-loops form in
+  -- the daemon's dispatch, and inventing one for a gesture that is not
+  -- sample-critical would be protocol for its own sake — these land within a
+  -- millisecond of each other, and stopping is not a downbeat.
+  7 -> map (\i -> Command (cmd i "h0")) (Array.range 0 (loopSwitches - 1))
+  8 -> [ Command (cmd f "u") ]
+  9 -> [ Command (cmd f "c") ]
+  10 -> [ Command "w" ]
+  11 -> [ Command "k" ]
+  i -> [ Unavailable ("switch " <> show i <> " is not on the toolbar") ]
 
 -- | Whether closing a loop should send the board to the config bank.
 -- |
@@ -190,16 +212,10 @@ config f = case _ of
   2 -> [ Unavailable "chance needs a random source in the audio callback" ]
   3 -> [ Handled "pan: pick a placement" ]
   4 -> [ Command (cmd f "rev") ]
-  5 -> [ Handled "back to the loops" ]
   -- Forward then back, so a cycle takes twice as long. It came free with speed,
   -- being a triangle where a plain loop is a sawtooth — the fold happens at the
   -- same place the wrap already did.
-  6 -> [ Command (cmd f "pend") ]
-  7 -> [ Unavailable "momentary needs the recogniser to report a hold ending" ]
-  8 -> [ Unavailable "leaving-state is not modelled yet" ]
-  9 -> [ Unavailable "leaving-state is not modelled yet" ]
-  10 -> [ Command "w" ]
-  11 -> [ Command (cmd f "c") ]
+  5 -> [ Command (cmd f "pend") ]
   i -> [ Unavailable ("config switch " <> show i <> " is not wired yet") ]
 
 -- | The quantise bank.
@@ -218,10 +234,6 @@ quantise f = case _ of
       , Handled "on the grid — bar counts need the frame-to-bar join"
       ]
   5 -> [ Handled "back to loop config" ]
-  6 -> map (\n -> Command (cmd n "g0")) (Array.range 0 (loopSwitches - 1))
-  i | i >= 7 && i <= 9 ->
-      map (\n -> Command (cmd n "g1")) (Array.range 0 (loopSwitches - 1))
-  11 -> [ Handled "back to the loops" ]
   i -> [ Unavailable ("quantise switch " <> show i <> " is not wired yet") ]
 
 -- | The speed bank: five rates forward on the top row, the same five backwards
@@ -245,12 +257,6 @@ speed f = case _ of
   3 -> [ rate f 1.5 ]
   4 -> [ rate f 2.0 ]
   5 -> [ Handled "back to loop config" ]
-  6 -> [ rate f (-0.25) ]
-  7 -> [ rate f (-0.5) ]
-  8 -> [ rate f (-1.0) ]
-  9 -> [ rate f (-1.5) ]
-  10 -> [ rate f (-2.0) ]
-  11 -> [ Handled "back to the loops" ]
   i -> [ Unavailable ("speed switch " <> show i <> " is not wired yet") ]
   where
   rate i v = Command (cmd i "sp" <> show v)
@@ -263,16 +269,11 @@ speed f = case _ of
 pan :: Int -> Int -> Array Action
 pan f = case _ of
   0 -> [ place f 0 ]
-  1 -> [ place f 21 ]
-  2 -> [ place f 42 ]
-  3 -> [ place f 64 ]
-  4 -> [ place f 85 ]
+  1 -> [ place f 32 ]
+  2 -> [ place f 64 ]
+  3 -> [ place f 96 ]
+  4 -> [ place f 127 ]
   5 -> [ Handled "back to loop config" ]
-  6 -> [ place f 106 ]
-  7 -> [ place f 127 ]
-  8 -> [ Unavailable "width needs the engine to record in stereo" ]
-  9 -> [ place f 64 ]
-  11 -> [ Handled "back to the loops" ]
   i -> [ Unavailable ("pan switch " <> show i <> " is not wired yet") ]
   where
   place i v = Command (cmd i "pan" <> show v)

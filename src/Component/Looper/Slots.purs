@@ -94,14 +94,16 @@ import Halogen.HTML.Properties as HP
 -- | `shown` is the bank the MC6 is actually displaying, which the app learns
 -- | from the presses themselves — every switch says which bank it came from.
 -- | The legend has to follow it or it describes a board nobody is standing on.
-render :: forall w i. LooperState -> LB.BankSlot -> HH.HTML w i
-render lp shown =
+render :: forall w i. LooperState -> LB.Face -> HH.HTML w i
+render lp fc =
   HH.div [ HP.class_ (HH.ClassName "loops") ]
     [ HH.div [ HP.class_ (HH.ClassName "loops-grid") ]
-        (Array.mapMaybe (\i -> slot lp i <$> Array.index lp.loops i) boardOrder)
-    , utilities shown
+        (Array.mapMaybe cell (join LB.boardRows))
+    , utilities fc
     , legend lp
     ]
+  where
+  cell i = slot lp fc i <$> Array.index lp.loops i
 
 -- | What the six unmarked switches do, on the bank the board is showing.
 -- |
@@ -123,47 +125,32 @@ render lp shown =
 -- | an argument, and it reads `Data.Looper.Banks` rather than restating it. A
 -- | display that keeps its own copy of what the device was programmed with is a
 -- | display that can be confidently wrong.
-utilities :: forall w i. LB.BankSlot -> HH.HTML w i
-utilities shown =
+utilities :: forall w i. LB.Face -> HH.HTML w i
+utilities fc =
   HH.div [ HP.class_ (HH.ClassName "loops-utils-wrap") ]
     [ HH.div [ HP.class_ (HH.ClassName "loops-utils-bank") ]
-        [ HH.text (LB.slotName shown) ]
+        [ HH.text (LB.faceName fc) ]
+    -- Empty when the board has left the family, which draws nothing rather
+    -- than drawing six labels that are not true of anything.
     , HH.div [ HP.class_ (HH.ClassName "loops-utils") ]
-        (map one (LB.auxLegend shown))
+        (map one (LB.faceAux fc))
     ]
   where
-  one u =
+  one sw =
     HH.div [ HP.class_ (HH.ClassName "loops-util") ]
-      [ HH.span [ HP.class_ (HH.ClassName "util-key") ] [ HH.text u.key ]
-      , HH.span_ [ HH.text u.what ]
+      [ HH.span [ HP.class_ (HH.ClassName "util-key") ] [ HH.text (LB.switchKey sw) ]
+      , HH.span_ [ HH.text (LB.switchLabel sw) ]
       ]
 
--- | The six loops in the order they sit on the board, not in index order.
--- |
--- | **The MC6 numbers its switches from the bottom.** A, B and C are the near
--- | row — the ones under your toes — and D, E and F the far row. Drawing the
--- | loops in index order therefore printed the board upside down: loop 1 in the
--- | top-left of the screen and under the far edge of the pedal.
--- |
--- | It reads as a small thing and is not, because the display's one claim is
--- | that nothing on it has to be looked up. A slot in the top-left that is
--- | reached by the bottom-left switch breaks exactly that, and does it silently
--- | — you only find out by putting a foot on the wrong loop.
--- |
--- | The indices are untouched: `slot` is still given the real loop number, so
--- | the letters, the focus and the commands all mean what they always did. Only
--- | the drawing order moves.
-boardOrder :: Array Int
-boardOrder = [ 3, 4, 5, 0, 1, 2 ]
-
 -- | One loop.
-slot :: forall w i. LooperState -> Int -> LoopState -> HH.HTML w i
-slot top idx st =
+slot :: forall w i. LooperState -> LB.Face -> Int -> LoopState -> HH.HTML w i
+slot top fc idx st =
   HH.div
     [ HP.class_ (HH.ClassName ("loop-slot " <> stateClass st
         <> (if top.selected == idx then " is-selected" else ""))) ]
     [ HH.div [ HP.class_ (HH.ClassName "loop-head") ]
-        [ HH.span [ HP.class_ (HH.ClassName "loop-letter") ] [ HH.text (letter idx) ]
+        [ HH.span [ HP.class_ (HH.ClassName "loop-letter") ]
+            [ HH.text (LB.faceLoopKey fc idx) ]
         , HH.span [ HP.class_ (HH.ClassName "loop-state") ] [ HH.text (stateWord st) ]
         , HH.span [ HP.class_ (HH.ClassName "loop-layers") ]
             [ HH.text (if st.layers == 0 then "" else show st.layers <> plural st.layers " layer") ]

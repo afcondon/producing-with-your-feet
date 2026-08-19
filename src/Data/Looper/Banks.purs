@@ -92,6 +92,17 @@ module Data.Looper.Banks
   , mc6OwnSwitches
   , switchLetter
   , auxLegend
+  , Face
+  , Switch
+  , face
+  , faceName
+  , faceAux
+  , faceLoopKey
+  , switchKey
+  , switchLabel
+  , boardRows
+  , Jump(..)
+  , sendsTo
   , banks
   ) where
 
@@ -101,7 +112,7 @@ import Data.Array as Array
 import Data.MC6.ControlBank (ControlBank, ControlBankSwitch, switchCount)
 import Data.MC6.Message as MC6Msg
 import Data.MC6.Types (MC6Action(..), MC6Message)
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), fromMaybe)
 
 -- | The channel the MC6 uses to address the app about its own switches.
 switchChannel :: Int
@@ -244,12 +255,15 @@ switchLetter = Array.index
 -- | disagree with the table the device was programmed from is a legend that
 -- | eventually will.
 auxLegend :: BankSlot -> Array { key :: String, what :: String }
-auxLegend slot = Array.catMaybes (map entry (Array.range mc6OwnSwitches (switchCount - 1)))
+auxLegend = map (\e -> { key: e.key, what: e.what }) <<< auxLegendAt
+
+auxLegendAt :: BankSlot -> Array { index :: Int, key :: String, what :: String }
+auxLegendAt slot = Array.catMaybes (map entry (Array.range mc6OwnSwitches (switchCount - 1)))
   where
   entry i = do
     key <- switchLetter i
     spec <- Array.index (layout slot) i
-    if spec.label == "" then Nothing else Just { key, what: spec.label }
+    if spec.label == "" then Nothing else Just { index: i, key, what: spec.label }
 
 -- | Where a switch sends the board. `ToBoard` is the way out of the looper
 -- | entirely; everything else stays in the family.
@@ -273,6 +287,84 @@ goto j label longName = (say label longName) { tap = Just j }
 blank :: SwitchSpec
 blank = say "" ""
 
+-- | The MC6's own six switches, in the rows they physically occupy.
+-- |
+-- | **The device numbers from the bottom**: A B C is the near row, under your
+-- | toes, and D E F the far one. A view that lays out six things in board order
+-- | must use this rather than index order, and it lives here because it is a
+-- | fact about the hardware, not about any one screen — the loop grid got it
+-- | wrong on its own, and the next screen to draw six switches would have got
+-- | it wrong again, differently.
+boardRows :: Array (Array Int)
+boardRows = [ [ 3, 4, 5 ], [ 0, 1, 2 ] ]
+
+-- | One switch, as a view is allowed to see it.
+-- |
+-- | Opaque, and that is the whole point: **a view cannot make one up.** Three
+-- | times in one day a screen restated something this module already knew — the
+-- | six aux labels, the A-to-F letters, the physical row order — and each time
+-- | the copy was right when written and wrong later. Types cannot stop somebody
+-- | typing a word into a div, but they can stop a second *table* existing, and
+-- | a second table is what actually rots.
+newtype Switch = Switch { index :: Int, key :: String, label :: String }
+
+switchKey :: Switch -> String
+switchKey (Switch s) = s.key
+
+switchLabel :: Switch -> String
+switchLabel (Switch s) = s.label
+
+-- | What the board is showing, as everything a view may say about it.
+-- |
+-- | `Nothing` is a real state and not a missing value: `< Board` leaves the
+-- | looper family entirely, and a face that kept naming the loop bank's
+-- | switches there would be describing a board nobody is standing on.
+newtype Face = Face (Maybe BankSlot)
+
+face :: Maybe BankSlot -> Face
+face = Face
+
+-- | What to call the bank on screen, including when there is not one.
+faceName :: Face -> String
+faceName (Face m) = case m of
+  Just slot -> slotName slot
+  Nothing -> "the board is on another bank"
+
+-- | The unmarked switches past the MC6's own, for this face. Empty when the
+-- | board has left the family, because then nothing here is true.
+faceAux :: Face -> Array Switch
+faceAux (Face m) = case m of
+  Nothing -> []
+  Just slot -> map (\e -> Switch { index: e.index, key: e.key, label: e.what })
+    (auxLegendAt slot)
+
+-- | What to print on a loop's slot: the switch that reaches it, or its number
+-- | when the board is somewhere that cannot reach it.
+-- |
+-- | The letters are only true on the loop bank. With the board on config, A is
+-- | Quantise — so labelling the first loop "A" there points a foot at the wrong
+-- | thing, which is the same fault the legend had.
+faceLoopKey :: Face -> Int -> String
+faceLoopKey (Face m) i = case m of
+  Just LoopBank -> fromMaybe (show (i + 1)) (switchLetter i)
+  _ -> show (i + 1)
+
+-- | Where a press sends the board, if anywhere.
+-- |
+-- | **Read from the same table the device was programmed from**, which is the
+-- | only way the app can follow a bank change it did not command. Most of the
+-- | navigation in this family is the MC6's own: a long press on a loop switch
+-- | jumps to the config bank without a word to anyone, because that jump is a
+-- | message stored *on the device*. The app sees the loop switch's CC and
+-- | nothing else — so if it waits to be told, it is one press behind for ever,
+-- | and the legend describes a bank nobody is standing on.
+-- |
+-- | It does not have to wait. It wrote the jumps; it can read them back.
+sendsTo :: BankSlot -> Int -> Boolean -> Maybe Jump
+sendsTo slot i long = do
+  spec <- Array.index (layout slot) i
+  if long then spec.hold else spec.tap
+
 -- | The twelve switches of each bank.
 -- |
 -- | Switches 0-5 are the MC6's own A-F; 6-8 are the first FS3X; 9-11 a second
@@ -284,50 +376,64 @@ blank = say "" ""
 -- | The duplicate "< Loops" at 11 on the sub-banks is a convenience for a board
 -- | that does have the second FS3X, never the only way out of anywhere.
 layout :: BankSlot -> Array SwitchSpec
-layout = case _ of
+layout slot = Array.take mc6OwnSwitches (own slot <> Array.replicate mc6OwnSwitches blank)
+  <> toolbar slot
 
-  -- The way out comes first of the six that are not loops, because it is the
-  -- only one that must work with a single FS3X: the six loops fill the unit
-  -- itself, so switch G is the first place a way home can go. The rest run in
-  -- rough order of how much you would miss them.
-  LoopBank ->
-    Array.mapWithIndex loopSwitch (Array.replicate loopSwitches unit)
-      <>
-        [ goto ToBoard "< Board" "Back to the board bank"
-        , say "Stop All" "Stop every loop"
-        , say "Undo" "Undo the last layer"
-        , say "Clear" "Clear the chosen loop"
-        , say "Take" "Save the take to disk"
-        , say "Click" "Click on or off"
-        ]
+-- | The six unmarked switches, and they are the same six everywhere.
+-- |
+-- | **This is a rule about feet, not about screen space.** G to L have no
+-- | markings and no display; the only way to use them is to remember them, and
+-- | memory of a footswitch is memory of a *position*. A switch that clears a
+-- | loop on one page and sets an end-state on the next cannot be learned at all
+-- | — you would have to know which bank you were on before you could know what
+-- | your foot was about to do, which is exactly the thing a footswitch exists
+-- | to avoid.
+-- |
+-- | So the family reserves them, and every bank spends its own choices on A to
+-- | F, where the MC6 prints a label. That costs each sub-bank half its options,
+-- | and the cost turned out to be nearly free: the reverse speeds were made
+-- | redundant when direction became the sign of speed, and the rest of what was
+-- | up here — the every-N counts, the leaving-states, momentary — is not
+-- | implemented and had nowhere honest to sit anyway.
+-- |
+-- | G is "out", which is the one that changes destination: from the loops it
+-- | leaves the looper entirely, and from anywhere else it goes home to the
+-- | loops. Same role, same place, one press, from any depth.
+toolbar :: BankSlot -> Array SwitchSpec
+toolbar slot =
+  [ case slot of
+      LoopBank -> goto ToBoard "< Board" "Leave the looper"
+      _ -> goto (ToSlot LoopBank) "< Loops" "Back to the loops"
+  , say "Stop All" "Stop every loop"
+  , say "Undo" "Undo the last layer"
+  , say "Clear" "Clear the chosen loop"
+  , say "Take" "Save the take to disk"
+  , say "Click" "Click on or off"
+  ]
 
-  -- One config bank serves all six loops: it acts on whichever loop was last
-  -- touched, which the app knows because the press that got here said so.
-  --
-  -- The four that lead somewhere sit on A-D, together, because they are the
-  -- ones with a value to choose; the rest are switches you press and are done
-  -- with.
+-- | The MC6's own six, which the device labels on its screen and which each
+-- | bank is therefore free to spend as it likes.
+own :: BankSlot -> Array SwitchSpec
+own = case _ of
+
+  -- Six loops on six switches: a loop is *where you put your foot*, not a mode
+  -- you enter. Which is also why the loop bank has no room for anything else.
+  LoopBank -> Array.mapWithIndex loopSwitch (Array.replicate loopSwitches unit)
+
+  -- The four that lead somewhere sit first, because they are the ones with a
+  -- value to choose; the two that act sit last.
   ConfigBank ->
     [ goto (ToSlot QuantiseBank) "Quantise" "Set the launch grid"
     , goto (ToSlot SpeedBank) "Speed" "Set playback speed"
     , goto (ToSlot ChanceBank) "Chance" "Set chance and every"
     , goto (ToSlot PanBank) "Pan" "Set stereo placement"
     , say "Reverse" "Play the loop backwards"
-    , goto (ToSlot LoopBank) "< Loops" "Back to the loops"
     , say "Pendulum" "Forward, then back"
-    , say "Moment" "Sound only while held"
-    , say "End Play" "On leaving, keep playing"
-    , say "End Stop" "On leaving, stop"
-    , say "Take" "Save the take to disk"
-    , say "Clear" "Clear this loop"
     ]
 
   -- Free is the default and sits first, because ambient wants it and because a
   -- loop that quantises when you did not ask is a loop that starts late for a
   -- reason you cannot see.
-  --
-  -- The all-at-once forms on the second row are the two common cases stated in
-  -- one press: everything free, or everything on the same bar.
   QuantiseBank ->
     [ say "Free" "Free length and launch"
     , say "1 Bar" "Round to one bar"
@@ -335,17 +441,11 @@ layout = case _ of
     , say "4 Bars" "Round to four bars"
     , say "8 Bars" "Round to eight bars"
     , goto (ToSlot ConfigBank) "< Config" "Back to loop config"
-    , say "All Free" "Every loop free"
-    , say "All 1Bar" "Every loop on one bar"
-    , say "All 2Bar" "Every loop on two bars"
-    , say "All 4Bar" "Every loop on four bars"
-    , blank
-    , goto (ToSlot LoopBank) "< Loops" "Back to the loops"
     ]
 
-  -- Speed and direction on one bank, because in SuperDirt's vocabulary they are
-  -- one parameter — a negative `speed` is reverse — and splitting them here
-  -- would invent a distinction the rest of the rig does not make.
+  -- No reverse row: direction is the sign of speed, so backwards at half speed
+  -- is Reverse on the config bank and then a half here. Two presses for a thing
+  -- that was ten switches, and one fewer place for the two to disagree.
   SpeedBank ->
     [ say "x 1/4" "Quarter speed"
     , say "x 1/2" "Half speed"
@@ -353,17 +453,8 @@ layout = case _ of
     , say "x 1 1/2" "One and a half speed"
     , say "x 2" "Double speed"
     , goto (ToSlot ConfigBank) "< Config" "Back to loop config"
-    , say "Rev 1/4" "Quarter speed, reverse"
-    , say "Rev 1/2" "Half speed, reverse"
-    , say "Rev 1" "Normal speed, reverse"
-    , say "Rev 1.5" "One and a half, reverse"
-    , say "Rev 2" "Double speed, reverse"
-    , goto (ToSlot LoopBank) "< Loops" "Back to the loops"
     ]
 
-  -- `degrade` on the top row, `every` on the bottom — SuperDirt's two names for
-  -- "not every time", kept apart because one is per-cycle chance and the other
-  -- is a count, and a single control spanning both would say neither.
   ChanceBank ->
     [ say "Always" "Sound every cycle"
     , say "3 in 4" "Three cycles in four"
@@ -371,27 +462,18 @@ layout = case _ of
     , say "1 in 4" "Sound one cycle in four"
     , say "1 in 8" "One cycle in eight"
     , goto (ToSlot ConfigBank) "< Config" "Back to loop config"
-    , say "Every 2" "Sound on every 2nd cycle"
-    , say "Every 3" "Sound on every 3rd cycle"
-    , say "Every 4" "Sound on every 4th cycle"
-    , say "Every 8" "Sound on every 8th cycle"
-    , say "Every 1" "Clear the every count"
-    , goto (ToSlot LoopBank) "< Loops" "Back to the loops"
     ]
 
+  -- Five places across the field rather than the eight this had, which is
+  -- plenty for placing six loops against each other and is what fits where the
+  -- device can print the names.
   PanBank ->
     [ say "Left" "Hard left"
-    , say "L 66" "Two thirds left"
-    , say "L 33" "One third left"
+    , say "L 50" "Half left"
     , say "Centre" "Centre"
-    , say "R 33" "One third right"
-    , goto (ToSlot ConfigBank) "< Config" "Back to loop config"
-    , say "R 66" "Two thirds right"
+    , say "R 50" "Half right"
     , say "Right" "Hard right"
-    , say "Wide" "Full stereo width"
-    , say "Mono" "Collapse to mono"
-    , blank
-    , goto (ToSlot LoopBank) "< Loops" "Back to the loops"
+    , goto (ToSlot ConfigBank) "< Config" "Back to loop config"
     ]
 
 -- | One of the six loop switches.

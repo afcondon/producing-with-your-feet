@@ -912,12 +912,12 @@ main = do
   assert "reverse and clear act on the focused loop, not the pressed switch"
     (Machine.act { loops: [ idle 0, idle 1, idle 2 ], focus: 2 } (Gestures.Tap LB.ConfigBank 4)
       == [ Machine.Command "2rev" ]
-      && Machine.act { loops: [], focus: 1 } (Gestures.Tap LB.ConfigBank 11)
+      && Machine.act { loops: [], focus: 1 } (Gestures.Tap LB.ConfigBank 9)
         == [ Machine.Command "1c" ])
 
   assert "the pan bank places the focused loop across the field"
     (map (\i -> Machine.act { loops: [], focus: 0 } (Gestures.Tap LB.PanBank i))
-       [ 0, 3, 7 ]
+       [ 0, 2, 4 ]
       == [ [ Machine.Command "0pan0" ]
          , [ Machine.Command "0pan64" ]
          , [ Machine.Command "0pan127" ] ])
@@ -931,9 +931,9 @@ main = do
         == [ Machine.Command "3g1"
            , Machine.Handled "on the grid — bar counts need the frame-to-bar join" ])
 
-  assert "and All Free reaches every loop"
-    (Machine.act (rigOf []) (Gestures.Tap LB.QuantiseBank 6)
-      == map (\i -> Machine.Command (show i <> "g0")) (Array.range 0 5))
+  assert "and stop-all reaches every loop, from any bank"
+    (Machine.act (rigOf []) (Gestures.Tap LB.QuantiseBank 7)
+      == map (\i -> Machine.Command (show i <> "h0")) (Array.range 0 5))
 
   -- Direction is the sign of speed, not a second control, so the bottom row is
   -- one press that says both things rather than two in the right order.
@@ -942,15 +942,33 @@ main = do
   -- the loop bank's six shown whatever bank the board was on. So with the board
   -- on config it said J was Clear while J was End Stop — which reads exactly
   -- like a switch wired to the wrong place, and is worse than saying nothing.
-  assert "the aux legend is the bank's own table, per bank"
+  assert "the aux legend is the bank's own table"
     (LB.auxLegend LB.LoopBank
       == [ { key: "G", what: "< Board" }, { key: "H", what: "Stop All" }
          , { key: "I", what: "Undo" }, { key: "J", what: "Clear" }
-         , { key: "K", what: "Take" }, { key: "L", what: "Click" } ]
-      && LB.auxLegend LB.ConfigBank
-        == [ { key: "G", what: "Pendulum" }, { key: "H", what: "Moment" }
-           , { key: "I", what: "End Play" }, { key: "J", what: "End Stop" }
-           , { key: "K", what: "Take" }, { key: "L", what: "Clear" } ])
+         , { key: "K", what: "Take" }, { key: "L", what: "Click" } ])
+
+  -- **The rule about feet.** G to L have no markings, so they are remembered as
+  -- positions; a switch that clears a loop on one page and sets an end-state on
+  -- the next cannot be learned at all. Everything but the way out is identical
+  -- on every bank, and the way out differs only in where "out" is.
+  assert "the toolbar means the same thing on every bank"
+    (Array.all
+      (\slot -> map _.what (Array.drop 1 (LB.auxLegend slot))
+        == [ "Stop All", "Undo", "Clear", "Take", "Click" ])
+      LB.allSlots)
+
+  assert "and only the way out differs, because only its destination does"
+    (map (\slot -> map _.what (Array.take 1 (LB.auxLegend slot))) LB.allSlots
+      == [ [ "< Board" ], [ "< Loops" ], [ "< Loops" ]
+         , [ "< Loops" ], [ "< Loops" ], [ "< Loops" ] ])
+
+  -- The code has to say it too, or six tables agree until one of them does not.
+  assert "and the meaning table answers the toolbar without consulting the bank"
+    (Array.all
+      (\slot -> Machine.act { loops: [], focus: 2 } (Gestures.Tap slot 9)
+        == [ Machine.Command "2c" ])
+      LB.allSlots)
 
   -- The letters are the device's, so they have to come from the same place the
   -- switch numbering does rather than from a second list in the view.
@@ -959,22 +977,22 @@ main = do
       == [ "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L" ]
       && LB.switchLetter 12 == Nothing)
 
-  -- A blank switch contributes nothing rather than an empty row: the quantise
-  -- bank leaves K free, and a legend entry with no words in it is worse than a
-  -- gap, because it looks like a function nobody bothered to name.
-  assert "blank switches are left out of the legend, not shown empty"
-    (map _.key (LB.auxLegend LB.QuantiseBank) == [ "G", "H", "I", "J", "L" ])
+  -- Every bank fills all six now, because the toolbar is not optional.
+  assert "no bank leaves an unmarked switch nameless"
+    (Array.all (\slot -> map _.key (LB.auxLegend slot)
+      == [ "G", "H", "I", "J", "K", "L" ]) LB.allSlots)
 
-  assert "the speed bank sends a signed rate"
+  -- No reverse row: direction is the sign of speed, so backwards at half speed
+  -- is Reverse on the config bank and then a half here.
+  assert "the speed bank sends a rate"
     (map (\i -> Machine.act { loops: [], focus: 2 } (Gestures.Tap LB.SpeedBank i))
-       [ 0, 2, 4, 7 ]
+       [ 0, 2, 4 ]
       == [ [ Machine.Command "2sp0.25" ]
          , [ Machine.Command "2sp1.0" ]
-         , [ Machine.Command "2sp2.0" ]
-         , [ Machine.Command "2sp-0.5" ] ])
+         , [ Machine.Command "2sp2.0" ] ])
 
   assert "and pendulum is a config switch of its own"
-    (Machine.act { loops: [], focus: 4 } (Gestures.Tap LB.ConfigBank 6)
+    (Machine.act { loops: [], focus: 4 } (Gestures.Tap LB.ConfigBank 5)
       == [ Machine.Command "4pend" ])
 
   -- What is not built says what it is waiting for. A switch that shrugs is
@@ -986,6 +1004,18 @@ main = do
   assert "an unwired switch still says so rather than vanishing"
     (map Machine.describe (Machine.act (rigOf []) (Gestures.Tap LB.ChanceBank 3))
       == [ "chance switch 3 is not wired yet" ])
+
+  -- The letters are only true where the board can reach the loops. With the
+  -- board on config, A is Quantise, so labelling the first loop "A" there
+  -- points a foot at the wrong thing.
+  assert "a loop is lettered only when the board is on the bank that reaches it"
+    (map (LB.faceLoopKey (LB.face (Just LB.LoopBank))) [ 0, 3 ] == [ "A", "D" ]
+      && map (LB.faceLoopKey (LB.face (Just LB.ConfigBank))) [ 0, 3 ] == [ "1", "4" ]
+      && map (LB.faceLoopKey (LB.face Nothing)) [ 0, 3 ] == [ "1", "4" ])
+
+  -- The MC6 numbers from the bottom, so the far row is D E F.
+  assert "the board's rows are the device's, not the index order"
+    (LB.boardRows == [ [ 3, 4, 5 ], [ 0, 1, 2 ] ])
 
   assert "every action can say what it did"
     (Array.all (\a -> Machine.describe a /= "")
