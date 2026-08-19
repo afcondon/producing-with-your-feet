@@ -20,7 +20,8 @@ import Engine.Storage (engineToJson, parseEngine, parseCardOrder, parsePresets, 
 import Data.MC6.Board as Board
 import Data.MC6.ControlBank as ControlBank
 import Data.MC6.Message as MC6Msg
-import Data.MC6.Types (MC6Action(..), MC6MsgType(..))
+import Data.MC6.Types (MC6Action(..), MC6MsgType(..), MC6TogglePosition(..))
+import Data.MC6.Model as Model
 import Data.Looper as Looper
 import Data.Looper.Banks as LB
 import Data.String as String
@@ -756,6 +757,90 @@ main = do
   -- function-code space found nothing that asks for bank data, because the
   -- device volunteers a full dump on connect instead. All this module does is
   -- decode, and the decoder is tested above against the device's own bytes.
+
+  log ""
+  log "Typed model (Data.MC6.Model)..."
+
+  -- Every wire shape in the March backup of the real device: 5760 message
+  -- slots across 30 banks. The point of the model is that it can be introduced
+  -- without risking a byte of a device somebody has spent years programming,
+  -- and that claim is exactly `toWire <<< fromWire == identity` — over data the
+  -- device produced, not data we produced.
+  let wireSample :: Array _
+      wireSample =
+        [ { msgType: MsgEmpty, channel: 1, data1: 0, data2: 0, data3: 0, data4: 0
+          , action: ActionNone, togglePosition: ToggleOff, msgIndex: 0 }
+        , { msgType: MsgCC, channel: 3, data1: 105, data2: 127, data3: 0, data4: 0
+          , action: ActionPress, togglePosition: ToggleOn, msgIndex: 1 }
+        , { msgType: MsgPC, channel: 8, data1: 12, data2: 0, data3: 0, data4: 0
+          , action: ActionPress, togglePosition: ToggleBoth, msgIndex: 2 }
+        , { msgType: MsgBankJump, channel: 1, data1: 22, data2: 0, data3: 0, data4: 0
+          , action: ActionLongPress, togglePosition: ToggleBoth, msgIndex: 3 }
+        -- The device's own bank jump. Same type byte, different shape.
+        , { msgType: MsgBankJump, channel: 1, data1: 0, data2: 0, data3: 6, data4: 0
+          , action: ActionRelease, togglePosition: ToggleBoth, msgIndex: 4 }
+        -- Types 35 and 23, seen on the device and not modelled.
+        , { msgType: MsgSongSelect, channel: 1, data1: 1, data2: 76, data3: 0, data4: 0
+          , action: ActionPress, togglePosition: ToggleBoth, msgIndex: 5 }
+        , { msgType: MsgTogglePreset, channel: 1, data1: 1, data2: 0, data3: 0, data4: 0
+          , action: ActionPress, togglePosition: ToggleBoth, msgIndex: 6 }
+        -- An empty slot on a channel other than 1: must not round-trip through
+        -- `Silent`, which would rewrite the channel.
+        , { msgType: MsgEmpty, channel: 4, data1: 0, data2: 0, data3: 0, data4: 0
+          , action: ActionNone, togglePosition: ToggleOff, msgIndex: 7 }
+        -- A CC carrying a data3 we cannot explain. Reading it as an ordinary CC
+        -- would discard that byte on the way back out.
+        , { msgType: MsgCC, channel: 3, data1: 105, data2: 127, data3: 9, data4: 0
+          , action: ActionPress, togglePosition: ToggleBoth, msgIndex: 8 }
+        ]
+
+  assert "every wire shape survives a trip through the model unchanged"
+    (Array.all
+      (\m -> Model.toWire m.action m.togglePosition m.msgIndex (Model.fromWire m) == m)
+      wireSample)
+
+  assert "the shapes we understand are parsed, not left raw"
+    (map (Model.isRaw <<< Model.fromWire) wireSample
+      == [ false, false, false, false, true, true, true, true, true ])
+
+  assert "a census counts both halves"
+    (Model.census (map Model.fromWire wireSample) == { modelled: 4, raw: 5 })
+
+  -- Names are the other silent failure: `SysEx.shortNameTLV` truncates at 8 and
+  -- `longNameTLV` at 24 without complaint, so an over-long label reaches the
+  -- device meaning something else. Refusing is the whole difference.
+  assert "a name that fits is a name"
+    (map Model.unShortName (Model.shortName "Loop 1") == Just "Loop 1")
+
+  assert "a name that does not fit is refused, not shortened"
+    (isNothing (Model.shortName "Quantise!"))
+
+  assert "shortening is something you have to ask for"
+    (Model.unShortName (Model.clipShortName "Quantise!") == "Quantise")
+
+  assert "long names hold 24 and refuse 25"
+    (isJust (Model.longName "Loop 1, hold to set up  ")
+      && isNothing (Model.longName "Loop 1, hold to set up   "))
+
+  assert "bank names hold the 16 the device showed us"
+    (isJust (Model.bankName "Ableton Controls")
+      && isNothing (Model.bankName "Ableton Controls!"))
+
+  -- Positions are bounded by the hardware, so an out-of-range one should not be
+  -- constructible rather than being caught at the encoder.
+  assert "bank numbers stop at the end of the device"
+    (isJust (Model.bankNumber 29) && isNothing (Model.bankNumber 30)
+      && isNothing (Model.bankNumber (-1)))
+
+  assert "switch indices stop at twelve"
+    (isJust (Model.switchIndex 11) && isNothing (Model.switchIndex 12))
+
+  assert "slot indices stop at the sixteen the device keeps"
+    (isJust (Model.slotIndex 15) && isNothing (Model.slotIndex 16))
+
+  assert "and the sizes agree with the device we measured"
+    (Model.bankCount == 30 && Model.switchesPerBank == 12
+      && Model.slotsPerSwitch == 16)
 
   log ""
   log "Looper bank family (Data.Looper.Banks)..."
