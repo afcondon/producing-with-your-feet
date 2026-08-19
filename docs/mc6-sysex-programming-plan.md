@@ -250,3 +250,57 @@ want, each cheap and each answering exactly one question.
 Priority, by how often the thing changes: bank names and bank-level messages
 first, then waveform engines and scroll counters. Omniports last — a port
 type is set once in the life of the board.
+
+## The settings frames, decoded (2026-08-19)
+
+Decoded from `test/mc6-connect-dump-20260816.json` alone — the device
+volunteers all of this on connect, so no device was needed and nothing was
+sent to one. Cross-checked field by field against the March backup's
+`controller_settings`, which is what makes these confirmations rather than
+readings.
+
+### Frame envelope
+
+```
+F0 00 21 24 <dev> <dir> <F1> <F2> 00 00 00 00 00 00 <lenHi> <lenLo>  <payload…>  <xor> F7
+                                                    └── bytes 14-15
+```
+
+**Bytes 14–15 are the total frame length as two septets**, `hi*128 + lo`.
+Confirmed twice: `05 22` on a 674-byte frame (5×128+34), `01 16` on the
+150-byte switch-names frame (1×128+22). Byte 5 is `03` on frames from the
+device and `00` on frames we send.
+
+Payloads come in two shapes. Large sections are **TLV**, a run of
+`7F <index> <length> <bytes…>` starting at offset 16. Small ones are **flat**:
+a count, then that many fixed-width records.
+
+### The sections
+
+| Frame | Shape | Contents | Status |
+|---|---|---|---|
+| `03 20` | TLV, 48 | 16 × 12-char channel name; 16 × `[0, portHi, portLo, remap]`; 16 × 16 bytes (unknown) | confirmed — names legible, `15*128+127 = 2047` matches `sendToPort` |
+| `03 21` | flat, 32 | general configuration | confirmed — 2, 60, 12, 1 all present as `switchSensitivity`, `bankChangeDisplayTime`, `longPressTime`, `numMidiCable` |
+| `03 22` | flat, 40 | `0, 29`, nine zeros, then 1…29 — bank arrangement | **inferred** — the shape fits and nothing else does, but the leading pad is unexplained |
+| `03 23` | flat, 64 | count, then per port: `portNum, type, tip×3, ring×3, tipRing×3` | confirmed — `2, 0,8,41,127,127,42,127,127,43,127,127, 1,8,38,…` is the backup's omniports verbatim |
+| `03 24` | flat, 17 | count, then per engine: `num, min, max, type` | confirmed — 4 engines, `20,100,4` and `0,127,2` match |
+| `03 25` | flat, 37 | count, then per engine: `len`, then 16-step `arr` | confirmed — engine 0's array matches the backup byte for byte |
+| `03 26` | flat, 49 | count 16, then per counter: `min, max, start` | confirmed — 16 scroll counters, 0/127/0 |
+| `03 27` | TLV, 16 × 11 | midi events: `numberFrom/To, channelFrom/To, typeFrom/To, valueFrom/To`, 3 flags | confirmed — 11 fields, values match |
+| `03 28` | flat, 32 | count 8, then per switch: `num, trigger, f1, f2` | confirmed — 8 aux switches, matches `resistor_ladder_aux` |
+| `03 29` | flat, 34 | `32, 16`, then 32 × 127 | **unknown** |
+| `11 05` | TLV | all 30 bank names | confirmed — legible |
+| `09 01` | TLV, 12 × 8 | switch names of the current bank | confirmed, already decoded |
+
+Nine of the ten `03 2x` frames are now accounted for, eight of them
+confirmed against independent data. `03 29` and the trailing 16×16 block of
+`03 20` are what remain.
+
+### One thing worth noticing while we were in here
+
+Every channel's `sendToPort` is 2047 — all ports — except **channel 16, which
+is 2034**. That is 2047 minus 13, so three ports are switched off for that
+channel alone. Channel 16 is the one `Data.Looper.Banks` took for the switch
+namespace, on the strength of a comment saying it was free, and the device
+labels it `Habit`. Whatever the truth, channel 16 is not an unremarkable
+empty channel on this device.
