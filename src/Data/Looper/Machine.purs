@@ -100,6 +100,7 @@ act rig = case _ of
   -- only works because the press that got here said which loop it meant.
   Tap ConfigBank i -> config rig.focus i
   Tap QuantiseBank i -> quantise rig.focus i
+  Tap SpeedBank i -> speed rig.focus i
   Tap PanBank i -> pan rig.focus i
   Tap slot i -> [ Unavailable (show' slot <> " switch " <> show i <> " is not wired yet") ]
 
@@ -185,15 +186,15 @@ onDouble i = case _ of
 config :: Int -> Int -> Array Action
 config f = case _ of
   0 -> [ Handled "quantise: pick a grid" ]
-  1 -> [ Unavailable "speed needs interpolation in the engine" ]
+  1 -> [ Handled "speed: pick a rate" ]
   2 -> [ Unavailable "chance needs a random source in the audio callback" ]
   3 -> [ Handled "pan: pick a placement" ]
   4 -> [ Command (cmd f "rev") ]
   5 -> [ Handled "back to the loops" ]
-  -- A true pendulum plays forward then backward and so takes twice as long,
-  -- which needs the speed machinery that does not exist. Squashing it into one
-  -- cycle would be a different effect wearing its name.
-  6 -> [ Unavailable "pendulum needs the same interpolation speed does" ]
+  -- Forward then back, so a cycle takes twice as long. It came free with speed,
+  -- being a triangle where a plain loop is a sawtooth — the fold happens at the
+  -- same place the wrap already did.
+  6 -> [ Command (cmd f "pend") ]
   7 -> [ Unavailable "momentary needs the recogniser to report a hold ending" ]
   8 -> [ Unavailable "leaving-state is not modelled yet" ]
   9 -> [ Unavailable "leaving-state is not modelled yet" ]
@@ -222,6 +223,37 @@ quantise f = case _ of
       map (\n -> Command (cmd n "g1")) (Array.range 0 (loopSwitches - 1))
   11 -> [ Handled "back to the loops" ]
   i -> [ Unavailable ("quantise switch " <> show i <> " is not wired yet") ]
+
+-- | The speed bank: five rates forward on the top row, the same five backwards
+-- | on the bottom.
+-- |
+-- | **Direction is the sign, not a second control.** The engine keeps one
+-- | `speed` and reads backwards off its sign, so `Rev 1/2` is one press that
+-- | says both things rather than two that have to be pressed in the right
+-- | order. That also means the top row is not "forward" so much as "positive":
+-- | pressing `x 1` on a reversed loop turns it round, which is what the label
+-- | says and what a player expects from a row of absolute settings.
+-- |
+-- | Recording is refused while a loop is at a speed — the input arrives at rate
+-- | one and the grid is moving under it — so the daemon answers a press of
+-- | record with the reason rather than doing something nobody asked for.
+speed :: Int -> Int -> Array Action
+speed f = case _ of
+  0 -> [ rate f 0.25 ]
+  1 -> [ rate f 0.5 ]
+  2 -> [ rate f 1.0 ]
+  3 -> [ rate f 1.5 ]
+  4 -> [ rate f 2.0 ]
+  5 -> [ Handled "back to loop config" ]
+  6 -> [ rate f (-0.25) ]
+  7 -> [ rate f (-0.5) ]
+  8 -> [ rate f (-1.0) ]
+  9 -> [ rate f (-1.5) ]
+  10 -> [ rate f (-2.0) ]
+  11 -> [ Handled "back to the loops" ]
+  i -> [ Unavailable ("speed switch " <> show i <> " is not wired yet") ]
+  where
+  rate i v = Command (cmd i "sp" <> show v)
 
 -- | The pan bank: ten placements across the field, and two ways back.
 -- |

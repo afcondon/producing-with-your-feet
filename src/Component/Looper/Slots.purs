@@ -193,15 +193,21 @@ playhead _ st
           , HP.style $
               "left:" <> show (st.phase * 100.0) <> "%;"
                 -- Just wrapped, or standing still: go straight there. Gliding
-                -- would run the whole track backwards in the first case and
+                -- would run the whole track the wrong way in the first case and
                 -- pretend to motion in the second.
+                -- **Both ends**, because a loop can wrap at either. A reversed
+                -- loop crosses zero going the other way and reappears at the
+                -- far edge, which guarding only the near edge would animate as
+                -- a full sweep across the slot every time round.
                 -- Note that a *stopped* loop keeps its moving playhead. That
                 -- is not an oversight: stopping is phase-locked, the loop is
                 -- still turning, and showing it frozen would promise it comes
                 -- back at the start when it does not.
-                <> (if st.phase < wrapGuard || (st.state == "idle" && st.layers == 0)
-                      then "transition:none;"
-                      else "transition:left 110ms linear;")
+                <> ( if st.phase < wrapGuard
+                       || st.phase > 1.0 - wrapGuard
+                       || (st.state == "idle" && st.layers == 0) then "transition:none;"
+                     else "transition:left 110ms linear;"
+                   )
           ]
           []
       ]
@@ -292,10 +298,24 @@ lengthWord top st
 -- | is a row of noise that hides the one loop somebody reversed.
 marks :: LoopState -> String
 marks st = joinWith " · " (Array.catMaybes
-  [ if st.reverse then Just "REV" else Nothing
+  [ if st.pendulum then Just "SWING" else if st.reverse then Just "REV" else Nothing
+  , if st.speed == 1.0 then Nothing else Just (speedWord st.speed)
   , if st.pan == 64 then Nothing else Just (panWord st.pan)
   , if st.quant then Just "GRID" else Nothing
   ])
+
+-- | Speed as the multiplier the switch was labelled with, not a decimal.
+-- |
+-- | The board says "x 1/2"; so does this. A display that answers a press with
+-- | different words from the switch that caused it makes the player do the
+-- | translation, which is the one job a display is for.
+speedWord :: Number -> String
+speedWord s
+  | s == 0.25 = "×¼"
+  | s == 0.5 = "×½"
+  | s == 1.5 = "×1½"
+  | s == 2.0 = "×2"
+  | otherwise = "×" <> show (toNumber (round (s * 100.0)) / 100.0)
 
 -- | Pan as a word rather than a number: 0-127 is the wire's business.
 panWord :: Int -> String

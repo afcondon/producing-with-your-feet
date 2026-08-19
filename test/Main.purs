@@ -834,7 +834,8 @@ main = do
 
   let idle n = { index: n, state: "idle", layers: 0, loopFrames: 0, loopSecs: 0.0
                , pos: 0, phase: 0.0, armed: false, recording: false, quant: false
-               , muted: false, reverse: false, pan: 64, pendingAt: -1, shapes: [] }
+               , muted: false, reverse: false, pan: 64, speed: 1.0, pendulum: false
+               , pendingAt: -1, shapes: [] }
       withState n s ls = (idle n) { state = s, layers = ls }
       rigOf ls = { loops: ls, focus: 0 }
 
@@ -934,17 +935,29 @@ main = do
     (Machine.act (rigOf []) (Gestures.Tap LB.QuantiseBank 6)
       == map (\i -> Machine.Command (show i <> "g0")) (Array.range 0 5))
 
+  -- Direction is the sign of speed, not a second control, so the bottom row is
+  -- one press that says both things rather than two in the right order.
+  assert "the speed bank sends a signed rate"
+    (map (\i -> Machine.act { loops: [], focus: 2 } (Gestures.Tap LB.SpeedBank i))
+       [ 0, 2, 4, 7 ]
+      == [ [ Machine.Command "2sp0.25" ]
+         , [ Machine.Command "2sp1.0" ]
+         , [ Machine.Command "2sp2.0" ]
+         , [ Machine.Command "2sp-0.5" ] ])
+
+  assert "and pendulum is a config switch of its own"
+    (Machine.act { loops: [], focus: 4 } (Gestures.Tap LB.ConfigBank 6)
+      == [ Machine.Command "4pend" ])
+
   -- What is not built says what it is waiting for. A switch that shrugs is
   -- indistinguishable from a broken cable.
-  assert "the two that need real engine work name it"
-    (map Machine.describe (Machine.act (rigOf []) (Gestures.Tap LB.ConfigBank 1))
-      == [ "speed needs interpolation in the engine" ]
-      && map Machine.describe (Machine.act (rigOf []) (Gestures.Tap LB.ConfigBank 2))
-        == [ "chance needs a random source in the audio callback" ])
+  assert "the one that still needs real engine work names it"
+    (map Machine.describe (Machine.act (rigOf []) (Gestures.Tap LB.ConfigBank 2))
+      == [ "chance needs a random source in the audio callback" ])
 
   assert "an unwired switch still says so rather than vanishing"
-    (map Machine.describe (Machine.act (rigOf []) (Gestures.Tap LB.SpeedBank 3))
-      == [ "speed switch 3 is not wired yet" ])
+    (map Machine.describe (Machine.act (rigOf []) (Gestures.Tap LB.ChanceBank 3))
+      == [ "chance switch 3 is not wired yet" ])
 
   assert "every action can say what it did"
     (Array.all (\a -> Machine.describe a /= "")
