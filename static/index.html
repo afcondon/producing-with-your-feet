@@ -1958,9 +1958,16 @@ body {
 /* The six switches the board cannot label. G-L are FS3X footswitches with no
    display and no markings, so this is the only place their meaning exists at
    the moment it is needed. */
+.loops-utils-wrap { margin: 0 0 10px 0; }
+/* Which bank the board is showing. G-L have no markings, so the six labels
+   below are only true of one bank at a time — naming it is what stops the
+   legend being confidently wrong. */
+.loops-utils-bank {
+  font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: #8a847c; margin: 0 0 5px 0;
+}
 .loops-utils {
   display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px;
-  margin: 0 0 10px 0;
 }
 .loops-util {
   display: flex; align-items: baseline; gap: 7px;

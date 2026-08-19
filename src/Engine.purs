@@ -23,6 +23,7 @@ import Data.MC6.Global (GlobalSwitch)
 import Data.MC6.ControlBank (ControlBank, exampleControlBank)
 import Data.MC6.Dump as Dump
 import Data.MC6.Settings as Settings
+import Data.Looper.Banks as LooperBanks
 import Data.Looper.Gestures as Gestures
 import Data.MC6.Types (MC6NativeBank)
 import Data.MC6.Wire as Wire
@@ -155,6 +156,19 @@ type AppState =
   -- | board drives; the old transport is kept because it can drive the engine
   -- | by hand, which is how the six-slot display gets something to show.
   , looperShowsSlots :: Boolean
+  -- | Which of the six looper banks the MC6 is *showing*.
+  -- |
+  -- | Not asked for and not remembered from a bank change we commanded: taken
+  -- | from the presses themselves, because the switch namespace says which bank
+  -- | every press came from. That is the whole point of encoding the bank in
+  -- | the CC number, and it means the app cannot be out of step with the board
+  -- | for longer than one press — including after a bank change the player made
+  -- | with their foot, which nothing told the app about.
+  -- |
+  -- | It matters because G to L have no markings, so the screen is the only
+  -- | thing that can say what they do — and saying it for the wrong bank is
+  -- | worse than saying nothing.
+  , looperBankShown :: LooperBanks.BankSlot
   -- Result of the last looper-bank programming run, shown on the Looper page.
   , looperProgramStatus :: Maybe String
   , midiTest :: Maybe String
@@ -279,6 +293,7 @@ initAppState =
   , looperFocus: 0
   , looperLastAction: Nothing
   , looperShowsSlots: true
+  , looperBankShown: LooperBanks.LoopBank
   , looperProgramStatus: Nothing
   , midiTest: Nothing
   , mc6BankNames: Map.empty

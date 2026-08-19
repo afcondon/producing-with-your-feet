@@ -12,6 +12,11 @@
 -- | board. Any other arrangement — a column of six, a list — would be a second
 -- | mapping to hold in your head while standing on the first one.
 -- |
+-- | Which took a correction to actually be true. **The MC6 numbers from the
+-- | bottom**: A B C is the near row and D E F the far one, so drawing the loops
+-- | in index order put loop 1 at the top of the screen and under the far edge
+-- | of the pedal. See `boardOrder`.
+-- |
 -- | ## What a slot draws, and why not a waveform yet
 -- |
 -- | Each slot shows the loop's **structure**: one track representing one cycle,
@@ -75,6 +80,7 @@ import Prelude
 import Data.Array as Array
 import Data.Int (round, toNumber)
 import Data.Maybe (Maybe(..))
+import Data.Looper.Banks as LB
 import Data.String (joinWith)
 import Foreign.LooperSocket (LoopState, LayerShape, LooperState)
 import Halogen.HTML as HH
@@ -85,16 +91,19 @@ import Halogen.HTML.Properties as HP
 -- | Takes the whole snapshot rather than just the loops, because a slot needs
 -- | the sample rate to turn frames into seconds and the selection to say which
 -- | loop the flat controls are pointed at.
-render :: forall w i. LooperState -> HH.HTML w i
-render lp =
+-- | `shown` is the bank the MC6 is actually displaying, which the app learns
+-- | from the presses themselves — every switch says which bank it came from.
+-- | The legend has to follow it or it describes a board nobody is standing on.
+render :: forall w i. LooperState -> LB.BankSlot -> HH.HTML w i
+render lp shown =
   HH.div [ HP.class_ (HH.ClassName "loops") ]
     [ HH.div [ HP.class_ (HH.ClassName "loops-grid") ]
-        (Array.mapWithIndex (slot lp) (Array.take 6 lp.loops))
-    , utilities
+        (Array.mapMaybe (\i -> slot lp i <$> Array.index lp.loops i) boardOrder)
+    , utilities shown
     , legend lp
     ]
 
--- | What the six switches past the loops do.
+-- | What the six unmarked switches do, on the bank the board is showing.
 -- |
 -- | **Because nothing else can say.** The MC6's LCD names its own six switches
 -- | and stops there; G to L are FS3X footswitches with no display and no
@@ -103,27 +112,49 @@ render lp =
 -- | some minutes without ever being pressed, while Undo was hit until the loop
 -- | gave up.
 -- |
--- | This is the same argument as the whole display: the board has no way to
--- | tell you anything, so the screen must. It belongs here rather than in the
--- | documentation, because it is needed at exactly the moment nobody is reading
--- | documentation.
-utilities :: forall w i. HH.HTML w i
-utilities =
-  HH.div [ HP.class_ (HH.ClassName "loops-utils") ]
-    (map one
-      [ { key: "G", what: "back to board" }
-      , { key: "H", what: "stop all" }
-      , { key: "I", what: "undo" }
-      , { key: "J", what: "clear" }
-      , { key: "K", what: "save take" }
-      , { key: "L", what: "click" }
-      ])
+-- | It named the wrong six for a while, which was worse than naming none. The
+-- | list was hand-written, and it was the LOOP bank's list shown whatever bank
+-- | the board was on — so with the board on config, the screen said J was Clear
+-- | while J was End Stop, and pressing it answered with something about
+-- | leaving-state. That reads exactly like a switch wired to the wrong place,
+-- | and sent us looking for a reversed mapping that did not exist.
+-- |
+-- | Two changes, and the second is the one that matters: it takes the bank as
+-- | an argument, and it reads `Data.Looper.Banks` rather than restating it. A
+-- | display that keeps its own copy of what the device was programmed with is a
+-- | display that can be confidently wrong.
+utilities :: forall w i. LB.BankSlot -> HH.HTML w i
+utilities shown =
+  HH.div [ HP.class_ (HH.ClassName "loops-utils-wrap") ]
+    [ HH.div [ HP.class_ (HH.ClassName "loops-utils-bank") ]
+        [ HH.text (LB.slotName shown) ]
+    , HH.div [ HP.class_ (HH.ClassName "loops-utils") ]
+        (map one (LB.auxLegend shown))
+    ]
   where
   one u =
     HH.div [ HP.class_ (HH.ClassName "loops-util") ]
       [ HH.span [ HP.class_ (HH.ClassName "util-key") ] [ HH.text u.key ]
       , HH.span_ [ HH.text u.what ]
       ]
+
+-- | The six loops in the order they sit on the board, not in index order.
+-- |
+-- | **The MC6 numbers its switches from the bottom.** A, B and C are the near
+-- | row — the ones under your toes — and D, E and F the far row. Drawing the
+-- | loops in index order therefore printed the board upside down: loop 1 in the
+-- | top-left of the screen and under the far edge of the pedal.
+-- |
+-- | It reads as a small thing and is not, because the display's one claim is
+-- | that nothing on it has to be looked up. A slot in the top-left that is
+-- | reached by the bottom-left switch breaks exactly that, and does it silently
+-- | — you only find out by putting a foot on the wrong loop.
+-- |
+-- | The indices are untouched: `slot` is still given the real loop number, so
+-- | the letters, the focus and the commands all mean what they always did. Only
+-- | the drawing order moves.
+boardOrder :: Array Int
+boardOrder = [ 3, 4, 5, 0, 1, 2 ]
 
 -- | One loop.
 slot :: forall w i. LooperState -> Int -> LoopState -> HH.HTML w i
@@ -244,8 +275,9 @@ legend lp =
 
 -- | A B C on the top row, D E F below — the board's own letters, so the screen
 -- | and the pedal agree without anybody translating.
+-- | Which switch a loop sits on, from the same table the aux legend uses.
 letter :: Int -> String
-letter i = case Array.index [ "A", "B", "C", "D", "E", "F" ] i of
+letter i = case LB.switchLetter i of
   Just l -> l
   Nothing -> "?"
 

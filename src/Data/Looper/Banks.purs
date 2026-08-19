@@ -89,6 +89,9 @@ module Data.Looper.Banks
   , SwitchPress
   , decodeSwitch
   , labelOf
+  , mc6OwnSwitches
+  , switchLetter
+  , auxLegend
   , banks
   ) where
 
@@ -208,6 +211,45 @@ decodeSwitch channel ccNum value =
 -- | table rather than between two copies of the table.
 labelOf :: BankSlot -> Int -> Maybe String
 labelOf slot i = map _.longName (Array.index (layout slot) i)
+
+-- | How many switches the MC6 has of its own, and so where the aux ones start.
+-- |
+-- | Numerically the same as `loopSwitches`, and not the same fact: one is a
+-- | property of the unit, the other a choice about how many loops to run. They
+-- | are written separately so that changing one does not silently change the
+-- | other.
+mc6OwnSwitches :: Int
+mc6OwnSwitches = 6
+
+-- | The letter printed on the board for a switch index.
+switchLetter :: Int -> Maybe String
+switchLetter = Array.index
+  [ "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L" ]
+
+-- | The switches past the MC6's own six, as letter and label, for a given bank.
+-- |
+-- | **The display's only honest source for these.** The MC6's LCD names its own
+-- | six switches and stops there; G to L are FS3X footswitches with no display
+-- | and no markings, so the app has to say what they do — and it has to say it
+-- | *for the bank the board is actually showing*.
+-- |
+-- | That last part was learned the hard way. The legend was a hand-written copy
+-- | of the loop bank's six, shown unconditionally, so with the board on the
+-- | config bank the screen said J was Clear while J was End Stop. Pressing it
+-- | reported something about leaving-state, which reads exactly like a switch
+-- | wired to the wrong place — and cost an hour looking for a reversed mapping
+-- | that was never reversed.
+-- |
+-- | Derived from `layout` rather than restated, because a legend that can
+-- | disagree with the table the device was programmed from is a legend that
+-- | eventually will.
+auxLegend :: BankSlot -> Array { key :: String, what :: String }
+auxLegend slot = Array.catMaybes (map entry (Array.range mc6OwnSwitches (switchCount - 1)))
+  where
+  entry i = do
+    key <- switchLetter i
+    spec <- Array.index (layout slot) i
+    if spec.label == "" then Nothing else Just { key, what: spec.label }
 
 -- | Where a switch sends the board. `ToBoard` is the way out of the looper
 -- | entirely; everything else stays in the family.

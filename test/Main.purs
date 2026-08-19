@@ -937,6 +937,34 @@ main = do
 
   -- Direction is the sign of speed, not a second control, so the bottom row is
   -- one press that says both things rather than two in the right order.
+  -- The legend on the Looper page is what a player reads to find out what the
+  -- six unmarked footswitches do, and for a while it was a hand-written copy of
+  -- the loop bank's six shown whatever bank the board was on. So with the board
+  -- on config it said J was Clear while J was End Stop — which reads exactly
+  -- like a switch wired to the wrong place, and is worse than saying nothing.
+  assert "the aux legend is the bank's own table, per bank"
+    (LB.auxLegend LB.LoopBank
+      == [ { key: "G", what: "< Board" }, { key: "H", what: "Stop All" }
+         , { key: "I", what: "Undo" }, { key: "J", what: "Clear" }
+         , { key: "K", what: "Take" }, { key: "L", what: "Click" } ]
+      && LB.auxLegend LB.ConfigBank
+        == [ { key: "G", what: "Pendulum" }, { key: "H", what: "Moment" }
+           , { key: "I", what: "End Play" }, { key: "J", what: "End Stop" }
+           , { key: "K", what: "Take" }, { key: "L", what: "Clear" } ])
+
+  -- The letters are the device's, so they have to come from the same place the
+  -- switch numbering does rather than from a second list in the view.
+  assert "and the letters run A to L over the twelve switches"
+    (Array.mapMaybe LB.switchLetter (Array.range 0 11)
+      == [ "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L" ]
+      && LB.switchLetter 12 == Nothing)
+
+  -- A blank switch contributes nothing rather than an empty row: the quantise
+  -- bank leaves K free, and a legend entry with no words in it is worse than a
+  -- gap, because it looks like a function nobody bothered to name.
+  assert "blank switches are left out of the legend, not shown empty"
+    (map _.key (LB.auxLegend LB.QuantiseBank) == [ "G", "H", "I", "J", "L" ])
+
   assert "the speed bank sends a signed rate"
     (map (\i -> Machine.act { loops: [], focus: 2 } (Gestures.Tap LB.SpeedBank i))
        [ 0, 2, 4, 7 ]

@@ -423,7 +423,7 @@ renderLooperView state =
     , audioLine
     , faceToggle
     , case state.looper of
-        Just lp | state.looperShowsSlots -> Slots.render lp
+        Just lp | state.looperShowsSlots -> Slots.render lp state.looperBankShown
         _ -> HH.text ""
     -- What the last press did, in words. Present for refusals as much as for
     -- commands: the machine names every gap it meets rather than swallowing
@@ -1822,6 +1822,10 @@ handleAction = case _ of
       [status, ccNum, val] | status == 0xB0 + LoopBanks.switchChannel - 1 ->
         case LoopBanks.decodeSwitch LoopBanks.switchChannel ccNum val of
           Just press -> do
+            -- The board says which bank it is on with every press, so the
+            -- display never has to guess — including after a bank change made
+            -- with a foot, which nothing else would have told us about.
+            H.modify_ _ { looperBankShown = press.slot }
             t <- liftEffect (JSDate.getTime <$> JSDate.now)
             feedGesture (if press.down then Gestures.Down press t else Gestures.Up press t)
           -- A CC on our channel that is not one of our switches. Worth saying
