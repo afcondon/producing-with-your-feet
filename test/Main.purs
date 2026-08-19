@@ -834,7 +834,7 @@ main = do
 
   let idle n = { index: n, state: "idle", layers: 0, loopFrames: 0, loopSecs: 0.0
                , pos: 0, phase: 0.0, armed: false, recording: false, quant: false
-               , muted: false, pendingAt: -1, shapes: [] }
+               , muted: false, reverse: false, pan: 64, pendingAt: -1, shapes: [] }
       withState n s ls = (idle n) { state = s, layers = ls }
       rigOf ls = { loops: ls, focus: 0 }
 
@@ -906,12 +906,45 @@ main = do
       && Machine.act { loops: [ idle 0 ], focus: 1 } (Gestures.Tap LB.LoopBank 9)
         == [ Machine.Command "1c" ])
 
-  -- A press this app cannot yet act on still produces a sentence. A switch that
-  -- says "not wired" is debuggable; one that does nothing is indistinguishable
-  -- from a broken cable.
-  assert "an unwired switch says so rather than vanishing"
-    (map Machine.describe (Machine.act (rigOf []) (Gestures.Tap LB.QuantiseBank 3))
-      == [ "quantise switch 3 is not wired yet" ])
+  -- The config family acts on the focused loop, which is what a hold sets. One
+  -- config bank serving six loops only works because of that.
+  assert "reverse and clear act on the focused loop, not the pressed switch"
+    (Machine.act { loops: [ idle 0, idle 1, idle 2 ], focus: 2 } (Gestures.Tap LB.ConfigBank 4)
+      == [ Machine.Command "2rev" ]
+      && Machine.act { loops: [], focus: 1 } (Gestures.Tap LB.ConfigBank 11)
+        == [ Machine.Command "1c" ])
+
+  assert "the pan bank places the focused loop across the field"
+    (map (\i -> Machine.act { loops: [], focus: 0 } (Gestures.Tap LB.PanBank i))
+       [ 0, 3, 7 ]
+      == [ [ Machine.Command "0pan0" ]
+         , [ Machine.Command "0pan64" ]
+         , [ Machine.Command "0pan127" ] ])
+
+  -- Free and Grid are real; the bar counts have nothing to select, because the
+  -- engine's grid is the anchor loop's cycle and not a bar.
+  assert "quantise sets the grid flag and is honest about bar counts"
+    (Machine.act { loops: [], focus: 3 } (Gestures.Tap LB.QuantiseBank 0)
+      == [ Machine.Command "3g0" ]
+      && Machine.act { loops: [], focus: 3 } (Gestures.Tap LB.QuantiseBank 1)
+        == [ Machine.Command "3g1"
+           , Machine.Handled "on the grid — bar counts need the frame-to-bar join" ])
+
+  assert "and All Free reaches every loop"
+    (Machine.act (rigOf []) (Gestures.Tap LB.QuantiseBank 6)
+      == map (\i -> Machine.Command (show i <> "g0")) (Array.range 0 5))
+
+  -- What is not built says what it is waiting for. A switch that shrugs is
+  -- indistinguishable from a broken cable.
+  assert "the two that need real engine work name it"
+    (map Machine.describe (Machine.act (rigOf []) (Gestures.Tap LB.ConfigBank 1))
+      == [ "speed needs interpolation in the engine" ]
+      && map Machine.describe (Machine.act (rigOf []) (Gestures.Tap LB.ConfigBank 2))
+        == [ "chance needs a random source in the audio callback" ])
+
+  assert "an unwired switch still says so rather than vanishing"
+    (map Machine.describe (Machine.act (rigOf []) (Gestures.Tap LB.SpeedBank 3))
+      == [ "speed switch 3 is not wired yet" ])
 
   assert "every action can say what it did"
     (Array.all (\a -> Machine.describe a /= "")

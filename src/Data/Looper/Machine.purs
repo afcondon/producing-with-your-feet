@@ -95,10 +95,12 @@ act rig = case _ of
   Tap LoopBank 10 -> [ Command "w" ]
   Tap LoopBank 11 -> [ Command "k" ]
 
-  -- The config bank is real on the device and not yet wired here. Naming each
-  -- press beats swallowing it: a switch that reports "not wired" is debuggable,
-  -- and one that does nothing is indistinguishable from a broken cable.
-  Tap ConfigBank i -> [ Unavailable ("config switch " <> show i <> " is not wired yet") ]
+  -- The config family. Everything here acts on `focus` — the loop last touched,
+  -- which is what a hold on a loop switch sets. One config bank for six loops
+  -- only works because the press that got here said which loop it meant.
+  Tap ConfigBank i -> config rig.focus i
+  Tap QuantiseBank i -> quantise rig.focus i
+  Tap PanBank i -> pan rig.focus i
   Tap slot i -> [ Unavailable (show' slot <> " switch " <> show i <> " is not wired yet") ]
 
   DoubleTap slot i -> [ Handled ("double tap on " <> show' slot <> " " <> show i) ]
@@ -173,6 +175,75 @@ onDouble i = case _ of
     -- something you cannot hear is a way to record a mistake twice.
     | st.muted -> [ Command (cmd i "h1"), Command (cmd i "r") ]
     | otherwise -> [ Command (cmd i "r") ]
+
+-- | The config bank, against the focused loop.
+-- |
+-- | Three of the twelve are engine features that exist, three are navigation
+-- | the MC6 does itself, and the rest name what they are waiting for. Speed and
+-- | chance are the two that need real work — interpolation and a callback-safe
+-- | RNG — and saying so is more use than a switch that shrugs.
+config :: Int -> Int -> Array Action
+config f = case _ of
+  0 -> [ Handled "quantise: pick a grid" ]
+  1 -> [ Unavailable "speed needs interpolation in the engine" ]
+  2 -> [ Unavailable "chance needs a random source in the audio callback" ]
+  3 -> [ Handled "pan: pick a placement" ]
+  4 -> [ Command (cmd f "rev") ]
+  5 -> [ Handled "back to the loops" ]
+  -- A true pendulum plays forward then backward and so takes twice as long,
+  -- which needs the speed machinery that does not exist. Squashing it into one
+  -- cycle would be a different effect wearing its name.
+  6 -> [ Unavailable "pendulum needs the same interpolation speed does" ]
+  7 -> [ Unavailable "momentary needs the recogniser to report a hold ending" ]
+  8 -> [ Unavailable "leaving-state is not modelled yet" ]
+  9 -> [ Unavailable "leaving-state is not modelled yet" ]
+  10 -> [ Command "w" ]
+  11 -> [ Command (cmd f "c") ]
+  i -> [ Unavailable ("config switch " <> show i <> " is not wired yet") ]
+
+-- | The quantise bank.
+-- |
+-- | **The engine's grid is the anchor loop's cycle, not a bar**, which is a
+-- | decision made when quantised close landed: tempo gives a bar's length but
+-- | not where the bar falls, so until the frame-to-wall-clock join exists no
+-- | loop can be put on "bar 1". So `g` is a boolean and the bar counts on this
+-- | bank have nothing to select yet. Free and Grid are real; the rest say what
+-- | they are waiting for rather than quietly all meaning the same thing.
+quantise :: Int -> Int -> Array Action
+quantise f = case _ of
+  0 -> [ Command (cmd f "g0") ]
+  i | i >= 1 && i <= 4 ->
+      [ Command (cmd f "g1")
+      , Handled "on the grid — bar counts need the frame-to-bar join"
+      ]
+  5 -> [ Handled "back to loop config" ]
+  6 -> map (\n -> Command (cmd n "g0")) (Array.range 0 (loopSwitches - 1))
+  i | i >= 7 && i <= 9 ->
+      map (\n -> Command (cmd n "g1")) (Array.range 0 (loopSwitches - 1))
+  11 -> [ Handled "back to the loops" ]
+  i -> [ Unavailable ("quantise switch " <> show i <> " is not wired yet") ]
+
+-- | The pan bank: ten placements across the field, and two ways back.
+-- |
+-- | Equal-power in the engine, so moving a loop off centre does not make it
+-- | quieter — which matters when six of them are being placed against each
+-- | other rather than one being auditioned alone.
+pan :: Int -> Int -> Array Action
+pan f = case _ of
+  0 -> [ place f 0 ]
+  1 -> [ place f 21 ]
+  2 -> [ place f 42 ]
+  3 -> [ place f 64 ]
+  4 -> [ place f 85 ]
+  5 -> [ Handled "back to loop config" ]
+  6 -> [ place f 106 ]
+  7 -> [ place f 127 ]
+  8 -> [ Unavailable "width needs the engine to record in stereo" ]
+  9 -> [ place f 64 ]
+  11 -> [ Handled "back to the loops" ]
+  i -> [ Unavailable ("pan switch " <> show i <> " is not wired yet") ]
+  where
+  place i v = Command (cmd i "pan" <> show v)
 
 -- | The daemon's loop-prefixed command form: `3r` is "record on loop 3".
 cmd :: Int -> String -> String

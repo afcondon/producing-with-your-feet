@@ -75,6 +75,7 @@ import Prelude
 import Data.Array as Array
 import Data.Int (round, toNumber)
 import Data.Maybe (Maybe(..))
+import Data.String (joinWith)
 import Foreign.LooperSocket (LoopState, LayerShape, LooperState)
 import Halogen.HTML as HH
 import Halogen.HTML.Properties as HP
@@ -139,8 +140,11 @@ slot top idx st =
     , track top st
     , HH.div [ HP.class_ (HH.ClassName "loop-foot") ]
         [ HH.span_ [ HH.text (lengthWord top st) ]
-        , HH.span [ HP.class_ (HH.ClassName "loop-quant") ]
-            [ HH.text (if st.quant then "grid" else "free") ]
+        -- The resolutions, shown only when they are not the default. A row of
+        -- "forward · centre · free" on six slots is noise; a lone "REV" is
+        -- information, and the config bank is otherwise invisible from here.
+        , HH.span [ HP.class_ (HH.ClassName "loop-marks") ]
+            [ HH.text (marks st) ]
         ]
     ]
 
@@ -281,6 +285,26 @@ lengthWord top st
       "in " <> secs (toNumber st.pendingAt / toNumber (max 1 top.sampleRate))
   | st.loopFrames <= 0 = "empty"
   | otherwise = secs st.loopSecs
+
+-- | What has been done to a loop that is not the default.
+-- |
+-- | Silence when nothing has: six slots each announcing "forward, centre, free"
+-- | is a row of noise that hides the one loop somebody reversed.
+marks :: LoopState -> String
+marks st = joinWith " · " (Array.catMaybes
+  [ if st.reverse then Just "REV" else Nothing
+  , if st.pan == 64 then Nothing else Just (panWord st.pan)
+  , if st.quant then Just "GRID" else Nothing
+  ])
+
+-- | Pan as a word rather than a number: 0-127 is the wire's business.
+panWord :: Int -> String
+panWord p
+  | p <= 10 = "L"
+  | p <= 52 = "l"
+  | p <= 74 = "C"
+  | p <= 116 = "r"
+  | otherwise = "R"
 
 secs :: Number -> String
 secs s = show (toNumber (round (s * 10.0)) / 10.0) <> " s"
