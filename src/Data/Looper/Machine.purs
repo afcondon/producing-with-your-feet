@@ -155,6 +155,17 @@ onDuty rig slot = case _ of
   LB.OneShot -> [ Command (cmd rig.focus (setTo "one" (is _.oneShot))) ]
   LB.LevelArm -> [ Command (cmd rig.focus (setTo "lev" (is _.levelArm))) ]
 
+  -- Chance is a value, not a toggle, so the switch steps rather than flips —
+  -- but it is the same principle one step further: the next rung is computed
+  -- from what the engine last reported, not counted here and not counted on the
+  -- device. A scroll counter on the MC6 would keep its own position, and the
+  -- device is the one thing in this rig that cannot be told it is wrong.
+  LB.StepChance ->
+    let next = LB.stepChance (maybe 1.0 _.chance (loopAt rig rig.focus))
+    in [ Command (cmd rig.focus ("ch" <> show next))
+       , Handled ("loop " <> show (rig.focus + 1) <> " plays " <> LB.chanceWord next)
+       ]
+
   -- The one thing a pedal cannot do. With no loop yet it claims the daemon's
   -- default of the last few seconds; with one running it claims the last
   -- complete cycle, which lands on the grid because the fill is addressed in

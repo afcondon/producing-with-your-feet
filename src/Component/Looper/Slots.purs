@@ -308,6 +308,9 @@ stateWord st = case st.state of
   -- stopped loop is still turning and comes back where it would have been, and
   -- a one-shot comes back at the top.
   _ | st.oneShot -> if st.firing then "firing" else "ready"
+  -- Sitting this one out. Distinct from stopped, which is a decision you made
+  -- and which stays made — this one comes back by itself.
+  _ | st.skipping -> "sitting out"
   "recordingFirst" -> "recording"
   "overdubbing" -> "overdub"
   "multiplying" -> "multiply"
@@ -357,6 +360,10 @@ marks st = joinWith " · " (Array.catMaybes
   -- switch that does something different for no visible reason.
   , if st.oneShot then Just "1 SHOT" else Nothing
   , if st.levelArm then Just "LVL" else Nothing
+  -- The rung, in the ladder's own words rather than as a decimal — the switch
+  -- that set it has no screen, so this is the only place the value is written
+  -- down, and it has to be written the way it would be said.
+  , if st.chance >= 1.0 then Nothing else Just (LB.chanceWord st.chance)
   ])
 
 -- | Speed as the multiplier the switch was labelled with, not a decimal.

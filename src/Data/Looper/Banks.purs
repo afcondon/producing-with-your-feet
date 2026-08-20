@@ -99,6 +99,9 @@ module Data.Looper.Banks
   , dutyAt
   , dutyLabel
   , dutyName
+  , chanceLadder
+  , stepChance
+  , chanceWord
   , Face
   , Switch
   , face
@@ -118,10 +121,12 @@ module Data.Looper.Banks
 import Prelude
 
 import Data.Array as Array
+import Data.Int as Int
+import Data.Number as Number
 import Data.MC6.ControlBank (ControlBank, ControlBankSwitch, switchCount)
 import Data.MC6.Message as MC6Msg
 import Data.MC6.Types (MC6Action(..), MC6Message)
-import Data.Maybe (Maybe(..), fromMaybe, isJust)
+import Data.Maybe (Maybe(..), fromMaybe, isJust, maybe)
 
 -- | The channel the MC6 uses to address the app about its own switches.
 switchChannel :: Int
@@ -407,6 +412,24 @@ data Duty
   -- | same trick as claiming the past and as un-doing gesture latency — the
   -- | third thing the ring has paid for.
   | LevelArm
+  -- | Step this loop's chance of sounding down the ladder, wrapping at the end.
+  -- |
+  -- | **A value on one switch, which is what the config family kept wanting.**
+  -- | Chance had a bank of five to itself before it worked at all. It is a value
+  -- | chosen from a few, like speed and pan, so five switches is the shape it
+  -- | *looks* like it wants — but a Chance bank reached from the Modes bank
+  -- | reached from Loop Cfg is four deep, and three was already one too many.
+  -- |
+  -- | So it steps instead, and the step is computed here from what the engine
+  -- | last reported rather than counted on the device. That is the difference
+  -- | between this and the MC6's own scroll counters: the device would keep its
+  -- | own position, and a device that keeps state is the one thing here that
+  -- | cannot be told it is wrong. The app is looking at the engine thirty times
+  -- | a second.
+  -- |
+  -- | The pedal says "Chance" and the screen says which rung — the standing
+  -- | division of labour, and the reason the board can be programmed once.
+  | StepChance
   -- | Claim the recent past. **The one thing a pedal cannot do**, and the
   -- | reason for a sixty-second ring: you played something good and did not
   -- | hit record, so hit it afterwards. It had no footswitch at all until
@@ -456,6 +479,7 @@ dutyLabel = case _ of
   Pendulum -> "Pendulum"
   OneShot -> "One Shot"
   LevelArm -> "Listen"
+  StepChance -> "Chance"
   Free -> "Free"
   Grid n -> show n <> (if n == 1 then " Bar" else " Bars")
   Rate r -> "x " <> rateWord r
@@ -485,12 +509,64 @@ dutyName = case _ of
   Pendulum -> "Forward, then back"
   OneShot -> "One pass, then silence"
   LevelArm -> "Start when you play"
+  StepChance -> "How often it plays"
   Free -> "Free length and launch"
   Grid n -> "Round to " <> show n <> (if n == 1 then " bar" else " bars")
   Rate r -> rateWord r <> " speed"
   Place p -> placeWord p <> " in the field"
   NotYet l _ -> l
   Nothing_ -> ""
+
+-- | The rungs a foot can reach, rarest last, each with the words for it.
+-- |
+-- | **One table, and the word lives beside the value rather than in a second
+-- | function keyed by it.** Three things read this: the step a press takes, what
+-- | the screen says, and — through the step — what the engine is told. The
+-- | engine itself accepts any probability from zero to one and has no opinion
+-- | about which are worth a switch; that is a question about feet, and this is
+-- | where feet are answered.
+-- |
+-- | Descending, because it is what makes `stepChance` the plain thing it is: the
+-- | next rung down is the first entry lower than where you are.
+chanceLadder :: Array { odds :: Number, word :: String }
+chanceLadder =
+  [ { odds: 1.0, word: "always" }
+  , { odds: 0.75, word: "3 in 4" }
+  , { odds: 0.5, word: "1 in 2" }
+  , { odds: 0.25, word: "1 in 4" }
+  , { odds: 0.125, word: "1 in 8" }
+  ]
+
+-- | The next rung down, wrapping round to certainty at the bottom.
+-- |
+-- | Found by comparison rather than by index, so a probability the engine
+-- | reports that is not exactly on a rung — set by hand, or arrived at through a
+-- | float — still steps somewhere sensible instead of falling off the ladder.
+-- | And it wraps: a ladder you cannot get off is worse than one that takes five
+-- | presses.
+stepChance :: Number -> Number
+stepChance now =
+  maybe 1.0 _.odds (Array.find (\r -> r.odds < now - onRung) chanceLadder)
+
+-- | A probability as the display says it — the same words the daemon acks with,
+-- | because a screen that answers a press differently from the thing that
+-- | performed it makes the player do the translation.
+-- |
+-- | A value off the ladder gets a percentage rather than being rounded to the
+-- | nearest rung it is not on.
+chanceWord :: Number -> String
+chanceWord p =
+  case Array.find (\r -> Number.abs (p - r.odds) < onRung) chanceLadder of
+    Just r -> r.word
+    Nothing
+      | p <= 0.0 -> "never"
+      | otherwise -> show (Int.round (p * 100.0)) <> "%"
+
+-- | How close counts as being on a rung. Wide enough to survive a round trip
+-- | through the wire as text, narrow enough that no two rungs could claim the
+-- | same reading.
+onRung :: Number
+onRung = 1.0e-4
 
 shortSlot :: BankSlot -> String
 shortSlot = case _ of
@@ -706,7 +782,7 @@ own = case _ of
   ModesBank ->
     [ only OneShot
     , only LevelArm
-    , only (NotYet "Chance" chanceGap)
+    , only StepChance
     , only Nothing_
     , only Nothing_
     , only (Back (ToSlot ConfigBank))
@@ -722,9 +798,6 @@ own = case _ of
     , only (Place 127)
     , only (Back (ToSlot ConfigBank))
     ]
-
-chanceGap :: String
-chanceGap = "chance needs a random source in the audio callback"
 
 banks :: { base :: Int, boardBank :: Int } -> Array ControlBank
 banks cfg = map toBank allSlots

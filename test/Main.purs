@@ -872,7 +872,7 @@ main = do
                , pos: 0, phase: 0.0, armed: false, recording: false, quant: false
                , muted: false, reverse: false, pan: 64, speed: 1.0, pendulum: false
                , oneShot: false, levelArm: false, firing: false
-               , pendingAt: -1, shapes: [] }
+               , chance: 1.0, skipping: false, pendingAt: -1, shapes: [] }
       withState n s ls = (idle n) { state = s, layers = ls }
       rigOf ls = { loops: ls, focus: 0 }
 
@@ -1109,13 +1109,42 @@ main = do
       && Machine.act { loops: [ (idle 0) { levelArm = true } ], focus: 0 }
            (Gestures.Tap LB.ModesBank 1 0.0) == [ Machine.Command "0lev0" ])
 
+  -- Chance steps rather than flipping, and the step is computed from what the
+  -- engine last reported — not counted here and not counted on the device. The
+  -- MC6's own scroll counters would keep the position on the hardware, and the
+  -- hardware is the one thing in this rig that cannot be told it is wrong.
+  assert "chance steps down the ladder from wherever the engine says it is"
+    (map (\p -> LB.stepChance p) [ 1.0, 0.75, 0.5, 0.25, 0.125 ]
+      == [ 0.75, 0.5, 0.25, 0.125, 1.0 ])
+
+  -- A probability that is not on a rung still steps somewhere sensible rather
+  -- than falling off the ladder, because it can be set to anything by hand.
+  assert "and from between two rungs, to the next one below"
+    (LB.stepChance 0.6 == 0.5 && LB.stepChance 0.01 == 1.0)
+
+  -- The word lives beside the value in one table, so the switch, the screen and
+  -- the wire cannot come to describe different odds.
+  assert "the ladder says its own words"
+    (map (\r -> LB.chanceWord r.odds) LB.chanceLadder
+      == [ "always", "3 in 4", "1 in 2", "1 in 4", "1 in 8" ]
+      && LB.chanceWord 0.6 == "60%"
+      && LB.chanceWord 0.0 == "never")
+
+  assert "and a press sends the rung it stepped to"
+    (Machine.act { loops: [ (idle 0) { chance = 0.5 } ], focus: 0 }
+       (Gestures.Tap LB.ModesBank 2 0.0)
+      == [ Machine.Command "0ch0.25", Machine.Handled "loop 1 plays 1 in 4" ])
+
   -- What is not built says what it is waiting for, and says it in the SAME
-  -- words on the pedal and on screen — the gap carries its own name now, so a
-  -- switch that shrugs cannot be told apart from a broken cable only by
-  -- reading two files.
+  -- words on the pedal and on screen. Nothing carries a `NotYet` today — chance
+  -- was the last one and it works now — but the vocabulary stays, because a
+  -- switch that shrugs must not be tellable from a broken cable only by reading
+  -- two files.
   assert "an unimplemented switch names itself and what it waits for"
-    (map Machine.describe (Machine.act (rigOf []) (Gestures.Tap LB.ModesBank 2 0.0))
-      == [ "Chance: chance needs a random source in the audio callback" ]
+    (map Machine.describe (Machine.act (rigOf []) (Gestures.Tap LB.SpeedBank 5 0.0))
+      == [ "out" ]
+      && LB.dutyLabel (LB.NotYet "Groups" "no membership model yet") == "Groups"
+      && LB.dutyName (LB.NotYet "Groups" "no membership model yet") == "Groups"
       && LB.dutyLabel (LB.Grid 4) == "4 Bars")
 
   -- A switch with nothing on it is a different answer from one that is waiting
