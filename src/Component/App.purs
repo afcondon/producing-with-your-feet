@@ -2439,7 +2439,20 @@ runGesture g = do
   st <- H.get
   let rig = { loops: maybe [] _.loops st.looper, focus: st.looperFocus }
   followBoard g
-  traverse_ runAction (Machine.act rig g)
+  -- How late this command will be, measured from the press rather than
+  -- assumed. The daemon spends it where a frame matters (`@ms` in its
+  -- dispatch) and strips it everywhere else, so everything can be stamped
+  -- without the app having to know which commands care.
+  now <- liftEffect (JSDate.getTime <$> JSDate.now)
+  let late = max 0.0 (now - gestureAt g)
+  traverse_ (runAction late) (Machine.act rig g)
+
+-- | When the foot went down, which is not when the gesture was recognised.
+gestureAt :: Gestures.Gesture -> Number
+gestureAt = case _ of
+  Gestures.Tap _ _ t -> t
+  Gestures.DoubleTap _ _ t -> t
+  Gestures.Hold _ _ t -> t
 
 -- | Keep track of which bank the board is showing, including the jumps it makes
 -- | on its own.
@@ -2461,9 +2474,9 @@ followBoard
 followBoard g = do
   let
     Tuple from (Tuple i long) = case g of
-      Gestures.Tap slot i' -> Tuple slot (Tuple i' false)
-      Gestures.DoubleTap slot i' -> Tuple slot (Tuple i' false)
-      Gestures.Hold slot i' -> Tuple slot (Tuple i' true)
+      Gestures.Tap slot i' _ -> Tuple slot (Tuple i' false)
+      Gestures.DoubleTap slot i' _ -> Tuple slot (Tuple i' false)
+      Gestures.Hold slot i' _ -> Tuple slot (Tuple i' true)
   H.modify_ _ { looperBankShown = case LoopBanks.sendsTo from i long of
       Just (LoopBanks.ToSlot to) -> Just to
       Just LoopBanks.ToBoard -> Nothing
@@ -2473,12 +2486,13 @@ followBoard g = do
 
 runAction
   :: forall o m. MonadAff m
-  => Machine.Action -> H.HalogenM AppState Action Slots o m Unit
-runAction a = do
+  => Number -> Machine.Action -> H.HalogenM AppState Action Slots o m Unit
+runAction late a = do
   liftEffect $ Console.log $ "looper: " <> Machine.describe a
+    <> (if late >= 1.0 then " (" <> show (Int.round late) <> " ms late)" else "")
   case a of
     Machine.Command c -> do
-      ok <- liftEffect $ LooperSocket.send c
+      ok <- liftEffect $ LooperSocket.send (c <> "@" <> show (Int.round late))
       note (if ok then Machine.describe a else "no daemon — " <> c <> " went nowhere")
     Machine.Focus i -> H.modify_ _ { looperFocus = i }
     -- **Forked on purpose.** The loop closes and plays on the engine's own

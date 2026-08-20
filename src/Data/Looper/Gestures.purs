@@ -74,11 +74,25 @@ data Event
 derive instance Eq Event
 
 -- | What comes out. One press produces exactly one of these, eventually.
+-- |
+-- | Each carries **when the foot went down**, which is not the same as when the
+-- | gesture was recognised and is the number a looper actually needs. A tap
+-- | cannot be known to be a tap until the double-tap window expires, so a
+-- | recognition is always a few hundred milliseconds after the press — and an
+-- | engine told the recognition time records a loop that much longer than it
+-- | was played. Nothing in the sound says so, because overdubs are modular
+-- | against whatever length the loop ended up with.
+-- |
+-- | So the moment travels with the gesture and the engine is told how late its
+-- | command is (`Data.Looper.Machine`, and `@ms` in the daemon's dispatch).
+-- | Which is what makes the double-tap window free: it still delays the
+-- | *response*, and no longer changes the *recording*.
 data Gesture
-  = Tap BankSlot Int
-  | DoubleTap BankSlot Int
+  = Tap BankSlot Int Number
+  | DoubleTap BankSlot Int Number
   -- | Emitted at the threshold, not at the release — see the module header.
-  | Hold BankSlot Int
+  -- | Its moment is the press, so a hold is timed from where it began.
+  | Hold BankSlot Int Number
 
 derive instance Eq Gesture
 
@@ -106,7 +120,14 @@ type Held =
   , resolved :: Boolean
   }
 
-type Waiting = { slot :: BankSlot, switch :: Int, upAt :: Number }
+type Waiting =
+  { slot :: BankSlot
+  , switch :: Int
+  , upAt :: Number
+  -- | When the press began, carried through the wait so the gesture can be
+  -- | dated from the foot rather than from the moment we stopped waiting.
+  , downAt :: Number
+  }
 
 type Memory = { held :: Maybe Held, waiting :: Maybe Waiting }
 
@@ -133,12 +154,14 @@ step th mem = case _ of
     -- switch, that is the second tap and the wait is over.
     case mem.waiting of
       Just w | sameAs w p.slot p.switch && t - w.upAt <= th.doubleTapMs ->
-        Tuple { held: Nothing, waiting: Nothing } [ DoubleTap p.slot p.switch ]
+        -- Dated from the FIRST press of the pair: that is when the player
+        -- committed to the gesture, and the second only confirmed which one.
+        Tuple { held: Nothing, waiting: Nothing } [ DoubleTap p.slot p.switch w.downAt ]
       -- A different switch cancels the wait *as a tap*, because the first press
       -- was a tap — it just had not been allowed to say so yet. Dropping it
       -- would lose a press the player made.
       Just w ->
-        Tuple { held: Just (hold p t), waiting: Nothing } [ Tap w.slot w.switch ]
+        Tuple { held: Just (hold p t), waiting: Nothing } [ Tap w.slot w.switch w.downAt ]
       Nothing ->
         Tuple (mem { held = Just (hold p t) }) []
 
@@ -147,7 +170,10 @@ step th mem = case _ of
       -- The hold already fired at the threshold; the release says nothing.
       Just h | h.resolved -> Tuple (mem { held = Nothing }) []
       Just h | sameAs h p.slot p.switch ->
-        Tuple { held: Nothing, waiting: Just { slot: p.slot, switch: p.switch, upAt: t } } []
+        Tuple
+          { held: Nothing
+          , waiting: Just { slot: p.slot, switch: p.switch, upAt: t, downAt: h.downAt }
+          } []
       -- An up for something we never saw go down. Reachable after a reload, or
       -- if a down was lost; forgetting it is right, inventing a tap is not.
       _ -> Tuple (mem { held = Nothing }) []
@@ -158,12 +184,12 @@ step th mem = case _ of
       -- instant the MC6's own long-press does.
       holdNow = case mem.held of
         Just h | not h.resolved && t - h.downAt >= th.holdMs ->
-          Just (Tuple (h { resolved = true }) (Hold h.slot h.switch))
+          Just (Tuple (h { resolved = true }) (Hold h.slot h.switch h.downAt))
         _ -> Nothing
 
       -- Nobody pressed again in time, so the earlier press was a tap.
       tapNow = case mem.waiting of
-        Just w | t - w.upAt > th.doubleTapMs -> Just (Tap w.slot w.switch)
+        Just w | t - w.upAt > th.doubleTapMs -> Just (Tap w.slot w.switch w.downAt)
         _ -> Nothing
 
       held' = case holdNow of

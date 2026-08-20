@@ -91,18 +91,18 @@ type Rig =
 act :: Rig -> Gesture -> Array Action
 act rig = case _ of
 
-  Tap slot i -> case LB.dutyAt slot i of
+  Tap slot i _ -> case LB.dutyAt slot i of
     Just d -> onDuty rig slot d
     Nothing -> [ missing slot i ]
 
-  DoubleTap slot i -> case LB.dutyAt slot i of
+  DoubleTap slot i _ -> case LB.dutyAt slot i of
     Just (LB.SelectLoop n) -> Array.cons (Focus n) (onDouble n (loopAt rig n))
     Just d -> [ Handled ("double tap on " <> LB.dutyLabel d) ]
     Nothing -> [ missing slot i ]
 
   -- The MC6 jumps to the config bank on its own long press; all this has to do
   -- is agree about which loop that bank is now talking about.
-  Hold slot i -> case LB.dutyAt slot i of
+  Hold slot i _ -> case LB.dutyAt slot i of
     Just (LB.SelectLoop n) -> [ Focus n, Handled ("configuring loop " <> show (n + 1)) ]
     Just d -> [ Handled ("hold on " <> LB.dutyLabel d) ]
     Nothing -> [ missing slot i ]

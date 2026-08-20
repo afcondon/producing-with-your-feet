@@ -790,7 +790,7 @@ main = do
 
   assert "a press and a release, then silence, is a tap"
     (run [ Gestures.Down pressA 0.0, Gestures.Up pressA 80.0, Gestures.Tick 400.0 ]
-      == [ Gestures.Tap LB.LoopBank 0 ])
+      == [ Gestures.Tap LB.LoopBank 0 0.0 ])
 
   -- The window has not expired, so nothing has been decided. Emitting a tap
   -- here and a double-tap later would mean acting twice on one gesture.
@@ -800,19 +800,19 @@ main = do
   assert "a second press inside the window is a double tap, and only that"
     (run [ Gestures.Down pressA 0.0, Gestures.Up pressA 80.0
          , Gestures.Down pressA 200.0, Gestures.Up pressA 260.0, Gestures.Tick 900.0 ]
-      == [ Gestures.DoubleTap LB.LoopBank 0 ])
+      == [ Gestures.DoubleTap LB.LoopBank 0 0.0 ])
 
   -- Fires on the timer, not on the release, so it lands at the same instant the
   -- MC6's own long press does — and so it does not matter whether the device
   -- sends a release after a long press.
   assert "a hold fires at the threshold, while the switch is still down"
     (run [ Gestures.Down pressA 0.0, Gestures.Tick 300.0, Gestures.Tick 700.0 ]
-      == [ Gestures.Hold LB.LoopBank 0 ])
+      == [ Gestures.Hold LB.LoopBank 0 0.0 ])
 
   assert "and the release after a hold says nothing more"
     (run [ Gestures.Down pressA 0.0, Gestures.Tick 700.0
          , Gestures.Up pressA 900.0, Gestures.Tick 2000.0 ]
-      == [ Gestures.Hold LB.LoopBank 0 ])
+      == [ Gestures.Hold LB.LoopBank 0 0.0 ])
 
   -- A press on another switch while the first is still deciding. The first
   -- press was a tap; it just had not been allowed to say so. Dropping it would
@@ -820,7 +820,7 @@ main = do
   assert "a different switch resolves the waiting one as a tap"
     (run [ Gestures.Down pressA 0.0, Gestures.Up pressA 50.0
          , Gestures.Down pressB 100.0, Gestures.Up pressB 150.0, Gestures.Tick 900.0 ]
-      == [ Gestures.Tap LB.LoopBank 0, Gestures.Tap LB.LoopBank 1 ])
+      == [ Gestures.Tap LB.LoopBank 0 0.0, Gestures.Tap LB.LoopBank 1 100.0 ])
 
   -- Reachable after a reload, or if a down went missing.
   assert "a release with no press invents nothing"
@@ -828,6 +828,28 @@ main = do
 
   assert "and ticks on an idle recogniser stay quiet"
     (run [ Gestures.Tick 100.0, Gestures.Tick 5000.0 ] == [])
+
+  -- **Every gesture is dated from the press, not from the recognition.** A tap
+  -- cannot be known to be one until the window expires, so it is recognised
+  -- several hundred milliseconds after the foot moved — and a looper told the
+  -- recognition time records a loop that much longer than it was played.
+  -- Nothing in the sound says so, because overdubs are modular against
+  -- whatever length the loop ended up with, so everything still stacks
+  -- perfectly against a cycle nobody chose.
+  assert "a tap is dated from the press, not from when it was worked out"
+    (run [ Gestures.Down pressA 1000.0, Gestures.Up pressA 1080.0, Gestures.Tick 1400.0 ]
+      == [ Gestures.Tap LB.LoopBank 0 1000.0 ])
+
+  -- The first of the pair, because that is when the player committed to the
+  -- gesture; the second only said which one it was.
+  assert "and a double tap from the first press of the pair"
+    (run [ Gestures.Down pressA 1000.0, Gestures.Up pressA 1080.0
+         , Gestures.Down pressA 1200.0, Gestures.Up pressA 1260.0, Gestures.Tick 1900.0 ]
+      == [ Gestures.DoubleTap LB.LoopBank 0 1000.0 ])
+
+  assert "and a hold from where the hold began"
+    (run [ Gestures.Down pressA 1000.0, Gestures.Tick 1700.0 ]
+      == [ Gestures.Hold LB.LoopBank 0 1000.0 ])
 
   log ""
   log "What a gesture means (Data.Looper.Machine)..."
@@ -840,7 +862,7 @@ main = do
       rigOf ls = { loops: ls, focus: 0 }
 
   assert "tapping an empty loop records it"
-    (Machine.act (rigOf [ idle 0 ]) (Gestures.Tap LB.LoopBank 0)
+    (Machine.act (rigOf [ idle 0 ]) (Gestures.Tap LB.LoopBank 0 0.0)
       == [ Machine.Focus 0, Machine.Command "0r" ])
 
   -- The one that was wrong in use. Undo removes a layer and deliberately keeps
@@ -850,73 +872,73 @@ main = do
   -- undone to nothing could never be recorded into from the board again.
   assert "a loop undone to nothing records again, length and state notwithstanding"
     (Machine.act (rigOf [ (withState 0 "playing" 0) { loopFrames = 155215 } ])
-       (Gestures.Tap LB.LoopBank 0)
+       (Gestures.Tap LB.LoopBank 0 0.0)
       == [ Machine.Focus 0, Machine.Command "0r" ])
 
   assert "and double-tapping it does not close a loop a fifth of a second long"
     (Machine.act (rigOf [ (withState 0 "playing" 0) { loopFrames = 155215 } ])
-       (Gestures.DoubleTap LB.LoopBank 0)
+       (Gestures.DoubleTap LB.LoopBank 0 0.0)
       == [ Machine.Focus 0, Machine.Handled "already recording" ])
 
   -- Closing is a command and, when the config bank is wired, a bank change too.
   -- It is off for now because a courtesy that lands on a page of unwired
   -- switches strands the player after every loop they record.
   assert "tapping a recording loop closes it"
-    (Machine.act (rigOf [ withState 0 "recordingFirst" 0 ]) (Gestures.Tap LB.LoopBank 0)
+    (Machine.act (rigOf [ withState 0 "recordingFirst" 0 ]) (Gestures.Tap LB.LoopBank 0 0.0)
       == [ Machine.Focus 0, Machine.Command "0r" ])
 
   -- Transport, once the engine grew one. Explicit h0/h1 rather than a flipping
   -- h, because a stopped loop is invisible and a dropped toggle would leave the
   -- app and the engine disagreeing with nothing on screen to show it.
   assert "tapping a playing loop stops it"
-    (Machine.act (rigOf [ withState 0 "playing" 1 ]) (Gestures.Tap LB.LoopBank 0)
+    (Machine.act (rigOf [ withState 0 "playing" 1 ]) (Gestures.Tap LB.LoopBank 0 0.0)
       == [ Machine.Focus 0, Machine.Command "0h0" ])
 
   assert "and tapping a stopped one brings it back"
     (Machine.act (rigOf [ (withState 0 "playing" 1) { muted = true } ])
-       (Gestures.Tap LB.LoopBank 0)
+       (Gestures.Tap LB.LoopBank 0 0.0)
       == [ Machine.Focus 0, Machine.Command "0h1" ])
 
   -- Overdubbing onto something you cannot hear is a way to record a mistake
   -- twice, so the loop comes back first.
   assert "double tapping a stopped loop unmutes before overdubbing"
     (Machine.act (rigOf [ (withState 0 "playing" 1) { muted = true } ])
-       (Gestures.DoubleTap LB.LoopBank 0)
+       (Gestures.DoubleTap LB.LoopBank 0 0.0)
       == [ Machine.Focus 0, Machine.Command "0h1", Machine.Command "0r" ])
 
   assert "stop all reaches every loop"
-    (Machine.act (rigOf []) (Gestures.Tap LB.LoopBank 7)
+    (Machine.act (rigOf []) (Gestures.Tap LB.LoopBank 7 0.0)
       == map (\i -> Machine.Command (show i <> "h0")) (Array.range 0 5))
 
   -- Whatever the engine calls it, no layers means record.
   assert "any state with no layers records"
-    (Machine.act (rigOf [ withState 0 "weird" 0 ]) (Gestures.Tap LB.LoopBank 0)
+    (Machine.act (rigOf [ withState 0 "weird" 0 ]) (Gestures.Tap LB.LoopBank 0 0.0)
       == [ Machine.Focus 0, Machine.Command "0r" ])
 
   assert "but a double tap on a playing loop does overdub, which the engine has"
-    (Machine.act (rigOf [ withState 0 "playing" 1 ]) (Gestures.DoubleTap LB.LoopBank 0)
+    (Machine.act (rigOf [ withState 0 "playing" 1 ]) (Gestures.DoubleTap LB.LoopBank 0 0.0)
       == [ Machine.Focus 0, Machine.Command "0r" ])
 
   assert "a hold only moves the focus; the MC6 changes bank by itself"
-    (Machine.act (rigOf [ withState 0 "playing" 1 ]) (Gestures.Hold LB.LoopBank 2)
+    (Machine.act (rigOf [ withState 0 "playing" 1 ]) (Gestures.Hold LB.LoopBank 2 0.0)
       == [ Machine.Focus 2, Machine.Handled "configuring loop 3" ])
 
   assert "undo and clear act on the focused loop"
-    (Machine.act { loops: [ idle 0, idle 1, idle 2 ], focus: 2 } (Gestures.Tap LB.LoopBank 8)
+    (Machine.act { loops: [ idle 0, idle 1, idle 2 ], focus: 2 } (Gestures.Tap LB.LoopBank 8 0.0)
       == [ Machine.Command "2u" ]
-      && Machine.act { loops: [ idle 0 ], focus: 1 } (Gestures.Tap LB.LoopBank 9)
+      && Machine.act { loops: [ idle 0 ], focus: 1 } (Gestures.Tap LB.LoopBank 9 0.0)
         == [ Machine.Command "1c" ])
 
   -- The config family acts on the focused loop, which is what a hold sets. One
   -- config bank serving six loops only works because of that.
   assert "reverse and clear act on the focused loop, not the pressed switch"
-    (Machine.act { loops: [ idle 0, idle 1, idle 2 ], focus: 2 } (Gestures.Tap LB.ConfigBank 4)
+    (Machine.act { loops: [ idle 0, idle 1, idle 2 ], focus: 2 } (Gestures.Tap LB.ConfigBank 4 0.0)
       == [ Machine.Command "2rev" ]
-      && Machine.act { loops: [], focus: 1 } (Gestures.Tap LB.ConfigBank 9)
+      && Machine.act { loops: [], focus: 1 } (Gestures.Tap LB.ConfigBank 9 0.0)
         == [ Machine.Command "1c" ])
 
   assert "the pan bank places the focused loop across the field"
-    (map (\i -> Machine.act { loops: [], focus: 0 } (Gestures.Tap LB.PanBank i))
+    (map (\i -> Machine.act { loops: [], focus: 0 } (Gestures.Tap LB.PanBank i 0.0))
        [ 0, 2, 4 ]
       == [ [ Machine.Command "0pan0" ]
          , [ Machine.Command "0pan64" ]
@@ -925,14 +947,14 @@ main = do
   -- Free and Grid are real; the bar counts have nothing to select, because the
   -- engine's grid is the anchor loop's cycle and not a bar.
   assert "quantise sets the grid flag and is honest about bar counts"
-    (Machine.act { loops: [], focus: 3 } (Gestures.Tap LB.QuantiseBank 0)
+    (Machine.act { loops: [], focus: 3 } (Gestures.Tap LB.QuantiseBank 0 0.0)
       == [ Machine.Command "3g0" ]
-      && Machine.act { loops: [], focus: 3 } (Gestures.Tap LB.QuantiseBank 1)
+      && Machine.act { loops: [], focus: 3 } (Gestures.Tap LB.QuantiseBank 1 0.0)
         == [ Machine.Command "3g1"
            , Machine.Handled "on the grid — bar counts need the frame-to-bar join" ])
 
   assert "and stop-all reaches every loop, from any bank"
-    (Machine.act (rigOf []) (Gestures.Tap LB.QuantiseBank 7)
+    (Machine.act (rigOf []) (Gestures.Tap LB.QuantiseBank 7 0.0)
       == map (\i -> Machine.Command (show i <> "h0")) (Array.range 0 5))
 
   -- Direction is the sign of speed, not a second control, so the bottom row is
@@ -966,7 +988,7 @@ main = do
   -- The code has to say it too, or two tables agree until one of them does not.
   assert "and the meaning table answers the toolbar without consulting the bank"
     (Array.all
-      (\slot -> Machine.act { loops: [], focus: 2 } (Gestures.Tap slot 9)
+      (\slot -> Machine.act { loops: [], focus: 2 } (Gestures.Tap slot 9 0.0)
         == [ Machine.Command "2c" ])
       LB.allSlots)
 
@@ -983,7 +1005,7 @@ main = do
       (\r ->
          let
            labelled = maybe false (\d -> LB.dutyLabel d /= "") (LB.dutyAt r.slot r.i)
-           acts = Machine.act { loops: [], focus: 0 } (Gestures.Tap r.slot r.i)
+           acts = Machine.act { loops: [], focus: 0 } (Gestures.Tap r.slot r.i 0.0)
            blank = Array.any (String.contains (String.Pattern "has nothing on"))
              (map Machine.describe acts)
          in labelled /= blank)
@@ -1007,14 +1029,14 @@ main = do
   -- No reverse row: direction is the sign of speed, so backwards at half speed
   -- is Reverse on the config bank and then a half here.
   assert "the speed bank sends a rate"
-    (map (\i -> Machine.act { loops: [], focus: 2 } (Gestures.Tap LB.SpeedBank i))
+    (map (\i -> Machine.act { loops: [], focus: 2 } (Gestures.Tap LB.SpeedBank i 0.0))
        [ 0, 2, 4 ]
       == [ [ Machine.Command "2sp0.25" ]
          , [ Machine.Command "2sp1.0" ]
          , [ Machine.Command "2sp2.0" ] ])
 
   assert "and pendulum is a config switch of its own"
-    (Machine.act { loops: [], focus: 4 } (Gestures.Tap LB.ConfigBank 5)
+    (Machine.act { loops: [], focus: 4 } (Gestures.Tap LB.ConfigBank 5 0.0)
       == [ Machine.Command "4pend" ])
 
   -- What is not built says what it is waiting for, and says it in the SAME
@@ -1022,14 +1044,14 @@ main = do
   -- switch that shrugs cannot be told apart from a broken cable only by
   -- reading two files.
   assert "an unimplemented switch names itself and what it waits for"
-    (map Machine.describe (Machine.act (rigOf []) (Gestures.Tap LB.ChanceBank 3))
+    (map Machine.describe (Machine.act (rigOf []) (Gestures.Tap LB.ChanceBank 3 0.0))
       == [ "1 in 4: chance needs a random source in the audio callback" ]
       && LB.dutyLabel (LB.Grid 4) == "4 Bars")
 
   -- A switch with nothing on it is a different answer from one that is waiting
   -- for the engine, and both are different from silence.
   assert "and a switch with nothing on it says that instead"
-    (map Machine.describe (Machine.act (rigOf []) (Gestures.Tap LB.PanBank 99))
+    (map Machine.describe (Machine.act (rigOf []) (Gestures.Tap LB.PanBank 99 0.0))
       == [ "pan switch 99 has nothing on it" ])
 
   -- The letters are only true where the board can reach the loops. With the
@@ -1062,7 +1084,7 @@ main = do
 
   -- A loop the snapshot does not contain is not a loop we may guess about.
   assert "a gesture for a loop that is not in the snapshot is refused, not assumed"
-    (Machine.act (rigOf []) (Gestures.Tap LB.LoopBank 0)
+    (Machine.act (rigOf []) (Gestures.Tap LB.LoopBank 0 0.0)
       == [ Machine.Focus 0, Machine.Unavailable "loop 1 is not in the snapshot" ])
 
   log ""
