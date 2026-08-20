@@ -136,10 +136,26 @@ utilities fc =
         (map one (LB.faceAux fc))
     ]
   where
+  -- Tap, then whatever else the switch carries. The extra gestures are shown
+  -- smaller and only when they exist: G to L have no markings, so this is the
+  -- only place they are written down at all, and a row of empty slots would
+  -- suggest a surface fuller than it is.
   one sw =
     HH.div [ HP.class_ (HH.ClassName "loops-util") ]
       [ HH.span [ HP.class_ (HH.ClassName "util-key") ] [ HH.text (LB.switchKey sw) ]
-      , HH.span_ [ HH.text (LB.switchLabel sw) ]
+      , HH.div [ HP.class_ (HH.ClassName "util-duties") ]
+          ( [ HH.span_ [ HH.text (LB.switchLabel sw) ] ]
+              <> extra "\x00d7\x00d7" (LB.switchDouble sw)
+              <> extra "hold" (LB.switchHold sw)
+          )
+      ]
+  extra how = case _ of
+    Nothing -> []
+    Just what ->
+      [ HH.span [ HP.class_ (HH.ClassName "util-alt") ]
+          [ HH.span [ HP.class_ (HH.ClassName "util-how") ] [ HH.text how ]
+          , HH.text what
+          ]
       ]
 
 -- | One loop.

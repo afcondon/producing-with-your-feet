@@ -289,7 +289,11 @@ initAppState =
   -- long-press setting is readable (`03 21`, offset 3, currently 4) but its
   -- scale is not yet known — 4 is 700 ms and one point gives no conversion —
   -- so agreeing by hand is honest until a second reading pins it.
-  , looperGestures: Gestures.recogniser { holdMs: 600.0, doubleTapMs: 260.0 }
+  , looperGestures: Gestures.recogniser
+      { holdMs: 600.0
+      , doubleTapMs: 260.0
+      , hasDouble: LooperBanks.hasDouble
+      }
   , looperFocus: 0
   , looperLastAction: Nothing
   , looperShowsSlots: true

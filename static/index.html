@@ -1974,6 +1974,14 @@ body {
   font-size: 11px; color: #6d6862;
   border-top: 1px solid #e6e2dc; padding-top: 6px;
 }
+/* Tap on the first line; the gestures a switch also carries beneath it,
+   quieter, because they are the ones you look up rather than reach for. */
+.util-duties { display: flex; flex-direction: column; gap: 2px; }
+.util-alt { font-size: 10px; color: #a09a92; display: flex; gap: 5px; }
+.util-how {
+  font-size: 9px; letter-spacing: 0.04em; text-transform: uppercase;
+  color: #bdb6ad; min-width: 2.1em;
+}
 .util-key {
   font-weight: 600; font-size: 13px; color: #2f2b27;
   min-width: 1em; font-variant-numeric: tabular-nums;

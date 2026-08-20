@@ -91,21 +91,33 @@ type Rig =
 act :: Rig -> Gesture -> Array Action
 act rig = case _ of
 
-  Tap slot i _ -> case LB.dutyAt slot i of
-    Just d -> onDuty rig slot d
+  Tap slot i _ -> gesture rig slot i _.tap
+
+  -- A double tap on a loop switch overdubs, which is the one place the second
+  -- press means something other than "the same thing again".
+  DoubleTap slot i _ -> case LB.dutiesAt slot i of
+    Just s -> case s.double of
+      Just (LB.SelectLoop n) -> Array.cons (Focus n) (onDouble n (loopAt rig n))
+      Just d -> onDuty rig slot d
+      Nothing -> [ Handled ("nothing on a double tap of " <> LB.dutyLabel s.tap) ]
     Nothing -> [ missing slot i ]
 
-  DoubleTap slot i _ -> case LB.dutyAt slot i of
-    Just (LB.SelectLoop n) -> Array.cons (Focus n) (onDouble n (loopAt rig n))
-    Just d -> [ Handled ("double tap on " <> LB.dutyLabel d) ]
+  Hold slot i _ -> case LB.dutiesAt slot i of
+    Just s -> case s.hold of
+      -- The MC6 makes this jump itself, from the table it was programmed with;
+      -- all the app has to do is agree which loop that bank now talks about.
+      Just (LB.Enter LB.ConfigBank) | LB.SelectLoop n <- s.tap ->
+        [ Focus n, Handled ("configuring loop " <> show (n + 1)) ]
+      Just d -> onDuty rig slot d
+      Nothing -> [ Handled ("nothing on a long press of " <> LB.dutyLabel s.tap) ]
     Nothing -> [ missing slot i ]
 
-  -- The MC6 jumps to the config bank on its own long press; all this has to do
-  -- is agree about which loop that bank is now talking about.
-  Hold slot i _ -> case LB.dutyAt slot i of
-    Just (LB.SelectLoop n) -> [ Focus n, Handled ("configuring loop " <> show (n + 1)) ]
-    Just d -> [ Handled ("hold on " <> LB.dutyLabel d) ]
-    Nothing -> [ missing slot i ]
+gesture :: Rig -> BankSlot -> Int -> (LB.Duties -> Duty') -> Array Action
+gesture rig slot i pick = case LB.dutiesAt slot i of
+  Just s -> onDuty rig slot (pick s)
+  Nothing -> [ missing slot i ]
+
+type Duty' = LB.Duty
 
 missing :: BankSlot -> Int -> Action
 missing slot i = Unavailable (show' slot <> " switch " <> show i <> " has nothing on it")
@@ -135,6 +147,15 @@ onDuty rig slot = case _ of
 
   LB.Reverse -> [ Command (cmd rig.focus "rev") ]
   LB.Pendulum -> [ Command (cmd rig.focus "pend") ]
+
+  -- The one thing a pedal cannot do. With no loop yet it claims the daemon's
+  -- default of the last few seconds; with one running it claims the last
+  -- complete cycle, which lands on the grid because the fill is addressed in
+  -- output frames.
+  LB.ClaimPast -> [ Command (cmd rig.focus "t") ]
+  LB.Redo -> [ Command (cmd rig.focus "y") ]
+  LB.StartAll -> map (\i -> Command (cmd i "h1")) (Array.range 0 (loopSwitches - 1))
+  LB.ClearAll -> map (\i -> Command (cmd i "c")) (Array.range 0 (loopSwitches - 1))
 
   LB.Free -> [ Command (cmd rig.focus "g0") ]
   -- **The engine's grid is the anchor loop's cycle, not a bar**, decided when

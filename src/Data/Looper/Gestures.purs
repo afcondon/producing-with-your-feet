@@ -102,7 +102,24 @@ derive instance Eq Gesture
 -- | app and the board change their minds together. `doubleTapMs` is the one
 -- | that wants to follow the grid: long enough to catch a second tap, short
 -- | enough to resolve before the boundary the action is waiting for anyway.
-type Thresholds = { holdMs :: Number, doubleTapMs :: Number }
+type Thresholds =
+  { holdMs :: Number
+  , doubleTapMs :: Number
+  -- | Whether this switch can be double-tapped at all.
+  -- |
+  -- | **Waiting is only worth it for a switch that might.** A tap cannot be
+  -- | known to be a tap until the window expires, so a recogniser that waits
+  -- | unconditionally taxes every press in the family for a gesture a handful
+  -- | of switches carry — undo, clear and the click all answering a third of a
+  -- | second late so that a loop switch can be double-tapped.
+  -- |
+  -- | Passed in rather than looked up, because the recogniser has no business
+  -- | knowing about banks. `Data.Looper.Banks.hasDouble` is the answer the app
+  -- | supplies, and it comes from the same table the device was programmed
+  -- | from — so a switch that gains a double tap starts waiting for one
+  -- | without anything here changing.
+  , hasDouble :: BankSlot -> Int -> Boolean
+  }
 
 -- | The machine, with its state hidden — which is `Mealy`'s whole character.
 type Recogniser = Mealy Event (Array Gesture)
@@ -170,10 +187,15 @@ step th mem = case _ of
       -- The hold already fired at the threshold; the release says nothing.
       Just h | h.resolved -> Tuple (mem { held = Nothing }) []
       Just h | sameAs h p.slot p.switch ->
-        Tuple
-          { held: Nothing
-          , waiting: Just { slot: p.slot, switch: p.switch, upAt: t, downAt: h.downAt }
-          } []
+        -- Nothing to wait for: with no double tap on this switch, the release
+        -- has already said everything a second press could.
+        if not (th.hasDouble p.slot p.switch) then
+          Tuple { held: Nothing, waiting: Nothing } [ Tap p.slot p.switch h.downAt ]
+        else
+          Tuple
+            { held: Nothing
+            , waiting: Just { slot: p.slot, switch: p.switch, upAt: t, downAt: h.downAt }
+            } []
       -- An up for something we never saw go down. Reachable after a reload, or
       -- if a down was lost; forgetting it is right, inventing a tap is not.
       _ -> Tuple (mem { held = Nothing }) []

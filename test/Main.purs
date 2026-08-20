@@ -779,7 +779,10 @@ main = do
   -- The recogniser is where the only real state in the input path lives, and
   -- it is entirely testable without a device, a socket or a foot: feed it
   -- events with timestamps and read the gestures out.
-  let th = { holdMs: 600.0, doubleTapMs: 250.0 }
+  -- `hasDouble` is what decides whether a tap has to wait at all, so these
+  -- tests state it outright rather than reaching for the real table: switch 0
+  -- can be double-tapped, switch 1 cannot.
+  let th = { holdMs: 600.0, doubleTapMs: 250.0, hasDouble: \_ i -> i == 0 }
       pressA = { slot: LB.LoopBank, switch: 0, down: true }
       pressB = { slot: LB.LoopBank, switch: 1, down: true }
       -- Fold a script of events, collecting everything emitted.
@@ -817,6 +820,17 @@ main = do
   -- A press on another switch while the first is still deciding. The first
   -- press was a tap; it just had not been allowed to say so. Dropping it would
   -- lose a press the player made.
+  -- Switch 1 carries no double tap, so there is nothing a second press could
+  -- say and the release has already said it. Most of the family is like this,
+  -- and it used to answer a third of a second late so that a handful of
+  -- switches could be double-tapped.
+  assert "a switch with no double tap answers on the release, not on a timer"
+    (run [ Gestures.Down pressB 0.0, Gestures.Up pressB 60.0 ]
+      == [ Gestures.Tap LB.LoopBank 1 0.0 ])
+
+  assert "and one that can be double-tapped still waits"
+    (run [ Gestures.Down pressA 0.0, Gestures.Up pressA 60.0 ] == [])
+
   assert "a different switch resolves the waiting one as a tap"
     (run [ Gestures.Down pressA 0.0, Gestures.Up pressA 50.0
          , Gestures.Down pressB 100.0, Gestures.Up pressB 150.0, Gestures.Tick 900.0 ]
@@ -968,7 +982,7 @@ main = do
     (LB.auxLegend LB.LoopBank
       == [ { key: "G", what: "< Board" }, { key: "H", what: "Stop All" }
          , { key: "I", what: "Undo" }, { key: "J", what: "Clear" }
-         , { key: "K", what: "Take" }, { key: "L", what: "Click" } ])
+         , { key: "K", what: "Capture" }, { key: "L", what: "Click" } ])
 
   -- **The rule about feet.** G to L have no markings, so they are remembered as
   -- positions; a switch that clears a loop on one page and sets an end-state on
@@ -977,8 +991,29 @@ main = do
   assert "the toolbar means the same thing on every bank"
     (Array.all
       (\slot -> map _.what (Array.drop 1 (LB.auxLegend slot))
-        == [ "Stop All", "Undo", "Clear", "Take", "Click" ])
+        == [ "Stop All", "Undo", "Clear", "Capture", "Click" ])
       LB.allSlots)
+
+  -- The second gesture, where a switch carries one. Same six everywhere for
+  -- the same reason the first six are: an unmarked switch is a position, and
+  -- a position that means different things on different pages cannot be
+  -- learned at all.
+  assert "and so does the second gesture, where there is one"
+    (Array.all
+      (\slot -> map (map LB.dutyLabel <<< _.double)
+        (Array.catMaybes (map (LB.dutiesAt slot) (Array.range 7 11)))
+        == [ Just "Start All", Just "Redo", Just "Clear All", Just "Save", Nothing ])
+      LB.allSlots)
+
+  -- Claiming the past is the live gesture and the one thing no pedal can do;
+  -- saving a WAV is never time-critical and was holding the fast slot while
+  -- the feature the ring exists for had no switch at all.
+  assert "capture has the tap and saving has the double, not the other way round"
+    (map LB.dutyLabel (Array.catMaybes [ LB.dutyAt LB.LoopBank 10 ]) == [ "Capture" ]
+      && Machine.act (rigOf []) (Gestures.Tap LB.PanBank 10 0.0)
+        == [ Machine.Command "0t" ]
+      && Machine.act (rigOf []) (Gestures.DoubleTap LB.PanBank 10 0.0)
+        == [ Machine.Command "w" ])
 
   assert "and only the way out differs, because only its destination does"
     (map (\slot -> map _.what (Array.take 1 (LB.auxLegend slot))) LB.allSlots
