@@ -871,6 +871,7 @@ main = do
   let idle n = { index: n, state: "idle", layers: 0, loopFrames: 0, loopSecs: 0.0
                , pos: 0, phase: 0.0, armed: false, recording: false, quant: false
                , muted: false, reverse: false, pan: 64, speed: 1.0, pendulum: false
+               , oneShot: false, levelArm: false, firing: false
                , pendingAt: -1, shapes: [] }
       withState n s ls = (idle n) { state = s, layers = ls }
       rigOf ls = { loops: ls, focus: 0 }
@@ -947,7 +948,7 @@ main = do
   -- config bank serving six loops only works because of that.
   assert "reverse and clear act on the focused loop, not the pressed switch"
     (Machine.act { loops: [ idle 0, idle 1, idle 2 ], focus: 2 } (Gestures.Tap LB.ConfigBank 4 0.0)
-      == [ Machine.Command "2rev" ]
+      == [ Machine.Command "2rev1" ]
       && Machine.act { loops: [], focus: 1 } (Gestures.Tap LB.ConfigBank 9 0.0)
         == [ Machine.Command "1c" ])
 
@@ -1070,17 +1071,51 @@ main = do
          , [ Machine.Command "2sp1.0" ]
          , [ Machine.Command "2sp2.0" ] ])
 
-  assert "and pendulum is a config switch of its own"
+  -- **Set, never flip.** The toggles read the engine's own answer out of the
+  -- snapshot and send the explicit form, so a dropped command cannot leave the
+  -- app and the engine disagreeing for ever about which way a loop is facing.
+  assert "and pendulum is a config switch of its own, sent as a value"
     (Machine.act { loops: [], focus: 4 } (Gestures.Tap LB.ConfigBank 5 0.0)
-      == [ Machine.Command "4pend" ])
+      == [ Machine.Command "4pend1" ])
+
+  -- **The mode changes what the switch means, and the switch keeps its name.**
+  --
+  -- A one-shot is silent between passes by definition, so there is no playing
+  -- and stopped for a tap to toggle between — the only thing it can mean is
+  -- fire. Which is exactly why the mode rides in the snapshot: what the foot
+  -- does depends on a fact only the engine holds, and no amount of remembering
+  -- on this side would be as good as being told.
+  assert "a tap on a one-shot fires it, where a tap on any other loop stops it"
+    (Machine.act (rigOf [ (withState 0 "playing" 1) { oneShot = true } ])
+       (Gestures.Tap LB.LoopBank 0 0.0)
+      == [ Machine.Focus 0, Machine.Command "0f" ]
+      && Machine.act (rigOf [ withState 0 "playing" 1 ])
+           (Gestures.Tap LB.LoopBank 0 0.0)
+        == [ Machine.Focus 0, Machine.Command "0h0" ])
+
+  -- A level-armed loop waits for a sound that may never come, holding the one
+  -- converter the rig has. A press has to be able to take that back, or one
+  -- loop can lock out the other five with nothing on screen to blame.
+  assert "and a press takes back an arm that is still waiting"
+    (Machine.act (rigOf [ (idle 0) { armed = true } ]) (Gestures.Tap LB.LoopBank 0 0.0)
+      == [ Machine.Focus 0, Machine.Command "0r" ])
+
+  -- Modes, where Chance was. Two toggles rather than five values, because
+  -- one-shot and level-arm are not exclusive — which is the thing a bank of
+  -- five choices cannot say.
+  assert "the modes bank sets its toggles from what the engine last reported"
+    (Machine.act { loops: [ (idle 0) { levelArm = true } ], focus: 0 }
+       (Gestures.Tap LB.ModesBank 0 0.0) == [ Machine.Command "0one1" ]
+      && Machine.act { loops: [ (idle 0) { levelArm = true } ], focus: 0 }
+           (Gestures.Tap LB.ModesBank 1 0.0) == [ Machine.Command "0lev0" ])
 
   -- What is not built says what it is waiting for, and says it in the SAME
   -- words on the pedal and on screen — the gap carries its own name now, so a
   -- switch that shrugs cannot be told apart from a broken cable only by
   -- reading two files.
   assert "an unimplemented switch names itself and what it waits for"
-    (map Machine.describe (Machine.act (rigOf []) (Gestures.Tap LB.ChanceBank 3 0.0))
-      == [ "1 in 4: chance needs a random source in the audio callback" ]
+    (map Machine.describe (Machine.act (rigOf []) (Gestures.Tap LB.ModesBank 2 0.0))
+      == [ "Chance: chance needs a random source in the audio callback" ]
       && LB.dutyLabel (LB.Grid 4) == "4 Bars")
 
   -- A switch with nothing on it is a different answer from one that is waiting

@@ -221,6 +221,11 @@ layerRow st i sh =
 playhead :: forall w i. LooperState -> LoopState -> Array (HH.HTML w i)
 playhead _ st
   | st.loopFrames <= 0 = []
+  -- A one-shot between passes has a playhead and nothing to show with it. The
+  -- arithmetic never stops — it cannot hold still — so `phase` goes on sweeping
+  -- while the loop is silent, and a bar moving under a loop nobody can hear is
+  -- the display telling a story about audio that is not happening.
+  | st.oneShot && not st.firing = []
   | otherwise =
       [ HH.div
           [ HP.class_ (HH.ClassName "loop-playhead")
@@ -292,9 +297,17 @@ stateWord st = case st.state of
   -- state: the engine still calls it "playing" and there is nothing to play.
   -- The footer still shows the length, which is the useful half — that is what
   -- the next take will land on.
+  -- Above the emptiness guard, and it has to be: a level-armed loop is empty
+  -- by definition — that is what it is waiting to stop being — so reading the
+  -- layer count first made the one state the player most needs to see the one
+  -- state that could never be shown.
+  "armed" -> if st.pendingAt >= 0 then "waiting" else "listening"
   _ | st.layers == 0 -> if st.loopFrames > 0 then "empty" else ""
   _ | st.muted -> "stopped"
-  "armed" -> if st.pendingAt >= 0 then "waiting" else "armed"
+  -- Loaded and waiting for a foot, which is a different thing from stopped: a
+  -- stopped loop is still turning and comes back where it would have been, and
+  -- a one-shot comes back at the top.
+  _ | st.oneShot -> if st.firing then "firing" else "ready"
   "recordingFirst" -> "recording"
   "overdubbing" -> "overdub"
   "multiplying" -> "multiply"
@@ -308,6 +321,7 @@ stateClass st = case st.state of
   -- a fact about layers rather than about state.
   _ | st.layers == 0 && st.state /= "recordingFirst" && st.state /= "armed" -> "is-empty"
   _ | st.muted -> "is-stopped"
+  _ | st.oneShot -> if st.firing then "is-playing" else "is-stopped"
   "armed" -> "is-armed"
   "recordingFirst" -> "is-recording"
   "overdubbing" -> "is-recording"
@@ -337,6 +351,12 @@ marks st = joinWith " · " (Array.catMaybes
   , if st.speed == 1.0 then Nothing else Just (speedWord st.speed)
   , if st.pan == 64 then Nothing else Just (panWord st.pan)
   , if st.quant then Just "GRID" else Nothing
+  -- The two modes, because the pedal cannot show them and because they change
+  -- what a press does. A one-shot spends most of its life silent and looking
+  -- exactly like a stopped loop; without this the player would be pressing a
+  -- switch that does something different for no visible reason.
+  , if st.oneShot then Just "1 SHOT" else Nothing
+  , if st.levelArm then Just "LVL" else Nothing
   ])
 
 -- | Speed as the multiplier the switch was labelled with, not a decimal.

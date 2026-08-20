@@ -149,14 +149,14 @@ data BankSlot
   | ConfigBank
   | QuantiseBank
   | SpeedBank
-  | ChanceBank
+  | ModesBank
   | PanBank
 
 derive instance Eq BankSlot
 derive instance Ord BankSlot
 
 allSlots :: Array BankSlot
-allSlots = [ LoopBank, ConfigBank, QuantiseBank, SpeedBank, ChanceBank, PanBank ]
+allSlots = [ LoopBank, ConfigBank, QuantiseBank, SpeedBank, ModesBank, PanBank ]
 
 slotIndex :: BankSlot -> Int
 slotIndex = case _ of
@@ -164,7 +164,7 @@ slotIndex = case _ of
   ConfigBank -> 1
   QuantiseBank -> 2
   SpeedBank -> 3
-  ChanceBank -> 4
+  ModesBank -> 4
   PanBank -> 5
 
 slotFromIndex :: Int -> Maybe BankSlot
@@ -173,7 +173,7 @@ slotFromIndex = case _ of
   1 -> Just ConfigBank
   2 -> Just QuantiseBank
   3 -> Just SpeedBank
-  4 -> Just ChanceBank
+  4 -> Just ModesBank
   5 -> Just PanBank
   _ -> Nothing
 
@@ -184,7 +184,7 @@ slotName = case _ of
   ConfigBank -> "Loop Cfg"
   QuantiseBank -> "Quantise"
   SpeedBank -> "Speed"
-  ChanceBank -> "Chance"
+  ModesBank -> "Modes"
   PanBank -> "Pan"
 
 slotId :: BankSlot -> String
@@ -193,7 +193,7 @@ slotId = case _ of
   ConfigBank -> "config"
   QuantiseBank -> "quantise"
   SpeedBank -> "speed"
-  ChanceBank -> "chance"
+  ModesBank -> "modes"
   PanBank -> "pan"
 
 -- | Which CC a given switch sends.
@@ -386,6 +386,27 @@ data Duty
   | ClickToggle
   | Reverse
   | Pendulum
+  -- | One pass per trigger, rather than turning for ever.
+  -- |
+  -- | **The one gesture that moves a loop's zero.** Everywhere else in this rig
+  -- | a loop's position is fixed at the moment it was recorded — that is what
+  -- | phase-locking means, and it is why stopping a loop and starting it again
+  -- | puts it back where it would have been rather than where it began. A
+  -- | one-shot has to start from the top, so firing it moves `origin`, and a
+  -- | loop that can be fired has given up its place in the phase-locked set.
+  -- |
+  -- | Which is precisely why it is a mode and not a gesture: losing your grid
+  -- | should be something you switch on, never something a footswitch does to
+  -- | you on a bank you did not mean to be standing on.
+  | OneShot
+  -- | Wait for a sound instead of starting on the press.
+  -- |
+  -- | Free, because the pre-roll ring is already running: the recording begins
+  -- | fifty milliseconds *before* the threshold was crossed, so the attack that
+  -- | crossed it is in the take rather than clipped off the front of it. The
+  -- | same trick as claiming the past and as un-doing gesture latency — the
+  -- | third thing the ring has paid for.
+  | LevelArm
   -- | Claim the recent past. **The one thing a pedal cannot do**, and the
   -- | reason for a sixty-second ring: you played something good and did not
   -- | hit record, so hit it afterwards. It had no footswitch at all until
@@ -433,6 +454,8 @@ dutyLabel = case _ of
   ClickToggle -> "Click"
   Reverse -> "Reverse"
   Pendulum -> "Pendulum"
+  OneShot -> "One Shot"
+  LevelArm -> "Listen"
   Free -> "Free"
   Grid n -> show n <> (if n == 1 then " Bar" else " Bars")
   Rate r -> "x " <> rateWord r
@@ -460,6 +483,8 @@ dutyName = case _ of
   ClickToggle -> "Click on or off"
   Reverse -> "Play the loop backwards"
   Pendulum -> "Forward, then back"
+  OneShot -> "One pass, then silence"
+  LevelArm -> "Start when you play"
   Free -> "Free length and launch"
   Grid n -> "Round to " <> show n <> (if n == 1 then " bar" else " bars")
   Rate r -> rateWord r <> " speed"
@@ -632,7 +657,7 @@ own = case _ of
   ConfigBank ->
     [ only (Enter QuantiseBank)
     , only (Enter SpeedBank)
-    , only (Enter ChanceBank)
+    , only (Enter ModesBank)
     , only (Enter PanBank)
     , only (Reverse)
     , only (Pendulum)
@@ -660,12 +685,30 @@ own = case _ of
     , only (Back (ToSlot ConfigBank))
     ]
 
-  ChanceBank ->
-    [ only (NotYet "Always" chanceGap)
-    , only (NotYet "3 in 4" chanceGap)
-    , only (NotYet "1 in 2" chanceGap)
-    , only (NotYet "1 in 4" chanceGap)
-    , only (NotYet "1 in 8" chanceGap)
+  -- **Modes, where Chance was.**
+  --
+  -- Chance had a bank of five to itself and could not do any of it — five
+  -- switches spending the config bank's scarcest resource on a feature waiting
+  -- on a random source in the audio callback. It keeps one place here, which is
+  -- all an unimplemented thing has earned.
+  --
+  -- What replaces it is the shape the surface actually wanted. Quantise, speed
+  -- and pan are each **one value chosen from a few**, and a bank of five reads
+  -- like that. One-shot and level-arm are not values, they are *toggles*, and
+  -- they are not exclusive — which is the conundrum that came up when the last
+  -- of the config switches was being spent: you cannot step through a set of
+  -- things that can all be on at once. A bank of independent switches is the
+  -- honest rendering of a set of independent facts.
+  --
+  -- Three of the six are empty, deliberately. This is where the modes that are
+  -- still being argued about will land, and a bank with room in it is better
+  -- than one that has to be redesigned to admit the next one.
+  ModesBank ->
+    [ only OneShot
+    , only LevelArm
+    , only (NotYet "Chance" chanceGap)
+    , only Nothing_
+    , only Nothing_
     , only (Back (ToSlot ConfigBank))
     ]
 

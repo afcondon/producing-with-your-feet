@@ -45,7 +45,7 @@ import Data.Array as Array
 import Data.Looper.Banks (BankSlot(..), loopSwitches)
 import Data.Looper.Banks as LB
 import Data.Looper.Gestures (Gesture(..))
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), maybe)
 import Foreign.LooperSocket (LoopState)
 
 -- | What the app should do about a gesture.
@@ -145,8 +145,15 @@ onDuty rig slot = case _ of
   LB.SaveTake -> [ Command "w" ]
   LB.ClickToggle -> [ Command "k" ]
 
-  LB.Reverse -> [ Command (cmd rig.focus "rev") ]
-  LB.Pendulum -> [ Command (cmd rig.focus "pend") ]
+  -- **Set, never flip.** All four of these read the current value out of the
+  -- snapshot and send the explicit form, for the reason the daemon spells out
+  -- on `k` and `h`: a client that flips drifts out of step the first time a
+  -- command is dropped and never recovers. The app has the engine's own answer
+  -- thirty times a second, so there is no excuse for asking it to guess.
+  LB.Reverse -> [ Command (cmd rig.focus (setTo "rev" (is _.reverse))) ]
+  LB.Pendulum -> [ Command (cmd rig.focus (setTo "pend" (is _.pendulum))) ]
+  LB.OneShot -> [ Command (cmd rig.focus (setTo "one" (is _.oneShot))) ]
+  LB.LevelArm -> [ Command (cmd rig.focus (setTo "lev" (is _.levelArm))) ]
 
   -- The one thing a pedal cannot do. With no loop yet it claims the daemon's
   -- default of the last few seconds; with one running it claims the last
@@ -173,6 +180,13 @@ onDuty rig slot = case _ of
 
   LB.NotYet what why -> [ Unavailable (what <> ": " <> why) ]
   LB.Nothing_ -> [ Unavailable (show' slot <> " has nothing on that switch") ]
+  where
+  is field = maybe false field (loopAt rig rig.focus)
+
+-- | The explicit form of a toggle: `rev1` to turn it on, `rev0` to turn it off,
+-- | chosen from what the engine last said rather than from what we last sent.
+setTo :: String -> Boolean -> String
+setTo verb on = verb <> (if on then "0" else "1")
 
 -- | Whether closing a loop should send the board to the config bank.
 -- |
@@ -209,6 +223,11 @@ onTap i = case _ of
     | st.state == "overdubbing" -> [ Command (cmd i "r") ]
     | st.state == "multiplying" -> [ Command (cmd i "r") ]
 
+    -- Waiting for a sound that may never come. A press has to be able to take
+    -- that back, or a level-armed loop holds the one converter the rig has and
+    -- locks out the other five.
+    | st.armed -> [ Command (cmd i "r") ]
+
     -- **Empty is a fact about layers, not about state.**
     --
     -- Undo removes a layer and deliberately keeps the loop's length — so the
@@ -222,6 +241,13 @@ onTap i = case _ of
     -- Quantised loops answer this with "starts on the grid in N s", which is
     -- why the display shows a countdown rather than nothing.
     | st.layers == 0 -> [ Command (cmd i "r") ]
+
+    -- **A one-shot has no stopped and playing to toggle between.** It is silent
+    -- between passes by definition, so the only thing a tap can mean is fire —
+    -- and that is the whole reason the mode rides in the snapshot rather than
+    -- being remembered here: what the switch does depends on a fact only the
+    -- engine holds, and the app has to know it before the foot lands.
+    | st.oneShot -> [ Command (cmd i "f") ]
 
     -- Stop and start. Explicit `h0`/`h1` rather than the flipping `h`, so a
     -- dropped command cannot leave the app and the engine disagreeing about
@@ -256,7 +282,7 @@ show' = case _ of
   ConfigBank -> "config"
   QuantiseBank -> "quantise"
   SpeedBank -> "speed"
-  ChanceBank -> "chance"
+  ModesBank -> "modes"
   PanBank -> "pan"
 
 -- | One line about what an action did, for the display and the log.
