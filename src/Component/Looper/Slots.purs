@@ -81,7 +81,6 @@ import Data.Array as Array
 import Data.Int (round, toNumber)
 import Data.Maybe (Maybe(..))
 import Data.Looper.Banks as LB
-import Data.String (joinWith)
 import Foreign.LooperSocket (LoopState, LayerShape, LooperState)
 import Halogen.HTML as HH
 import Halogen.HTML.Properties as HP
@@ -178,9 +177,14 @@ slot top fc idx st =
         -- "forward · centre · free" on six slots is noise; a lone "REV" is
         -- information, and the config bank is otherwise invisible from here.
         , HH.span [ HP.class_ (HH.ClassName "loop-marks") ]
-            [ HH.text (marks st) ]
+            (map mark (marks st))
         ]
     ]
+
+mark :: forall w i. Mark -> HH.HTML w i
+mark m =
+  HH.span [ HP.class_ (HH.ClassName ("loop-mark " <> markClass m)) ]
+    [ HH.text (markText m) ]
 
 -- | The cycle, its layers, and the playhead.
 -- |
@@ -351,32 +355,59 @@ lengthWord top st
   | st.loopFrames <= 0 = "empty"
   | otherwise = secs st.loopSecs
 
+-- | What a mark is *for*, which is why they are not one string any more.
+-- |
+-- | They were: a row of words joined by dots, all the same weight and all the
+-- | same colour, so `1 SHOT` — which changes what your foot does — read exactly
+-- | like `L 50`, which is a fact about the stereo field. Six slots of that is a
+-- | wall of small grey text with the one thing you needed in the middle of it.
+-- |
+-- | Three kinds, and the distinction is about *when they matter* rather than
+-- | what they configure:
+-- |
+-- | - **`Foot`** changes what the next press does. It is about your next action,
+-- |   not about the sound, which is why it is the loudest thing here.
+-- | - **`Live`** is doing something on its own, right now, without you — a loop
+-- |   that is dropping cycles or receding is changing while you look at it.
+-- | - **`Set`** is simply true until you change it.
+data Mark
+  = Foot String
+  | Live String
+  | Set String
+
+markText :: Mark -> String
+markText = case _ of
+  Foot t -> t
+  Live t -> t
+  Set t -> t
+
+markClass :: Mark -> String
+markClass = case _ of
+  Foot _ -> "mark-foot"
+  Live _ -> "mark-live"
+  Set _ -> "mark-set"
+
 -- | What has been done to a loop that is not the default.
 -- |
 -- | Silence when nothing has: six slots each announcing "forward, centre, free"
 -- | is a row of noise that hides the one loop somebody reversed.
-marks :: LoopState -> String
-marks st = joinWith " · " (Array.catMaybes
-  [ if st.pendulum then Just "SWING" else if st.reverse then Just "REV" else Nothing
-  , if st.speed == 1.0 then Nothing else Just (speedWord st.speed)
-  , if st.pan == 64 then Nothing else Just (panWord st.pan)
-  , if st.quant then Just "GRID" else Nothing
-  -- The two modes, because the pedal cannot show them and because they change
-  -- what a press does. A one-shot spends most of its life silent and looking
-  -- exactly like a stopped loop; without this the player would be pressing a
-  -- switch that does something different for no visible reason.
-  , if st.oneShot then Just "1 SHOT" else Nothing
-  , if st.levelArm then Just "LVL" else Nothing
-  -- The rung, in the ladder's own words rather than as a decimal — the switch
-  -- that set it has no screen, so this is the only place the value is written
-  -- down, and it has to be written the way it would be said.
-  , if st.chance >= 1.0 then Nothing else Just (LB.chanceWord st.chance)
-  -- A crossfaded wrap is inaudible when it works, which is exactly why it has
-  -- to be written down: otherwise the only evidence a setting took is the
-  -- absence of a click nobody was listening for.
-  , if st.fadeMs <= 0.0 then Nothing else Just ("~" <> LB.fadeWord st.fadeMs)
-  , if st.decayDb >= 0.0 then Nothing else Just ("\x2193 " <> LB.decayWord st.decayDb)
-  ])
+marks :: LoopState -> Array Mark
+marks st = Array.catMaybes
+  -- Your feet first, because they are about what happens next rather than about
+  -- what is happening. A one-shot fires where any other loop stops.
+  [ if st.oneShot then Just (Foot "1 shot") else Nothing
+  , if st.levelArm then Just (Foot "listen") else Nothing
+  -- Then the two that move on their own. A loop at 1 in 4 or losing 3 dB a pass
+  -- is not where you left it, and nothing else on screen would say so.
+  , if st.chance >= 1.0 then Nothing else Just (Live (LB.chanceWord st.chance))
+  , if st.decayDb >= 0.0 then Nothing else Just (Live (LB.decayWord st.decayDb))
+  -- And then what is merely true.
+  , if st.pendulum then Just (Set "swing") else if st.reverse then Just (Set "rev") else Nothing
+  , if st.speed == 1.0 then Nothing else Just (Set (speedWord st.speed))
+  , if st.pan == 64 then Nothing else Just (Set (panWord st.pan))
+  , if st.quant then Just (Set "grid") else Nothing
+  , if st.fadeMs <= 0.0 then Nothing else Just (Set ("~" <> LB.fadeWord st.fadeMs))
+  ]
 
 -- | Speed as the multiplier the switch was labelled with, not a decimal.
 -- |

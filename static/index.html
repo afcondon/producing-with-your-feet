@@ -1945,10 +1945,28 @@ body {
   display: flex; justify-content: space-between;
   font-size: 11px; color: #8b857d; font-variant-numeric: tabular-nums;
 }
-.loop-marks {
-  letter-spacing: 0.08em; font-weight: 600; color: #3a7d6c;
+/* Three weights, not one colour.
+   The marks used to be one run of small green text joined by dots, so "1 SHOT"
+   — which changes what your foot does — read exactly like "L 50", which is a
+   fact about the stereo field. Hierarchy by contrast rather than by hue: solid
+   for the ones that change your next press, outlined for the ones changing on
+   their own, plain for the ones that are merely true. */
+.loop-marks { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.loop-mark {
+  font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+  font-weight: 600; line-height: 1.1; white-space: nowrap;
 }
-.loop-slot.is-stopped .loop-marks { color: #b9b3a9; }
+/* A chip too, just the quietest one. Without a boundary two adjacent plain
+   marks run together — "REV" beside "L" reads as one word "REV L" — which is
+   how the dot separators earned their keep in the first place. */
+.mark-set  { color: #8b857d; background: #f0ede8; padding: 3px 5px; }
+.mark-live { color: #3a7d6c; border: 1px solid #bcd3cb; padding: 2px 5px; }
+.mark-foot { color: #fbfaf8; background: #2f2b27; padding: 3px 5px; }
+/* A stopped loop keeps its marks legible but drained, the same as its blocks:
+   they are still true, they are just not happening. */
+.loop-slot.is-stopped .mark-set  { color: #b0aaa2; background: #f4f2ee; }
+.loop-slot.is-stopped .mark-live { color: #b9b3a9; border-color: #ded9d1; }
+.loop-slot.is-stopped .mark-foot { background: #b9b3a9; }
 
 .looper-lastaction {
   font-size: 12px; color: #6d6862; margin: -14px 0 20px 0;
