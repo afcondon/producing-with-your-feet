@@ -783,14 +783,35 @@ renderDevicePreview state nb mCard =
           _ -> HH.text ""
       ]
 
--- | One switch as it sits underfoot: our label, and the device's if it differs.
+-- | One switch as it sits underfoot, as the device actually has it.
+-- |
+-- | **One view, not two.** This used to show the app's stored label in large
+-- | type and append `device: X` in red whenever the two disagreed — so a bank
+-- | the app had never authored showed a *different bank's* switches
+-- | prominently, with the truth as a footnote. Bank 22 is the case that made it
+-- | obvious: the looper family is generated in `Data.Looper.Banks` and written
+-- | to the device, never stored, so the Controls page had no entry for it and
+-- | fell back to whichever saved bank claimed that number. It could never come
+-- | right, because the disagreement was not drift — it was a category the store
+-- | does not model.
+-- |
+-- | So once the device has been read, what it says *is* the label. The card
+-- | already took its verb from the survey rather than from the store, which
+-- | made the mixture worse: device-derived colour under an app-derived name.
+-- |
+-- | The reasonable worry is reading an empty device and losing authored work.
+-- | That is an argument for backup and recovery, which this app has, and not
+-- | for rendering two truths at once and leaving the reader to arbitrate.
 renderBankSwitchCell
   :: forall m. State -> ControlBank -> Maybe MC6Survey.BankCard -> Int
   -> H.ComponentHTML Action () m
 renderBankSwitchCell state bank mCard idx =
   let mSw = Array.index bank.switches idx
       verb = mCard >>= \c -> Array.index c.slots idx
-      observed = mCard >>= \c -> Array.index c.observedNames idx
+      -- What the device said this switch is called, when there is a reading.
+      -- Empty means the device reported a blank switch, which is a fact and not
+      -- an absence, so it stays.
+      fromDevice = mCard >>= \c -> Array.index c.observedNames idx
       isSelected = state.selectedSwitchIdx == Just idx
       global = isJust (Global.globalAt state.input.globalSwitches idx)
       cls = String.joinWith " "
@@ -813,18 +834,14 @@ renderBankSwitchCell state bank mCard idx =
             else HH.text ""
         ]
     , HH.div [ HP.class_ (H.ClassName "controls-bank-switch-label") ]
-        [ HH.text (fromMaybe "" (mSw <#> _.label)) ]
+        -- The device when it has been read, ours only when it has not.
+        [ HH.text (fromMaybe (fromMaybe "" (mSw <#> _.label)) fromDevice) ]
     , case assignedBoard state bank.mc6BankNumber idx of
         Just bp -> HH.div [ HP.class_ (H.ClassName "controls-bank-switch-board") ]
           [ HH.text (bp.name <> "  " <> show (boardBudget state bp)
                       <> "/" <> show Board.messageLimit) ]
         Nothing -> HH.div [ HP.class_ (H.ClassName "controls-bank-switch-verb") ]
           [ HH.text (maybe "" Survey.verbName verb) ]
-    , case observed of
-        Just nm | nm /= "" && Just nm /= (mSw <#> _.label) ->
-          HH.div [ HP.class_ (H.ClassName "controls-bank-switch-observed") ]
-            [ HH.text ("device: " <> nm) ]
-        _ -> HH.text ""
     ]
 
 -- ──── Zoom 3: one switch ────
