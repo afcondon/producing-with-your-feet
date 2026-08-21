@@ -2468,7 +2468,7 @@ runGesture g = do
   st <- H.get
   let rig = { loops: maybe [] _.loops st.looper, focus: st.looperFocus }
   followBoard g
-  traverse_ (runAction (deferralOf st.looperDeferral g.gesture)) (Machine.act rig g)
+  traverse_ (runAction (deferralOf st.looperDeferral g)) (Machine.act rig g)
 
 -- | How late this command already is, before it has gone anywhere.
 -- |
@@ -2481,15 +2481,24 @@ runGesture g = do
 -- | switch go down and could subtract; now it sees one message that the device
 -- | withheld until it knew, and the length of that wait is a setting rather than
 -- | an observation. See `Engine.looperDeferral` for what each number is worth.
-deferralOf :: { tapMs :: Number, holdMs :: Number } -> LoopBanks.Gesture -> Number
-deferralOf d = case _ of
-  LoopBanks.Tap -> d.tapMs
-  -- The window again, measured from the second press. Doubles used to be dated
-  -- from the *first* of the pair, on the grounds that it is where the player
-  -- committed; that is no longer knowable, and a double tap is not the gesture
-  -- anything sample-critical hangs on.
-  LoopBanks.Double -> d.tapMs
-  LoopBanks.Hold -> d.holdMs
+-- |
+-- | **Except when there was no wait at all.** A switch carrying one meaning is
+-- | programmed on `ActionPress`, which the device fires at press-down — so its
+-- | tap is not late, and saying it was would have the daemon reach back into the
+-- | pre-roll ring for time that has not passed. That is a fact about how the
+-- | switch was programmed, so it is read from the table that programmed it.
+deferralOf
+  :: { tapMs :: Number, holdMs :: Number } -> LoopBanks.SwitchGesture -> Number
+deferralOf d g
+  | LoopBanks.firesAtPressDown g.slot g.switch g.gesture = 0.0
+  | otherwise = case g.gesture of
+      LoopBanks.Tap -> d.tapMs
+      -- The window again, measured from the second press. Doubles used to be
+      -- dated from the *first* of the pair, on the grounds that it is where the
+      -- player committed; that is no longer knowable, and a double tap is not
+      -- the gesture anything sample-critical hangs on.
+      LoopBanks.Double -> d.tapMs
+      LoopBanks.Hold -> d.holdMs
 
 -- | Keep track of which bank the board is showing, including the jumps it makes
 -- | on its own.

@@ -822,22 +822,36 @@ main = do
               , Tuple ActionLongPress 1
               ])
 
-  -- **The fallback.** The device suppresses Release on a double whether or not
-  -- anything is bound to it, so a switch with no second meaning would answer a
-  -- fumbled double with silence. It gets the tap's own value instead, and a
-  -- double tap on Click toggles the click once.
-  let clickSwitch = loopBankSwitch 11
-  assert "a switch with no second meaning answers a double tap as a tap"
-    (map ccsOf clickSwitch
-      == Just [ Tuple ActionRelease 127
-              , Tuple ActionDoubleTapRelease 127
-              ])
+  -- **One meaning, one message, at press-down.** Measured: the MC6 fires Press
+  -- the instant the foot lands, whatever else is bound. It is the *release*
+  -- that waits, because the release is what has to be decided. So a switch with
+  -- nothing to decide has nothing to wait for — Click answers immediately, and
+  -- two presses in quick succession are simply two presses.
+  assert "a switch carrying one meaning reports at press-down and only there"
+    (map ccsOf (loopBankSwitch 11) == Just [ Tuple ActionPress 127 ])
 
   -- The jump has to ride on the same action as the CC that reports it, or the
   -- app is told about a press from a bank the board has already left.
   assert "a navigating switch jumps on the same actions it reports on"
-    (map jumpsOf (loopBankSwitch 6)
-      == Just [ ActionRelease, ActionDoubleTapRelease ])
+    (map jumpsOf (loopBankSwitch 6) == Just [ ActionPress ]
+      && map ccsOf (loopBankSwitch 6) == Just [ Tuple ActionPress 127 ])
+
+  -- **The fallback, which now applies only on the release side.** A switch that
+  -- carries a hold is on the release, and the device suppresses Release on a
+  -- double whether or not anything is bound to it — so a fumbled double would
+  -- answer with silence. It gets the tap's own value instead. The way out of a
+  -- sub-bank is such a switch: tap for Loops, hold for Board.
+  assert "a switch with a hold but no double still answers a fumbled double"
+    (let waysOut = do
+           b <- Array.drop 1 (LB.banks { base: 22, boardBank: 1 })
+           Array.take 1 (Array.drop 6 b.switches)
+     in Array.length waysOut == 5
+          && Array.all
+               (\sw -> ccsOf sw == [ Tuple ActionRelease 127
+                                   , Tuple ActionDoubleTapRelease 127
+                                   , Tuple ActionLongPress 1
+                                   ])
+               waysOut)
 
   -- **The CCs before the jumps.** A jump that goes out first means the message
   -- after it is emitted from the bank the board has already reached — which is
@@ -1602,18 +1616,15 @@ main = do
   -- to be seen, and a hold nobody made came to be fired. The gesture is one
   -- message now, so the ordering is belt as well as braces — kept because the
   -- reason it was needed has not stopped being true of the device.
-  assert "a tap's bank jump fires on the release, after the CC that reports it"
+  assert "a bank jump fires on the same action as the CC, and after it"
     (let
        cfg = LB.banks { base: 22, boardBank: 0 }
        switchA = do
          cb <- Array.find (\b -> b.name == "Loop Cfg") cfg
          Array.index cb.switches 0
        acts = maybe [] (map _.action <<< _.messages) switchA
-     -- Quantise on a tap: a CC on each of the two gestures the switch answers,
-     -- then the jump on each of the same two.
-     in acts == [ ActionRelease, ActionDoubleTapRelease
-                , ActionRelease, ActionDoubleTapRelease
-                ])
+     -- Quantise carries one meaning, so it is a press: the CC, then the jump.
+     in acts == [ ActionPress, ActionPress ])
 
   assert "each of the six loop switches holds to the config bank"
     (Array.length loopBankSwitches == LB.loopSwitches
@@ -1623,14 +1634,42 @@ main = do
           e.sw.messages)
         loopBankSwitches)
 
-  -- **Nothing at all on ActionPress.** The device defers every gesture until it
-  -- knows which one it is, so a message on the press either never fires (a
-  -- double suppresses it) or fires before the gesture has happened (a hold). It
-  -- is the one action this family must not use.
-  assert "and nothing anywhere in the family fires on the bare press"
+  -- **`ActionPress` if and only if the switch carries exactly one gesture.**
+  --
+  -- The device fires Press at press-down unconditionally, so a switch with a
+  -- second meaning would run its tap and then run the hold on top of it. That
+  -- is Morningstar's own advice to program the release wherever there is also a
+  -- long press, and it is the whole reason the release side exists here. The
+  -- converse matters just as much: a switch with nothing to decide has nothing
+  -- to wait for, and putting it on the release would cost a double-tap window
+  -- for no reason at all.
+  let placedSwitches = do
+        slot <- LB.allSlots
+        cb <- Array.filter
+          (\b -> b.mc6BankNumber == 22 + LB.slotIndex slot)
+          (LB.banks { base: 22, boardBank: 1 })
+        Array.mapWithIndex (\i sw -> { slot, i, sw }) cb.switches
+      live = Array.filter (\e -> not (Array.null e.sw.messages)) placedSwitches
+
+  assert "a switch is on the press exactly when it carries one meaning"
+    (Array.length live > 0
+      && Array.all
+        (\e -> Array.any (\m -> m.action == ActionPress) e.sw.messages
+                 == maybe false LB.soleGesture (LB.dutiesAt e.slot e.i))
+        live)
+
+  -- And the app has to agree, because it is what decides whether the daemon is
+  -- told the command is late. A press-down report is not late.
+  assert "and the app reads that off the same table"
     (Array.all
-      (\e -> Array.all (\m -> m.action /= ActionPress) e.sw.messages)
-      familySwitches)
+      (\e -> LB.firesAtPressDown e.slot e.i LB.Tap
+               == Array.any (\m -> m.action == ActionPress) e.sw.messages)
+      live
+      -- A loop switch carries all three, so its tap waits like any other.
+      && not (LB.firesAtPressDown LB.LoopBank 0 LB.Tap)
+      && not (LB.firesAtPressDown LB.LoopBank 0 LB.Hold)
+      -- Speed, on the other hand, is one meaning and nothing else.
+      && LB.firesAtPressDown LB.SpeedBank 0 LB.Tap)
 
   -- One CC per gesture, all on the switch's own number: the number says where
   -- the press came from and the value says which gesture it was.

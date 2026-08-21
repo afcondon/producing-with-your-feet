@@ -70,19 +70,26 @@
 -- | `Data.MC6.Diagnostics`, one CC per action, read off a MIDI listener:
 -- |
 -- | ```
--- | single tap   Press and Release arrive 1 ms apart  (deferred, not at press-down)
--- | double tap   DoubleTap alone — no Press at all, three times out of three
+-- | double tap   DoubleTap alone — no Release at all, three times out of three
 -- | double tap   DoubleTapRelease alone — Release suppressed too
--- | long press   Press, then LongPress ~600 ms later, and no Release
+-- | long press   Press at press-down, then LongPress while held, and no Release
+-- | press-only   Press at press-down, Release when the foot lifts, both instant
 -- | window       under 414 ms: two presses that far apart read as two singles
 -- | ```
 -- |
 -- | Which gives a **clean, mutually exclusive triple**: `Release` fires on a
 -- | single tap and on nothing else, because a double takes `DoubleTapRelease`
 -- | and a hold takes `LongPress`. Nothing has to be suppressed by hand and
--- | nothing overlaps. The device withholds the single press until it knows —
--- | which is the whole difficulty of gesture recognition, and the reason it has
--- | a configurable window at all.
+-- | nothing overlaps.
+-- |
+-- | **The deferral is on the release, never on the press.** `Press` fires the
+-- | instant the foot lands, on every switch, whatever else is bound to it. It is
+-- | `Release` that has to be *decided* — is this a single tap's release, the
+-- | first half of a double, or the end of a hold? — and so it is `Release` that
+-- | waits, and that gets suppressed when the answer turns out to be something
+-- | else. This is Morningstar's own advice to program the release on any switch
+-- | that also carries a long press, arrived at from underneath. See
+-- | `soleGesture` for the rule it implies and for what it buys.
 -- |
 -- | So the app stopped doing it. There was an `Data.Looper.Gestures`, a `Mealy`
 -- | transducer timing the gap between a CC at 127 and the same CC at 0, and it
@@ -118,10 +125,11 @@
 -- |
 -- | ### A switch with no second meaning still answers a double
 -- |
--- | The device suppresses `Release` on a double tap whether or not anything is
--- | bound to the double. Left alone, that would make a fumbled double tap on
--- | Click — or on any of the value banks — do **nothing at all**, which is a
--- | worse answer than doing it once.
+-- | This applies only to a switch that carries a *hold* but no double — one that
+-- | is therefore on the release side. The device suppresses `Release` on a
+-- | double tap whether or not anything is bound to it, so left alone a fumbled
+-- | double would do **nothing at all**, which is a worse answer than doing it
+-- | once.
 -- |
 -- | So `bindings` gives such a switch the *tap's* value on
 -- | `ActionDoubleTapRelease`, and its jump with it. Two taps too close together
@@ -129,6 +137,9 @@
 -- | `Duties.double` stays `Nothing`, the screen still says the switch has no
 -- | second meaning, and the fallback lives in the one function that programs the
 -- | device.
+-- |
+-- | A switch carrying **only** a tap needs none of this, because it is on
+-- | `ActionPress` and two presses are simply two presses.
 module Data.Looper.Banks
   ( switchChannel
   , BankSlot(..)
@@ -155,6 +166,8 @@ module Data.Looper.Banks
   , Duties
   , dutiesAt
   , dutyFor
+  , soleGesture
+  , firesAtPressDown
   , dutyAt
   , dutyLabel
   , dutyName
@@ -855,6 +868,39 @@ dutyTap = case _ of
   Back j -> Just j
   _ -> Nothing
 
+-- | Whether this switch carries one meaning and nothing else.
+-- |
+-- | **The condition for using `ActionPress`, and it is exact.** Measured on the
+-- | device 2026-08-21: the MC6 fires `Press` at press-down, unconditionally and
+-- | for every switch — a press-only switch and a switch with all four actions
+-- | bound both reported the instant the foot landed. So the deferral was never
+-- | on the press. It is on the **release**, which is the message that has to be
+-- | *decided*: is this a single tap's release, the first half of a double, or
+-- | the end of a hold?
+-- |
+-- | Which gives the rule with a sharp edge: **a switch may use `ActionPress` if
+-- | and only if it carries exactly one gesture.** Add a second and `Press`
+-- | becomes a message that fires before the device knows what you meant — the
+-- | tap runs, and then the hold runs on top of it. That is Morningstar's own
+-- | advice to program the release on any switch that also has a long press,
+-- | arrived at from underneath.
+-- |
+-- | The switches that qualify get their press for nothing: no double-tap window
+-- | to wait out, no lateness to hand the daemon, and no fallback needed either
+-- | — two presses in quick succession are simply two presses, which is already
+-- | what a stepper wants and is harmless for everything else here.
+soleGesture :: Duties -> Boolean
+soleGesture s = s.double == Nothing && s.hold == Nothing
+
+-- | Whether the device reported this the moment the foot landed.
+-- |
+-- | Read by the app to decide what to tell the daemon about lateness, and
+-- | derived from the same table the device was programmed from rather than
+-- | agreed by hand — which is the whole reason the app can know it at all.
+firesAtPressDown :: BankSlot -> Int -> Gesture -> Boolean
+firesAtPressDown slot i g =
+  g == Tap && maybe false soleGesture (dutiesAt slot i)
+
 -- | What a switch is for under a given gesture, when it is for anything.
 -- |
 -- | `Nothing` is a real answer twice over: most switches carry no hold, and a
@@ -1091,21 +1137,27 @@ banks cfg = map toBank allSlots
   bindings
     :: BankSlot -> Int -> Duties
     -> Array { cc :: MC6Message, jump :: Maybe MC6Message }
-  bindings slot i sw = Array.mapMaybe row allGestures
-    where
-    row g = do
-      duty <- case g of
-        -- The fallback: no second meaning means a double is a tap said twice.
-        Double -> Just (fromMaybe sw.tap sw.double)
-        _ -> dutyFor g sw
-      let value = case g of
-            Double | sw.double == Nothing -> gestureValue Tap
-            _ -> gestureValue g
-          action = gestureAction g
-      Just
+  bindings slot i sw =
+    let
+      emit action value duty =
         { cc: MC6Msg.ccMessage switchChannel (switchCC slot i) value action
         , jump: (\j -> MC6Msg.bankJumpMessage (target j) action) <$> dutyTap duty
         }
+
+      row g = do
+        duty <- case g of
+          -- The fallback: no second meaning means a double is a tap said twice.
+          Double -> Just (fromMaybe sw.tap sw.double)
+          _ -> dutyFor g sw
+        let value = case g of
+              Double | sw.double == Nothing -> gestureValue Tap
+              _ -> gestureValue g
+        Just (emit (gestureAction g) value duty)
+    in
+      -- One meaning, so there is nothing for the device to resolve and no
+      -- reason for it to wait. See `soleGesture`.
+      if soleGesture sw then [ emit ActionPress (gestureValue Tap) sw.tap ]
+      else Array.mapMaybe row allGestures
 
   -- | **The CCs before the jumps.**
   -- |
