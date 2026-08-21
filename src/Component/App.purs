@@ -1846,6 +1846,15 @@ handleAction = case _ of
       [status, ccNum, val] | status == 0xB0 + LoopBanks.switchChannel - 1 ->
         case LoopBanks.decodeSwitch LoopBanks.switchChannel ccNum val of
           Just press -> do
+            -- **Its own line, because it was invisible among the SysEx.** A
+            -- switch whose CC never arrives and a switch whose CC is
+            -- misunderstood look identical from the outside — the board moves
+            -- either way, because the board moves itself. The only way to tell
+            -- them apart is to see whether anything landed at all.
+            liftEffect $ Console.log $ "switch: CC " <> show ccNum <> " = "
+              <> LoopBanks.slotName press.slot <> " "
+              <> fromMaybe (show press.switch) (LoopBanks.switchLetter press.switch)
+              <> " " <> LoopBanks.gestureName press.gesture
             -- The board says which bank it is on with every press, so the
             -- display never has to guess — including after a bank change made
             -- with a foot, which nothing else would have told us about.

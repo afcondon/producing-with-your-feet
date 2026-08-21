@@ -20,7 +20,7 @@ import Engine.Storage (engineToJson, parseEngine, parseCardOrder, parsePresets, 
 import Data.MC6.Board as Board
 import Data.MC6.ControlBank as ControlBank
 import Data.MC6.Message as MC6Msg
-import Data.MC6.Types (MC6Action(..), MC6MsgType(..), MC6TogglePosition(..))
+import Data.MC6.Types (MC6Action(..), MC6MsgType(..), MC6TogglePosition(..), mc6ActionToInt)
 import Data.MC6.Model as Model
 import Data.MC6.Settings as Settings
 import Test.MC6Capture as Capture
@@ -841,11 +841,15 @@ main = do
   assert "a switch carrying one meaning reports at press-down and only there"
     (map ccsOf (loopBankSwitch 11) == Just [ Tuple ActionPress 127 ])
 
-  -- The jump has to ride on the same action as the CC that reports it, or the
-  -- app is told about a press from a bank the board has already left.
-  assert "a navigating switch jumps on the same actions it reports on"
-    (map jumpsOf (loopBankSwitch 6) == Just [ ActionPress ]
-      && map ccsOf (loopBankSwitch 6) == Just [ Tuple ActionPress 127 ])
+  -- **A CC and a bank jump never share an action.** That configuration has cost
+  -- this project twice: once it ate the release, once it ate the CC itself and
+  -- selecting a loop silently did nothing. The report goes at press-down and the
+  -- board moves when the foot lifts, so the app is told before the thing it is
+  -- being told about happens.
+  assert "a press-side navigating switch reports on the press and jumps on the release"
+    (map ccsOf (loopBankSwitch 6) == Just [ Tuple ActionPress 127 ]
+      && map jumpsOf (loopBankSwitch 6)
+           == Just [ ActionRelease, ActionDoubleTapRelease ])
 
   -- **The fallback, which now applies only on the release side.** A switch that
   -- carries a hold is on the release, and the device suppresses Release on a
@@ -1716,24 +1720,39 @@ main = do
   -- to be seen, and a hold nobody made came to be fired. The gesture is one
   -- message now, so the ordering is belt as well as braces — kept because the
   -- reason it was needed has not stopped being true of the device.
-  assert "a bank jump fires on the same action as the CC, and after it"
+  assert "and so does every other press-side navigating switch in the family"
     (let
        cfg = LB.banks { base: 22, boardBank: 0 }
        switchA = do
          cb <- Array.find (\b -> b.name == "Loop Cfg") cfg
          Array.index cb.switches 0
        acts = maybe [] (map _.action <<< _.messages) switchA
-     -- Quantise carries one meaning, so it is a press: the CC, then the jump.
-     in acts == [ ActionPress, ActionPress ])
+     -- Quantise carries one meaning: report at press-down, move on the release.
+     in acts == [ ActionPress, ActionRelease, ActionDoubleTapRelease ])
+
+  -- **The rule, stated once over the whole family — and it is about the press
+  -- specifically.** On the release the two coexist happily and always have: the
+  -- way out of a sub-bank carries both and works, because by then the switch is
+  -- finished with. On the *press* the board moves while the message list is
+  -- still being read, and what comes after it is lost. That cost a release the
+  -- first time and the CC itself the second.
+  assert "no switch puts a CC and a bank jump on the same press"
+    (Array.all
+      (\sw ->
+        let on k = map (mc6ActionToInt <<< _.action)
+                     (Array.filter (\m -> m.msgType == k) sw.messages)
+            press = mc6ActionToInt ActionPress
+        in not (Array.elem press (on MsgCC) && Array.elem press (on MsgBankJump)))
+      everyGeneratedSwitch)
 
   -- One press, at press-down, that both says which loop and opens its page.
   -- There is no moment in between where the app and the board could disagree
   -- about whose page this is.
-  assert "each of the six loop switches opens the loop page, on the press"
+  assert "each of the six loop switches opens the loop page"
     (Array.length loopBankSwitches == LB.loopSwitches
       && Array.all
         (\e -> Array.any
-          (\m -> m.msgType == MsgBankJump && m.action == ActionPress && m.data1 == 23)
+          (\m -> m.msgType == MsgBankJump && m.action == ActionRelease && m.data1 == 23)
           e.sw.messages)
         loopBankSwitches)
 

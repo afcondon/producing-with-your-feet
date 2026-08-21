@@ -1260,10 +1260,42 @@ banks cfg = map toBank allSlots
               Double | sw.double == Nothing -> gestureValue Tap
               _ -> gestureValue g
         Just (emit (gestureAction g) value duty)
+      -- | **Report on the press, navigate on the release.**
+      -- |
+      -- | A sole-gesture switch reports at press-down, which is the whole point
+      -- | of it. But putting its bank jump on the same action put a CC and a
+      -- | bank change in one message list again — and that configuration has
+      -- | cost this project twice now. The first time it ate the *release*: the
+      -- | board moved mid-press, so the second message was emitted from a bank
+      -- | the app was not expecting. This time it ate the CC itself, and the
+      -- | symptom was much worse for being quiet — selecting a loop did nothing
+      -- | at all, so `focus` never moved off zero, and every verb on the page
+      -- | went to loop 1 while the pedal said loop 2. It looked like the machine
+      -- | was misrouting; nothing was reaching the machine.
+      -- |
+      -- | So the two are never on the same action any more. The CC goes at
+      -- | press-down, the board moves when the foot lifts a few milliseconds
+      -- | later, and the app is told *before* the thing it is being told about
+      -- | happens. Ordering within one action was not enough; the device gets a
+      -- | separate action.
+      --
+      -- Binding the release costs nothing: `Press` fires at press-down whatever
+      -- else is bound (measured), so the report stays instant. The double is
+      -- covered too, because the device suppresses `Release` on one and the
+      -- board would otherwise stay put after two quick presses.
+      pressSide duty =
+        Array.cons
+          (MC6Msg.ccMessage switchChannel (switchCC slot i) (gestureValue Tap) ActionPress)
+          (case dutyTap duty of
+             Nothing -> []
+             Just j ->
+               [ MC6Msg.bankJumpMessage (target j) ActionRelease
+               , MC6Msg.bankJumpMessage (target j) ActionDoubleTapRelease
+               ])
     in
       -- One meaning, so there is nothing for the device to resolve and no
       -- reason for it to wait. See `soleGesture`.
-      if soleGesture sw then [ emit ActionPress (gestureValue Tap) sw.tap ]
+      if soleGesture sw then map (\m -> { cc: m, jump: Nothing }) (pressSide sw.tap)
       else Array.mapMaybe row allGestures
 
   -- | **The CCs before the jumps.**
