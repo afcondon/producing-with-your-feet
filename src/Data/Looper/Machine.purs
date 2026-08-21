@@ -48,6 +48,7 @@ import Data.Looper.Banks (BankSlot(..), SwitchGesture, loopSwitches)
 import Data.Looper.Banks as LB
 import Data.Maybe (Maybe(..), maybe)
 import Foreign.LooperSocket (LoopState)
+import Foreign.LooperSocket as Looper
 
 -- | What the app should do about a gesture.
 data Action
@@ -268,7 +269,7 @@ onRecord i = case _ of
   Just st
     -- Writing now: close it. Asked first because these are claims about what is
     -- happening at this instant, and they outrank what is stored.
-    | writing st ->
+    | Looper.isWriting st ->
         Array.cons (Command (cmd i "r"))
           (if jumpToConfigOnClose then [ ShowBank ConfigBank ] else [])
 
@@ -292,7 +293,7 @@ onOverdub :: Int -> Maybe LoopState -> Array Action
 onOverdub i = case _ of
   Nothing -> [ notInSnapshot i ]
   Just st
-    | writing st -> [ Command (cmd i "r"), Handled ("closed loop " <> show (i + 1)) ]
+    | Looper.isWriting st -> [ Command (cmd i "r"), Handled ("closed loop " <> show (i + 1)) ]
     -- Nothing to go over yet. Starting a first take here would be this switch
     -- quietly becoming Record, which is the switch next to it.
     | st.layers == 0 ->
@@ -324,11 +325,6 @@ onTransport i = case _ of
 
     | st.muted -> [ Command (cmd i "h1") ]
     | otherwise -> [ Command (cmd i "h0") ]
-
--- | Whether the loop is writing, in any of the three ways it can be.
-writing :: LoopState -> Boolean
-writing st =
-  st.state == "recordingFirst" || st.state == "overdubbing" || st.state == "multiplying"
 
 notInSnapshot :: Int -> Action
 notInSnapshot i = Unavailable ("loop " <> show (i + 1) <> " is not in the snapshot")

@@ -26,6 +26,7 @@ import Data.MC6.Settings as Settings
 import Test.MC6Capture as Capture
 import Data.Looper as Looper
 import Component.Looper.Slots as Slots
+import Foreign.LooperSocket (isWriting) as LooperSock
 import Data.Looper.Banks as LB
 import Data.MC6.Diagnostics as Diagnostics
 import Data.Looper.Machine as Machine
@@ -1005,6 +1006,33 @@ main = do
   assert "and says so rather than arming twice"
     (Machine.act (rigOf [ (idle 0) { armed = true } ]) (LB.switchGesture LB.LoopPage 3 LB.Tap)
       == [ Machine.Handled "loop 1 is already listening" ])
+
+  -- **The one that actually bit, and it bit at a glance.** A loop undone to
+  -- nothing keeps its length, so recording into it again is an *overdub* with
+  -- `layers == 0`. The display asked about emptiness before it asked about
+  -- writing, so that loop was drawn as an empty slot while it held the one
+  -- converter the rig has. The word underneath said "overdub"; nobody reads the
+  -- word, they read the colour.
+  assert "a loop that is writing is drawn as writing, layers or no layers"
+    (Array.all
+      (\s -> Slots.stateClass (withState 0 s 0) == "is-recording"
+               && Slots.stateClass (withState 0 s 2) == "is-recording")
+      [ "recordingFirst", "overdubbing", "multiplying" ])
+
+  -- And writing outranks stopped, because a loop being recorded into while
+  -- silenced is the thing a player most needs told.
+  assert "and outranks being stopped, which is the whole reason it is asked first"
+    (Slots.stateClass ((withState 0 "overdubbing" 2) { muted = true }) == "is-recording"
+      && Slots.stateClass ((withState 0 "playing" 2) { muted = true }) == "is-stopped"
+      && Slots.stateClass (idle 0) == "is-empty")
+
+  -- The meaning table and the display have to agree about which states those
+  -- are. They did not, and the difference was exactly `overdubbing`.
+  assert "the machine and the display ask one predicate, not two lists"
+    (Array.all LooperSock.isWriting
+       (map (\s -> withState 0 s 0) [ "recordingFirst", "overdubbing", "multiplying" ])
+      && not (LooperSock.isWriting (withState 0 "playing" 2))
+      && not (LooperSock.isWriting (idle 0)))
 
   assert "stop all reaches every loop"
     (Machine.act (rigOf []) (LB.switchGesture LB.LoopBank 7 LB.Tap)

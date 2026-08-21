@@ -73,7 +73,7 @@
 -- | *backwards* across the whole track. So the transition is suppressed for the
 -- | first fraction of a cycle, which is computable from the snapshot alone and
 -- | costs a jump nobody can see at the one moment a jump is correct.
-module Component.Looper.Slots (render, waveEdge) where
+module Component.Looper.Slots (render, waveEdge, stateClass) where
 
 import Prelude
 
@@ -84,6 +84,7 @@ import Halogen (AttrName(..), ElemName(..), Namespace(..))
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Looper.Banks as LB
 import Foreign.LooperSocket (LoopState, LayerShape, LooperState)
+import Foreign.LooperSocket as Looper
 import Halogen.HTML as HH
 import Halogen.HTML.Properties as HP
 
@@ -412,10 +413,20 @@ stateWord st = case st.state of
 
 stateClass :: LoopState -> String
 stateClass st = case st.state of
-  -- Stopped beats even "recording": a loop being recorded into while silenced
-  -- is a thing the player most needs told. Both come after emptiness, which is
-  -- a fact about layers rather than about state.
-  _ | st.layers == 0 && st.state /= "recordingFirst" && st.state /= "armed" -> "is-empty"
+  -- **Writing beats everything, including emptiness.** This used to ask about
+  -- emptiness first and exempt only `recordingFirst` and `armed` — so a loop
+  -- that had been undone to nothing and then recorded into again was
+  -- `overdubbing` with `layers == 0`, matched the empty branch, and was drawn
+  -- as an empty slot while it held the one converter the rig has. The word
+  -- underneath said "overdub"; nobody reads the word, they read the colour.
+  --
+  -- Asked through `isWriting` rather than by listing states here, because
+  -- listing them here is precisely what let this drift out of step with the
+  -- meaning table.
+  _ | Looper.isWriting st -> "is-recording"
+  -- Stopped beats the rest: a loop being recorded into while silenced is a
+  -- thing the player most needs told.
+  _ | st.layers == 0 && st.state /= "armed" -> "is-empty"
   _ | st.muted -> "is-stopped"
   _ | st.oneShot -> if st.firing then "is-playing" else "is-stopped"
   "armed" -> "is-armed"
