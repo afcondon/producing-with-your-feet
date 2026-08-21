@@ -100,6 +100,7 @@ module Data.Looper.Banks
   , dutyLabel
   , dutyName
   , Rung
+  , ladderLine
   , chanceLadder
   , stepChance
   , chanceWord
@@ -128,6 +129,7 @@ import Data.Array as Array
 import Data.Int as Int
 import Data.Number as Number
 import Data.MC6.ControlBank (ControlBank, ControlBankSwitch, switchCount)
+import Data.String (joinWith)
 import Data.MC6.Message as MC6Msg
 import Data.MC6.Types (MC6Action(..), MC6Message)
 import Data.Maybe (Maybe(..), fromMaybe, isJust, maybe)
@@ -526,8 +528,8 @@ dutyName = case _ of
   Pendulum -> "Forward, then back"
   OneShot -> "One pass, then silence"
   LevelArm -> "Start when you play"
-  StepChance -> "How often it plays"
-  StepFade -> "Crossfade the wrap"
+  StepChance -> ladderLine chanceLadder
+  StepFade -> ladderLine fadeLadder
   Free -> "Free length and launch"
   Grid n -> "Round to " <> show n <> (if n == 1 then " bar" else " bars")
   Rate r -> rateWord r <> " speed"
@@ -541,7 +543,22 @@ dutyName = case _ of
 -- | by it. Three things read a ladder: the step a press takes, what the screen
 -- | says, and — through the step — what the engine is told. Keeping them in one
 -- | table is the same move as `Duty` itself.
-type Rung = { value :: Number, word :: String }
+-- | `word` is what the screen says; `tick` is the same thing squeezed small
+-- | enough that the whole ladder fits in the twenty-four characters the pedal
+-- | flashes on a press.
+type Rung = { value :: Number, word :: String, tick :: String }
+
+-- | The whole ladder on one line, for the pedal's long name.
+-- |
+-- | **A stepper cannot say where it is, so it should at least say where it can
+-- | go.** The MC6 has one static line per switch and no way to update it from
+-- | the device, so a stepper's long name was a description — "How often it
+-- | plays" — which is the one thing the player already knows from the label
+-- | underfoot. Listing the rungs at least tells you what the presses will do
+-- | and in what order, which is what you want when your hands are busy; where
+-- | you *are* on it is the computer's job.
+ladderLine :: Array Rung -> String
+ladderLine = joinWith " " <<< map _.tick
 
 -- | The next rung the switch walks to, wrapping at the end.
 -- |
@@ -578,11 +595,11 @@ onRung a b = Number.abs (a - b) < 1.0e-4
 -- | feet are answered.
 chanceLadder :: Array Rung
 chanceLadder =
-  [ { value: 1.0, word: "always" }
-  , { value: 0.75, word: "3 in 4" }
-  , { value: 0.5, word: "1 in 2" }
-  , { value: 0.25, word: "1 in 4" }
-  , { value: 0.125, word: "1 in 8" }
+  [ { value: 1.0, word: "always", tick: "all" }
+  , { value: 0.75, word: "3 in 4", tick: "3:4" }
+  , { value: 0.5, word: "1 in 2", tick: "1:2" }
+  , { value: 0.25, word: "1 in 4", tick: "1:4" }
+  , { value: 0.125, word: "1 in 8", tick: "1:8" }
   ]
 
 stepChance :: Number -> Number
@@ -599,11 +616,11 @@ chanceWord p = fromMaybe (show (Int.round (p * 100.0)) <> "%") (rungWord chanceL
 -- | asked for. Ten is under a drum transient; a hundred is a real dissolve.
 fadeLadder :: Array Rung
 fadeLadder =
-  [ { value: 0.0, word: "hard" }
-  , { value: 10.0, word: "10 ms" }
-  , { value: 25.0, word: "25 ms" }
-  , { value: 50.0, word: "50 ms" }
-  , { value: 100.0, word: "100 ms" }
+  [ { value: 0.0, word: "hard", tick: "hard" }
+  , { value: 10.0, word: "10 ms", tick: "10" }
+  , { value: 25.0, word: "25 ms", tick: "25" }
+  , { value: 50.0, word: "50 ms", tick: "50" }
+  , { value: 100.0, word: "100 ms", tick: "100" }
   ]
 
 stepFade :: Number -> Number

@@ -1128,6 +1128,13 @@ main = do
 
   -- The word lives beside the value in one table, so the switch, the screen and
   -- the wire cannot come to describe different odds.
+  -- A stepper cannot say where it is, so its long name says where it can go.
+  -- The MC6 flashes this on every press and has no way to update it, so the
+  -- alternative was a description of the switch you are already standing on.
+  assert "a stepper's long name is the ladder itself, and it fits the device"
+    (LB.dutyName LB.StepChance == "all 3:4 1:2 1:4 1:8"
+      && LB.dutyName LB.StepFade == "hard 10 25 50 100")
+
   assert "the ladder says its own words"
     (map (\r -> LB.chanceWord r.value) LB.chanceLadder
       == [ "always", "3 in 4", "1 in 2", "1 in 4", "1 in 8" ]
