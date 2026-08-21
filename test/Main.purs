@@ -815,12 +815,22 @@ main = do
 
   -- A loop switch is the fully loaded case: tap selects, double overdubs, hold
   -- opens the config bank.
-  assert "a switch with all three gestures sends all three, one per action"
-    (map ccsOf (loopBankSwitch 0)
-      == Just [ Tuple ActionRelease 127
-              , Tuple ActionDoubleTapRelease 64
-              , Tuple ActionLongPress 1
-              ])
+  -- **The last switches in the family that carry more than one meaning.** Since
+  -- the loop switches became places rather than verbs, the only multi-gesture
+  -- switch left is the way out of a sub-bank: tap for Loops, hold to leave the
+  -- looper outright. Those stay on the release side, because a press there would
+  -- jump to Loops before the device knew you were holding for Board.
+  assert "a switch with two gestures sends both, one per action, on the release side"
+    (let wayOut = do
+           b <- Array.drop 1 (LB.banks { base: 22, boardBank: 1 })
+           Array.take 1 (Array.drop 6 b.switches)
+     in Array.length wayOut == Array.length LB.allSlots - 1
+          && Array.all
+               (\sw -> ccsOf sw == [ Tuple ActionRelease 127
+                                   , Tuple ActionDoubleTapRelease 127
+                                   , Tuple ActionLongPress 1
+                                   ])
+               wayOut)
 
   -- **One meaning, one message, at press-down.** Measured: the MC6 fires Press
   -- the instant the foot lands, whatever else is bound. It is the *release*
@@ -841,17 +851,18 @@ main = do
   -- double whether or not anything is bound to it — so a fumbled double would
   -- answer with silence. It gets the tap's own value instead. The way out of a
   -- sub-bank is such a switch: tap for Loops, hold for Board.
-  assert "a switch with a hold but no double still answers a fumbled double"
-    (let waysOut = do
+  assert "and the tap's value on the double, so a fumble does it once"
+    (let wayOut = do
            b <- Array.drop 1 (LB.banks { base: 22, boardBank: 1 })
            Array.take 1 (Array.drop 6 b.switches)
-     in Array.length waysOut == 5
-          && Array.all
-               (\sw -> ccsOf sw == [ Tuple ActionRelease 127
-                                   , Tuple ActionDoubleTapRelease 127
-                                   , Tuple ActionLongPress 1
-                                   ])
-               waysOut)
+     in Array.all
+          (\sw -> map (\m -> Tuple m.action m.data1)
+                    (Array.filter (\m -> m.msgType == MsgBankJump) sw.messages)
+                    == [ Tuple ActionRelease 22
+                       , Tuple ActionDoubleTapRelease 22
+                       , Tuple ActionLongPress 1
+                       ])
+          wayOut)
 
   -- **The CCs before the jumps.** A jump that goes out first means the message
   -- after it is emitted from the bank the board has already reached — which is
@@ -872,9 +883,12 @@ main = do
 
   -- A hold that is an app-side action leaves the MC6 doing nothing at all,
   -- which is right: the app is the only thing that can act on it.
-  assert "a hold that navigates nowhere programs no jump"
-    (LB.sendsTo LB.LoopBank 0 LB.Hold == Just (LB.ToSlot LB.ConfigBank)
-      && LB.sendsTo LB.LoopBank 0 LB.Tap == Nothing
+  -- Choosing a loop *is* opening its page, so the jump is a consequence of the
+  -- duty rather than a second thing the switch happens to carry.
+  assert "selecting a loop navigates, and a hold that goes nowhere programs no jump"
+    (LB.sendsTo LB.LoopBank 0 LB.Tap == Just (LB.ToSlot LB.LoopPage)
+      && LB.sendsTo LB.LoopBank 0 LB.Hold == Nothing
+      && LB.sendsTo LB.LoopPage 5 LB.Tap == Just (LB.ToSlot LB.ConfigBank)
       && LB.sendsTo LB.ConfigBank 0 LB.Tap == Just (LB.ToSlot LB.QuantiseBank)
       && LB.sendsTo LB.ConfigBank 0 LB.Hold == Nothing)
 
@@ -889,51 +903,108 @@ main = do
                , pendingAt: -1, shapes: [] }
       withState n s ls = (idle n) { state = s, layers = ls }
       rigOf ls = { loops: ls, focus: 0 }
+      isCommand = case _ of
+        Machine.Command _ -> true
+        _ -> false
 
-  assert "tapping an empty loop records it"
-    (Machine.act (rigOf [ idle 0 ]) (LB.switchGesture LB.LoopBank 0 LB.Tap)
-      == [ Machine.Focus 0, Machine.Command "0r" ])
+  -- **A loop switch is a place, not a verb.** It used to be seven verbs in a
+  -- trenchcoat — record, close, overdub, cancel-arm, fire, stop, start — chosen
+  -- from what the daemon last reported, with nothing underfoot saying which was
+  -- live. Now it selects the loop and the MC6 opens its page from the jump this
+  -- table put on the switch. The verbs are on that page with their names printed.
+  assert "a loop switch selects and does nothing else, whatever the loop is doing"
+    (Array.all
+      (\st -> Machine.act (rigOf [ st ]) (LB.switchGesture LB.LoopBank 0 LB.Tap)
+                == [ Machine.Focus 0, Machine.Handled "loop 1" ])
+      [ idle 0
+      , withState 0 "recordingFirst" 0
+      , withState 0 "playing" 3
+      , (withState 0 "playing" 1) { muted = true }
+      , (idle 0) { armed = true }
+      ])
+
+  -- Doing something as well was considered: recording an empty loop on the way
+  -- in would save a press. Rejected, because the same switch would then stop a
+  -- playing one — so you could not look at a loop without acting on it, which is
+  -- the thing the page exists to end.
+  assert "and selecting a loop never sends a command"
+    (Array.null
+      (Array.filter isCommand
+        (Machine.act (rigOf [ idle 0, withState 1 "playing" 2 ])
+          (LB.switchGesture LB.LoopBank 1 LB.Tap))))
+
+  assert "recording an empty loop opens a take"
+    (Machine.act (rigOf [ idle 0 ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
+      == [ Machine.Command "0r" ])
 
   -- The one that was wrong in use. Undo removes a layer and deliberately keeps
   -- the loop's length, so undoing the last one leaves layers 0, a length, and a
   -- state still reading "playing". Testing emptiness as `state == "idle" &&
-  -- layers == 0` made that a playing loop: tapping offered stop, and a loop
+  -- layers == 0` made that a playing loop: Record offered stop, and a loop
   -- undone to nothing could never be recorded into from the board again.
   assert "a loop undone to nothing records again, length and state notwithstanding"
     (Machine.act (rigOf [ (withState 0 "playing" 0) { loopFrames = 155215 } ])
-       (LB.switchGesture LB.LoopBank 0 LB.Tap)
-      == [ Machine.Focus 0, Machine.Command "0r" ])
+       (LB.switchGesture LB.LoopPage 0 LB.Tap)
+      == [ Machine.Command "0r" ])
 
-  assert "and double-tapping it does not close a loop a fifth of a second long"
-    (Machine.act (rigOf [ (withState 0 "playing" 0) { loopFrames = 155215 } ])
-       (LB.switchGesture LB.LoopBank 0 LB.Double)
-      == [ Machine.Focus 0, Machine.Handled "already recording" ])
+  -- One command, because the engine has one command: `r` opens a first take,
+  -- closes it, opens and closes an overdub, and cancels a wait. Four of the old
+  -- tap's seven branches were this one verb.
+  assert "and closes one that is open, whichever way it is open"
+    (Array.all
+      (\s -> Machine.act (rigOf [ withState 0 s 1 ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
+               == [ Machine.Command "0r" ])
+      [ "recordingFirst", "overdubbing", "multiplying" ])
 
-  -- Closing is a command and, when the config bank is wired, a bank change too.
-  -- It is off for now because a courtesy that lands on a page of unwired
-  -- switches strands the player after every loop they record.
-  assert "tapping a recording loop closes it"
-    (Machine.act (rigOf [ withState 0 "recordingFirst" 0 ]) (LB.switchGesture LB.LoopBank 0 LB.Tap)
-      == [ Machine.Focus 0, Machine.Command "0r" ])
+  -- A listening loop holds the one converter the rig has and locks out the
+  -- other five, so taking the wait back has to be reachable.
+  assert "and takes back a wait that may never end"
+    (Machine.act (rigOf [ (idle 0) { armed = true } ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
+      == [ Machine.Command "0r", Machine.Handled "loop 1 stopped listening" ])
 
-  -- Transport, once the engine grew one. Explicit h0/h1 rather than a flipping
-  -- h, because a stopped loop is invisible and a dropped toggle would leave the
-  -- app and the engine disagreeing with nothing on screen to show it.
-  assert "tapping a playing loop stops it"
-    (Machine.act (rigOf [ withState 0 "playing" 1 ]) (LB.switchGesture LB.LoopBank 0 LB.Tap)
-      == [ Machine.Focus 0, Machine.Command "0h0" ])
+  -- Transport. Explicit h0/h1 rather than a flipping h, because a stopped loop
+  -- is invisible and a dropped toggle would leave the app and the engine
+  -- disagreeing with nothing on screen to show it.
+  assert "Stop/Go stops a playing loop and brings back a stopped one"
+    (Machine.act (rigOf [ withState 0 "playing" 1 ]) (LB.switchGesture LB.LoopPage 2 LB.Tap)
+      == [ Machine.Command "0h0" ]
+      && Machine.act (rigOf [ (withState 0 "playing" 1) { muted = true } ])
+           (LB.switchGesture LB.LoopPage 2 LB.Tap)
+        == [ Machine.Command "0h1" ])
 
-  assert "and tapping a stopped one brings it back"
-    (Machine.act (rigOf [ (withState 0 "playing" 1) { muted = true } ])
-       (LB.switchGesture LB.LoopBank 0 LB.Tap)
-      == [ Machine.Focus 0, Machine.Command "0h1" ])
+  -- Not the overload sneaking back: a one-shot is silent between passes by
+  -- definition, so it has no playing and stopped to move between.
+  assert "and fires a one-shot, which has no playing and stopped to move between"
+    (Machine.act (rigOf [ (withState 0 "playing" 1) { oneShot = true } ])
+       (LB.switchGesture LB.LoopPage 2 LB.Tap)
+      == [ Machine.Command "0f" ])
+
+  assert "and refuses a loop with nothing in it rather than inventing a take"
+    (Machine.act (rigOf [ idle 0 ]) (LB.switchGesture LB.LoopPage 2 LB.Tap)
+      == [ Machine.Unavailable "loop 1 has nothing to play" ])
 
   -- Overdubbing onto something you cannot hear is a way to record a mistake
   -- twice, so the loop comes back first.
-  assert "double tapping a stopped loop unmutes before overdubbing"
+  assert "Overdub unmutes a stopped loop before going over it"
     (Machine.act (rigOf [ (withState 0 "playing" 1) { muted = true } ])
-       (LB.switchGesture LB.LoopBank 0 LB.Double)
-      == [ Machine.Focus 0, Machine.Command "0h1", Machine.Command "0r" ])
+       (LB.switchGesture LB.LoopPage 1 LB.Tap)
+      == [ Machine.Command "0h1", Machine.Command "0r" ])
+
+  -- Starting a first take here would be Overdub quietly becoming Record, which
+  -- is the switch immediately to its left.
+  assert "and refuses an empty loop rather than becoming Record"
+    (Machine.act (rigOf [ idle 0 ]) (LB.switchGesture LB.LoopPage 1 LB.Tap)
+      == [ Machine.Unavailable "loop 1 is empty — record it first" ])
+
+  -- The mode and the gesture in one press: `lev1` so the `r` that follows finds
+  -- the loop listening and waits for a sound rather than starting on the foot.
+  assert "Listen arms and starts waiting, in that order"
+    (Machine.act (rigOf [ idle 0 ]) (LB.switchGesture LB.LoopPage 3 LB.Tap)
+      == [ Machine.Command "0lev1", Machine.Command "0r" ])
+
+  assert "and says so rather than arming twice"
+    (Machine.act (rigOf [ (idle 0) { armed = true } ]) (LB.switchGesture LB.LoopPage 3 LB.Tap)
+      == [ Machine.Handled "loop 1 is already listening" ])
 
   assert "stop all reaches every loop"
     (Machine.act (rigOf []) (LB.switchGesture LB.LoopBank 7 LB.Tap)
@@ -941,16 +1012,20 @@ main = do
 
   -- Whatever the engine calls it, no layers means record.
   assert "any state with no layers records"
-    (Machine.act (rigOf [ withState 0 "weird" 0 ]) (LB.switchGesture LB.LoopBank 0 LB.Tap)
-      == [ Machine.Focus 0, Machine.Command "0r" ])
+    (Machine.act (rigOf [ withState 0 "weird" 0 ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
+      == [ Machine.Command "0r" ])
 
-  assert "but a double tap on a playing loop does overdub, which the engine has"
-    (Machine.act (rigOf [ withState 0 "playing" 1 ]) (LB.switchGesture LB.LoopBank 0 LB.Double)
-      == [ Machine.Focus 0, Machine.Command "0r" ])
+  -- The page acts on the loop the loop bank selected. One page serving six
+  -- loops only works because of that, and it is the same arrangement the config
+  -- family has always had.
+  assert "the page acts on the focused loop, not on the switch pressed"
+    (Machine.act { loops: [ idle 0, idle 1, withState 2 "playing" 2 ], focus: 2 }
+       (LB.switchGesture LB.LoopPage 2 LB.Tap)
+      == [ Machine.Command "2h0" ])
 
-  assert "a hold only moves the focus; the MC6 changes bank by itself"
-    (Machine.act (rigOf [ withState 0 "playing" 1 ]) (LB.switchGesture LB.LoopBank 2 LB.Hold)
-      == [ Machine.Focus 2, Machine.Handled "configuring loop 3" ])
+  assert "and its Config switch only agrees the MC6 changed bank"
+    (Machine.act (rigOf [ idle 0 ]) (LB.switchGesture LB.LoopPage 5 LB.Tap)
+      == [ Machine.Handled "showing config" ])
 
   assert "undo and clear act on the focused loop"
     (Machine.act { loops: [ idle 0, idle 1, idle 2 ], focus: 2 } (LB.switchGesture LB.LoopBank 8 LB.Tap)
@@ -1032,8 +1107,8 @@ main = do
 
   assert "and only the way out differs, because only its destination does"
     (map (\slot -> map _.what (Array.take 1 (LB.auxLegend slot))) LB.allSlots
-      == [ [ "< Board" ], [ "< Loops" ], [ "< Loops" ]
-         , [ "< Loops" ], [ "< Loops" ], [ "< Loops" ] ])
+      == Array.cons [ "< Board" ]
+           (Array.replicate (Array.length LB.allSlots - 1) [ "< Loops" ]))
 
   -- The code has to say it too, or two tables agree until one of them does not.
   assert "and the meaning table answers the toolbar without consulting the bank"
@@ -1099,13 +1174,13 @@ main = do
   -- fire. Which is exactly why the mode rides in the snapshot: what the foot
   -- does depends on a fact only the engine holds, and no amount of remembering
   -- on this side would be as good as being told.
-  assert "a tap on a one-shot fires it, where a tap on any other loop stops it"
+  assert "Stop/Go fires a one-shot, where on any other loop it stops it"
     (Machine.act (rigOf [ (withState 0 "playing" 1) { oneShot = true } ])
-       (LB.switchGesture LB.LoopBank 0 LB.Tap)
-      == [ Machine.Focus 0, Machine.Command "0f" ]
+       (LB.switchGesture LB.LoopPage 2 LB.Tap)
+      == [ Machine.Command "0f" ]
       && Machine.act (rigOf [ withState 0 "playing" 1 ])
-           (LB.switchGesture LB.LoopBank 0 LB.Tap)
-        == [ Machine.Focus 0, Machine.Command "0h0" ])
+           (LB.switchGesture LB.LoopPage 2 LB.Tap)
+        == [ Machine.Command "0h0" ])
 
   -- A level-armed loop waits for a sound that may never come, holding the one
   -- converter the rig has. A press has to be able to take that back, or one
@@ -1116,19 +1191,13 @@ main = do
   -- Closing is what the gesture meant either way — a deliberate hold is asking
   -- to configure a loop that has no length yet, and a tap held a little too long
   -- meant to close it.
-  assert "holding a loop that is still recording closes it on the way to config"
-    (Machine.act (rigOf [ withState 0 "recordingFirst" 0 ]) (LB.switchGesture LB.LoopBank 0 LB.Hold)
-      == [ Machine.Focus 0, Machine.Command "0r"
-         , Machine.Handled "closed loop 1 on the way to its config" ]
-      && Machine.act (rigOf [ (idle 0) { armed = true } ]) (LB.switchGesture LB.LoopBank 0 LB.Hold)
-        == [ Machine.Focus 0, Machine.Command "0r"
-           , Machine.Handled "stopped loop 1 listening" ]
-      && Machine.act (rigOf [ withState 0 "playing" 2 ]) (LB.switchGesture LB.LoopBank 0 LB.Hold)
-        == [ Machine.Focus 0, Machine.Handled "configuring loop 1" ])
-
-  assert "and a press takes back an arm that is still waiting"
-    (Machine.act (rigOf [ (idle 0) { armed = true } ]) (LB.switchGesture LB.LoopBank 0 LB.Tap)
-      == [ Machine.Focus 0, Machine.Command "0r" ])
+  -- The hold that used to close a still-writing loop on its way to the config
+  -- bank is gone with the hold itself. What replaces it is better: the loop's
+  -- page opens on selection with Record right there under A, and the screen says
+  -- the loop is still writing.
+  assert "Record takes back an arm that is still waiting"
+    (Machine.act (rigOf [ (idle 0) { armed = true } ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
+      == [ Machine.Command "0r", Machine.Handled "loop 1 stopped listening" ])
 
   -- Modes, where Chance was. Two toggles rather than five values, because
   -- one-shot and level-arm are not exclusive — which is the thing a bank of
@@ -1246,8 +1315,8 @@ main = do
 
   -- A loop the snapshot does not contain is not a loop we may guess about.
   assert "a gesture for a loop that is not in the snapshot is refused, not assumed"
-    (Machine.act (rigOf []) (LB.switchGesture LB.LoopBank 0 LB.Tap)
-      == [ Machine.Focus 0, Machine.Unavailable "loop 1 is not in the snapshot" ])
+    (Machine.act (rigOf []) (LB.switchGesture LB.LoopPage 0 LB.Tap)
+      == [ Machine.Unavailable "loop 1 is not in the snapshot" ])
 
   log ""
   log "Write frames, against Morningstar's own editor..."
@@ -1569,11 +1638,12 @@ main = do
       -- uploaded to real hardware by a real button, and it broke twice by being
       -- treated as somehow less real than the rest.
       everyGeneratedSwitch =
-        (LB.banks { base: 22, boardBank: 0 } <> [ Diagnostics.gestureProbeBank 28 0 ])
+        (LB.banks { base: 22, boardBank: 0 } <> [ Diagnostics.gestureProbeBank 20 0 ])
           >>= _.switches
 
-  assert "six banks, on consecutive numbers from the base"
-    (map _.mc6BankNumber family == Array.range 22 27)
+  assert "one bank per slot, on consecutive numbers from the base"
+    (map _.mc6BankNumber family
+      == Array.range 22 (22 + Array.length LB.allSlots - 1))
 
   assert "each bank has its full twelve switches"
     (Array.all (\cb -> Array.length cb.switches == ControlBank.switchCount) family)
@@ -1605,7 +1675,9 @@ main = do
   -- back.
   assert "every bank jump lands somewhere we wrote"
     (Array.all
-      (\m -> m.msgType /= MsgBankJump || Array.elem m.data1 (Array.range 22 27 <> [ 1 ]))
+      (\m -> m.msgType /= MsgBankJump
+               || Array.elem m.data1
+                    (Array.range 22 (22 + Array.length LB.allSlots - 1) <> [ 1 ]))
       (Array.concatMap (\e -> e.sw.messages) familySwitches))
 
   let loopBankSwitches =
@@ -1626,11 +1698,14 @@ main = do
      -- Quantise carries one meaning, so it is a press: the CC, then the jump.
      in acts == [ ActionPress, ActionPress ])
 
-  assert "each of the six loop switches holds to the config bank"
+  -- One press, at press-down, that both says which loop and opens its page.
+  -- There is no moment in between where the app and the board could disagree
+  -- about whose page this is.
+  assert "each of the six loop switches opens the loop page, on the press"
     (Array.length loopBankSwitches == LB.loopSwitches
       && Array.all
         (\e -> Array.any
-          (\m -> m.msgType == MsgBankJump && m.action == ActionLongPress && m.data1 == 23)
+          (\m -> m.msgType == MsgBankJump && m.action == ActionPress && m.data1 == 23)
           e.sw.messages)
         loopBankSwitches)
 
@@ -1665,24 +1740,25 @@ main = do
       (\e -> LB.firesAtPressDown e.slot e.i LB.Tap
                == Array.any (\m -> m.action == ActionPress) e.sw.messages)
       live
-      -- A loop switch carries all three, so its tap waits like any other.
-      && not (LB.firesAtPressDown LB.LoopBank 0 LB.Tap)
+      -- A loop switch carries one meaning now, so it reports at press-down —
+      -- which was the whole return on moving its verbs to the page.
+      && LB.firesAtPressDown LB.LoopBank 0 LB.Tap
+      && LB.firesAtPressDown LB.LoopPage 0 LB.Tap
+      && LB.firesAtPressDown LB.SpeedBank 0 LB.Tap
+      -- Only a gesture the switch actually carries can fire at press-down, and
+      -- a hold never does: it is a hold.
       && not (LB.firesAtPressDown LB.LoopBank 0 LB.Hold)
-      -- Speed, on the other hand, is one meaning and nothing else.
-      && LB.firesAtPressDown LB.SpeedBank 0 LB.Tap)
+      -- The way out of a sub-bank carries two, so it waits.
+      && not (LB.firesAtPressDown LB.ConfigBank 6 LB.Tap))
 
   -- One CC per gesture, all on the switch's own number: the number says where
   -- the press came from and the value says which gesture it was.
-  assert "a loop switch reports all three gestures on its own CC"
+  assert "and reports it on its own CC, once, at press-down"
     (Array.all
-      (\e -> Array.all
-        (\g -> Array.any
-          (\m -> m.msgType == MsgCC && m.channel == LB.switchChannel
-                   && m.data1 == LB.switchCC LB.LoopBank e.i
-                   && m.data2 == LB.gestureValue g
-                   && m.action == LB.gestureAction g)
-          e.sw.messages)
-        LB.allGestures)
+      (\e -> map (\m -> Tuple m.data1 (Tuple m.data2 m.action))
+               (Array.filter (\m -> m.msgType == MsgCC) e.sw.messages)
+               == [ Tuple (LB.switchCC LB.LoopBank e.i)
+                      (Tuple (LB.gestureValue LB.Tap) ActionPress) ])
       loopBankSwitches)
 
   -- The engine has six loops; the bank offers six places to put a foot. These

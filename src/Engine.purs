@@ -136,14 +136,11 @@ type AppState =
   -- MC6 bank the generated looper transport is written to. Itajara's CCs are
   -- fixed by its pedal definition, so there is no base-CC to configure.
   , mc6LooperBankNum :: Int
-  -- | First of the six consecutive banks the six-loop machine occupies
-  -- | (`Data.Looper.Banks`). One number rather than six, because "which bank is
-  -- | the speed bank" should be arithmetic and not a setting that can be set
-  -- | inconsistently.
+  -- | First of the consecutive banks the six-loop machine occupies
+  -- | (`Data.Looper.Banks`, one per `BankSlot`). One number rather than seven,
+  -- | because "which bank is the speed bank" should be arithmetic and not a
+  -- | setting that can be set inconsistently.
   , mc6LoopBankBase :: Int
-  -- | The footswitch recogniser, mid-stream. A `Mealy` from
-  -- | `purescript-machines`: its state is the closure, so this field IS the
-  -- | machine's memory and stepping it replaces it.
   -- | How long the MC6 sat on a gesture before telling us, in milliseconds.
   -- |
   -- | **An estimate, and the one thing device-side recognition cost.** When the
@@ -175,8 +172,17 @@ type AppState =
   -- | are two refusals: pressing the same dead switch twice should say so
   -- | twice, and comparing the sentences would swallow the second.
   , looperAckSeq :: Int
-  -- | Where the gesture probe bank goes. Past the looper family's 22-27 so it
-  -- | cannot land on one of them.
+  -- | Where the gesture probe bank goes.
+  -- |
+  -- | **Below the family rather than above it.** It sat on 28 while the looper
+  -- | occupied 22-27; the loop page made that seven banks, 22-28, and the probe
+  -- | was standing on the last one. Twenty is empty on the device and there is
+  -- | nothing above 28 to move to — 29 is Ableton Controls and the device stops
+  -- | there.
+  -- |
+  -- | This is the second time a bank number has been claimed twice by two places
+  -- | that did not know about each other, and nothing but a read-back would have
+  -- | said so. One table of what is spoken for is still owed.
   , mc6ProbeBankNum :: Int
   -- | Which face the Looper page is showing. The six-slot display is what the
   -- | board drives; the old transport is kept because it can drive the engine
@@ -325,7 +331,7 @@ initAppState =
   , looperFocus: 0
   , looperLastAction: Nothing
   , looperAckSeq: 0
-  , mc6ProbeBankNum: 28
+  , mc6ProbeBankNum: 20
   , looperShowsSlots: true
   , looperBankShown: Just LooperBanks.LoopBank
   , looperProgramStatus: Nothing

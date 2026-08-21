@@ -1,7 +1,9 @@
 -- | The MC6 banks for the six-loop looper, and the namespace they speak in.
 -- |
 -- | This is the build-time artifact of `itajara-in-atlantis` §"The MC6 is a
--- | keyboard": six banks, generated here and uploaded once. Nothing rewrites
+-- | keyboard": one bank per `BankSlot`, generated here and uploaded once — seven
+-- | of them, which is as many as the CC arithmetic below has room for. Nothing
+-- | rewrites
 -- | them live, because relabelling a switch costs a preset upload of well over
 -- | a second and the state of a loop changes faster than that. What each loop
 -- | is doing is shown on the computer; the MC6 supplies twelve labelled places
@@ -28,7 +30,7 @@
 -- | cc = 16 * (bank slot + 1) + switch index
 -- | ```
 -- |
--- | so bank slots start at 16, 32, 48, 64, 80, 96 and a switch is the offset
+-- | so bank slots start at 16, 32, 48, 64, 80, 96, 112 and a switch is the offset
 -- | within the block — CC 51 is slot 2, switch D, at a glance and without a
 -- | table. Four CCs per block go unused, which buys that legibility cheaply.
 -- | CC 0-15 are left alone because CC 0 and 32 are bank select and the low
@@ -232,6 +234,8 @@ loopSwitches = 6
 -- | not, and that is what travels in the CC.
 data BankSlot
   = LoopBank
+  -- | One loop's verbs, whichever loop you came from. See `own LoopPage`.
+  | LoopPage
   | ConfigBank
   | QuantiseBank
   | SpeedBank
@@ -242,31 +246,44 @@ derive instance Eq BankSlot
 derive instance Ord BankSlot
 
 allSlots :: Array BankSlot
-allSlots = [ LoopBank, ConfigBank, QuantiseBank, SpeedBank, ModesBank, PanBank ]
+allSlots =
+  [ LoopBank, LoopPage, ConfigBank, QuantiseBank, SpeedBank, ModesBank, PanBank ]
 
+-- | **Seven is the last one that fits.** The CC block is `16 * (index + 1)`, so
+-- | Pan sits at 112 and its twelfth switch is 123 — four short of the 127 a
+-- | seven-bit value stops at. An eighth bank would put switches above 128,
+-- | where they stop being data and start being status bytes, and the frame
+-- | carrying them would truncate. The byte-range test in `test/Main` is what
+-- | would catch it, and it would catch it as a wall rather than as a warning.
 slotIndex :: BankSlot -> Int
 slotIndex = case _ of
   LoopBank -> 0
-  ConfigBank -> 1
-  QuantiseBank -> 2
-  SpeedBank -> 3
-  ModesBank -> 4
-  PanBank -> 5
+  LoopPage -> 1
+  ConfigBank -> 2
+  QuantiseBank -> 3
+  SpeedBank -> 4
+  ModesBank -> 5
+  PanBank -> 6
 
 slotFromIndex :: Int -> Maybe BankSlot
 slotFromIndex = case _ of
   0 -> Just LoopBank
-  1 -> Just ConfigBank
-  2 -> Just QuantiseBank
-  3 -> Just SpeedBank
-  4 -> Just ModesBank
-  5 -> Just PanBank
+  1 -> Just LoopPage
+  2 -> Just ConfigBank
+  3 -> Just QuantiseBank
+  4 -> Just SpeedBank
+  5 -> Just ModesBank
+  6 -> Just PanBank
   _ -> Nothing
 
 -- | The bank's name on the device's screen. Eight characters, like a label.
 slotName :: BankSlot -> String
 slotName = case _ of
   LoopBank -> "Loops"
+  -- Not "Loop 3". The device cannot be relabelled fast enough to track which
+  -- loop is in hand — an upload is well over a second — so the pedal names the
+  -- *page* and the computer names the loop. The standing division of labour.
+  LoopPage -> "The Loop"
   ConfigBank -> "Loop Cfg"
   QuantiseBank -> "Quantise"
   SpeedBank -> "Speed"
@@ -276,6 +293,7 @@ slotName = case _ of
 slotId :: BankSlot -> String
 slotId = case _ of
   LoopBank -> "loops"
+  LoopPage -> "loop"
   ConfigBank -> "config"
   QuantiseBank -> "quantise"
   SpeedBank -> "speed"
@@ -522,7 +540,45 @@ derive instance Eq Jump
 data Duty
   -- | One of the six loops. The index is the loop, not the switch, because on
   -- | the loop bank they coincide and everywhere else they must not.
+  -- |
+  -- | **A place, not a verb.** This used to be seven verbs in a trenchcoat: a
+  -- | tap meant record, or close, or overdub, or cancel an arm, or fire, or
+  -- | stop, or start, depending on what the daemon last reported — and nothing
+  -- | underfoot said which. Now it selects the loop and opens its page, where
+  -- | each of those has its own switch with its own name on the screen.
+  -- |
+  -- | The cost is a second press to start a take on a loop you are not already
+  -- | standing on. It buys back more than it costs: the switch carries one
+  -- | gesture, so it is on `ActionPress` and reports the instant your foot
+  -- | lands, where before every loop press waited out the double-tap window.
   = SelectLoop Int
+  -- | Start writing, stop writing, or take back a wait — whichever the loop is
+  -- | ready for.
+  -- |
+  -- | **Still context-dependent, and honestly so.** `r` is one command in the
+  -- | daemon and it means "toggle the write head": it opens a first recording,
+  -- | closes one, opens and closes an overdub, and cancels a loop that is
+  -- | listening. Splitting that across four switches would be splitting a thing
+  -- | the engine does not split.
+  | RecordLoop
+  -- | Add a pass to what is already there, bringing a stopped loop back first.
+  -- |
+  -- | Overdubbing something you cannot hear is a way to record a mistake twice,
+  -- | which is why this unmutes rather than refusing.
+  | OverdubLoop
+  -- | Stop it, or start it again — and fire it, if it is a one-shot.
+  -- |
+  -- | The one-shot case is not an overload sneaking back in. A one-shot is
+  -- | silent between passes *by definition*, so it has no playing and stopped to
+  -- | move between; firing is the only thing this switch could mean there.
+  | Transport
+  -- | Wait for a sound instead of starting on the press.
+  -- |
+  -- | `lev1` and then `r`, which is the mode plus the gesture in one press —
+  -- | because "start when I play" is something you decide in the moment, not
+  -- | something you go to a config bank to arrange. The mode stays visible in
+  -- | Modes and on screen; this is the shortcut, not a second source of truth.
+  | ArmLoop
   -- | Deeper into the family. Labelled with the destination's own name.
   | Enter BankSlot
   -- | Up, or out. Labelled with where it goes, so "< Config" and "< Board"
@@ -633,6 +689,10 @@ derive instance Eq Duty
 dutyLabel :: Duty -> String
 dutyLabel = case _ of
   SelectLoop i -> "Loop " <> show (i + 1)
+  RecordLoop -> "Record"
+  OverdubLoop -> "Overdub"
+  Transport -> "Stop/Go"
+  ArmLoop -> "Arm"
   Enter slot -> slotName slot
   Back (ToSlot slot) -> "< " <> shortSlot slot
   Back ToBoard -> "< Board"
@@ -663,7 +723,11 @@ dutyLabel = case _ of
 -- | press the app did not expect as words rather than as a CC number.
 dutyName :: Duty -> String
 dutyName = case _ of
-  SelectLoop i -> "Loop " <> show (i + 1) <> ", hold to set up"
+  SelectLoop i -> "Loop " <> show (i + 1)
+  RecordLoop -> "Record, or close what is"
+  OverdubLoop -> "One more pass over it"
+  Transport -> "Stop it, or set it going"
+  ArmLoop -> "Start on the next note"
   Enter ConfigBank -> "Set up this loop"
   Enter slot -> "Set " <> slotName slot
   Back (ToSlot slot) -> "Back to " <> slotName slot
@@ -866,6 +930,10 @@ dutyTap :: Duty -> Maybe Jump
 dutyTap = case _ of
   Enter slot -> Just (ToSlot slot)
   Back j -> Just j
+  -- Choosing a loop *is* opening its page — one act, so one press. The MC6
+  -- makes the jump itself and the app is told which loop by the same CC, so
+  -- there is no moment where the two disagree about whose page this is.
+  SelectLoop _ -> Just (ToSlot LoopPage)
   _ -> Nothing
 
 -- | Whether this switch carries one meaning and nothing else.
@@ -994,12 +1062,51 @@ own = case _ of
 
   -- Six loops on six switches: a loop is *where you put your foot*, not a mode
   -- you enter. Which is also why the loop bank has no room for anything else.
-  -- A tap acts, a double tap overdubs, and a long press opens this loop's
-  -- config — the last of which the MC6 performs itself, from the jump this
-  -- table puts on it.
-  LoopBank -> map
-    (\i -> alsoHold (Enter ConfigBank) (alsoDouble (SelectLoop i) (only (SelectLoop i))))
-    (Array.range 0 (loopSwitches - 1))
+  --
+  -- **One gesture each, and that is the point.** These carried three — tap to
+  -- act, double to overdub, hold for config — and so had to be programmed on
+  -- the release side, where the device waits out its double-tap window before
+  -- it can say which one you meant. Every loop press in the rig was a few
+  -- hundred milliseconds late, on the one switch where a few hundred
+  -- milliseconds is a take.
+  --
+  -- Carrying one meaning, they sit on `ActionPress` and report the instant a
+  -- foot lands. The verbs they used to carry are on `LoopPage`, one switch and
+  -- one printed name each.
+  LoopBank -> map (only <<< SelectLoop) (Array.range 0 (loopSwitches - 1))
+
+  -- **The verbs, for whichever loop is in hand.**
+  --
+  -- One bank, not six. The page is the same six switches whatever brought you
+  -- here, because the app already knows which loop that was — the same
+  -- arrangement the config bank has always had, and the reason the family fits
+  -- on the device at all. The pedal names the verb; the computer names the loop.
+  --
+  -- Every switch here carries exactly one gesture, so every one of them is on
+  -- `ActionPress`. That is the whole return on the redesign: Record answers
+  -- when your foot lands, not when the device has finished deciding you were
+  -- not about to press it again.
+  --
+  -- No `< Loops` on F: the way out is the toolbar's, in the same place it is on
+  -- every other bank, which leaves all six of the printed switches for verbs.
+  LoopPage ->
+    [ only RecordLoop
+    , only OverdubLoop
+    , only Transport
+    , only ArmLoop
+    -- **E is a shortcut, and it is the only one.** Reverse also lives on the
+    -- config bank, where it belongs by category — but flipping a loop backwards
+    -- is something you do mid-phrase, and two presses away is the wrong distance
+    -- for a thing you reach for while playing. Nothing else on the config family
+    -- earns that: speed, pan and the modes are all decisions you make once.
+    --
+    -- Duplication across banks is cheap here in a way it would not be on G to L.
+    -- These six are printed on the screen, so a player reads what is under their
+    -- foot rather than remembering it, and the positional-grammar rule that
+    -- governs the unmarked switches does not apply.
+    , only Reverse
+    , only (Enter ConfigBank)
+    ]
 
   -- The four that lead somewhere sit first, because they are the ones with a
   -- value to choose; the two that act sit last.

@@ -615,7 +615,8 @@ renderLooperView state =
       [ HH.h3_ [ HH.text "Six-loop banks" ]
       , HH.p [ HP.class_ (H.ClassName "looper-muted") ]
           [ HH.text $
-              "Six banks from MC6 bank " <> show state.mc6LoopBankBase
+              show (Array.length LoopBanks.allSlots)
+              <> " banks from MC6 bank " <> show state.mc6LoopBankBase
               <> ", uploaded once. Every switch sends its own CC on channel "
               <> show LoopBanks.switchChannel
               <> ", so a press says which bank it came from and the app never has "
