@@ -955,9 +955,26 @@ banks cfg = map toBank allSlots
     , MC6Msg.ccMessage switchChannel (switchCC slot i) 0 ActionRelease
     ]
 
+  -- | **On release, not on press.**
+  -- |
+  -- | A bank jump that fires while the switch is still down means the *release*
+  -- | is emitted from the bank you have already arrived at. The app then sees a
+  -- | `Down` on one bank and an `Up` on another; it forgets the orphan up — which
+  -- | is right, inventing a tap would be worse — and six hundred milliseconds
+  -- | later its hold timer fires a `Hold` nobody made. `followBoard` reads that
+  -- | phantom hold as "this switch navigates nowhere" and snaps the display back
+  -- | to the bank you just left, which is exactly what it looked like: press
+  -- | Modes, see the long name, watch it return to Config.
+  -- |
+  -- | The messages are ordered so the CC release goes out before the jump, so
+  -- | the app gets its clean pair and *then* the board moves.
+  -- |
+  -- | Long presses stay on `ActionLongPress`: a hold is meant to fire while held,
+  -- | and the app resolves it from its own timer rather than from the release, so
+  -- | a misbanked up is harmless there.
   jumps :: Duties -> Array MC6Message
   jumps sw =
-    jumpFor ActionPress (dutyTap sw.tap) <> jumpFor ActionLongPress (dutyHold sw)
+    jumpFor ActionRelease (dutyTap sw.tap) <> jumpFor ActionLongPress (dutyHold sw)
 
   jumpFor :: MC6Action -> Maybe Jump -> Array MC6Message
   jumpFor action = case _ of

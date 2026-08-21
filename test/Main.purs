@@ -1098,6 +1098,22 @@ main = do
   -- A level-armed loop waits for a sound that may never come, holding the one
   -- converter the rig has. A press has to be able to take that back, or one
   -- loop can lock out the other five with nothing on screen to blame.
+  -- **Stranding a recording is the worst failure this surface has**: one
+  -- converter, so a loop left writing locks out all five others, silently, from
+  -- a bank you are no longer standing on. It happened twice in one session.
+  -- Closing is what the gesture meant either way — a deliberate hold is asking
+  -- to configure a loop that has no length yet, and a tap held a little too long
+  -- meant to close it.
+  assert "holding a loop that is still recording closes it on the way to config"
+    (Machine.act (rigOf [ withState 0 "recordingFirst" 0 ]) (Gestures.Hold LB.LoopBank 0 0.0)
+      == [ Machine.Focus 0, Machine.Command "0r"
+         , Machine.Handled "closed loop 1 on the way to its config" ]
+      && Machine.act (rigOf [ (idle 0) { armed = true } ]) (Gestures.Hold LB.LoopBank 0 0.0)
+        == [ Machine.Focus 0, Machine.Command "0r"
+           , Machine.Handled "stopped loop 1 listening" ]
+      && Machine.act (rigOf [ withState 0 "playing" 2 ]) (Gestures.Hold LB.LoopBank 0 0.0)
+        == [ Machine.Focus 0, Machine.Handled "configuring loop 1" ])
+
   assert "and a press takes back an arm that is still waiting"
     (Machine.act (rigOf [ (idle 0) { armed = true } ]) (Gestures.Tap LB.LoopBank 0 0.0)
       == [ Machine.Focus 0, Machine.Command "0r" ])
@@ -1580,6 +1596,20 @@ main = do
   let loopBankSwitches =
         Array.filter (\e -> e.cb.mc6BankNumber == 22 && e.i < LB.loopSwitches) familySwitches
 
+  -- A jump on press emits the release from the bank you have already arrived
+  -- at, so the app sees a Down on one bank and an Up on another and its hold
+  -- timer fires a gesture nobody made. Both halves of a press belong to one
+  -- bank; the CC release is ordered before the jump so the app gets its pair
+  -- first and the board moves after.
+  assert "a tap's bank jump fires on the release, after the CC that reports it"
+    (let
+       cfg = LB.banks { base: 22, boardBank: 0 }
+       switchA = do
+         bank <- Array.find (\b -> b.name == "Loop Cfg") cfg
+         Array.index bank.switches 0
+       actions = maybe [] (map _.action <<< _.messages) switchA
+     in actions == [ ActionPress, ActionRelease, ActionRelease ])
+
   assert "each of the six loop switches holds to the config bank"
     (Array.length loopBankSwitches == LB.loopSwitches
       && Array.all
@@ -1613,12 +1643,16 @@ main = do
   -- Switches 9-11 are a second FS3X that may not be plugged in. A way out that
   -- lands there is a bank you can walk into and not leave, and you would find
   -- that out with a foot rather than a compiler.
+  --
+  -- Any action counts. This used to require `ActionPress` and so failed the
+  -- moment tap jumps moved to the release, which was the test noticing a change
+  -- rather than a fault — the claim is that a way out is *reachable*, and a hold
+  -- is as much a way out as a tap.
   assert "every bank's way out is reachable without a second FS3X"
     (Array.all
       (\cb -> Array.any
         (\e -> e.i <= 8
-            && Array.any (\m -> m.msgType == MsgBankJump && m.action == ActionPress)
-                 e.sw.messages)
+            && Array.any (\m -> m.msgType == MsgBankJump) e.sw.messages)
         (Array.filter (\e -> e.cb.mc6BankNumber == cb.mc6BankNumber) familySwitches))
       family)
 

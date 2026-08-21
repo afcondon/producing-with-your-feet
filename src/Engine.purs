@@ -296,7 +296,16 @@ initAppState =
   -- scale is not yet known — 4 is 700 ms and one point gives no conversion —
   -- so agreeing by hand is honest until a second reading pins it.
   , looperGestures: Gestures.recogniser
-      { holdMs: 600.0
+      -- **Seven hundred, because that is what the device does.**
+      --
+      -- `Data.MC6.Settings` already names the failure: "if the two thresholds
+      -- disagree, a hold changes bank on the device while the app records it as
+      -- a tap". The reverse is worse and is what happened — between 600 and 700
+      -- the app fires a hold while the board does not move, so a press meant to
+      -- close a recording only moved the focus. Nothing visible happened, so it
+      -- did not feel like a long press, and the recording was left open holding
+      -- the one converter the rig has.
+      { holdMs: 700.0
       , doubleTapMs: 260.0
       , hasDouble: LooperBanks.hasDouble
       }

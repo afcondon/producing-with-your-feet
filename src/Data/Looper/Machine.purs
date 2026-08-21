@@ -107,7 +107,7 @@ act rig = case _ of
       -- The MC6 makes this jump itself, from the table it was programmed with;
       -- all the app has to do is agree which loop that bank now talks about.
       Just (LB.Enter LB.ConfigBank) | LB.SelectLoop n <- s.tap ->
-        [ Focus n, Handled ("configuring loop " <> show (n + 1)) ]
+        Array.cons (Focus n) (onHoldLoop n (loopAt rig n))
       Just d -> onDuty rig slot d
       Nothing -> [ Handled ("nothing on a long press of " <> LB.dutyLabel s.tap) ]
     Nothing -> [ missing slot i ]
@@ -280,6 +280,33 @@ onTap i = case _ of
     -- something a stopped loop makes invisible by definition.
     | st.muted -> [ Command (cmd i "h1") ]
     | otherwise -> [ Command (cmd i "h0") ]
+
+-- | Holding a loop switch opens its config — and closes it first if it is still
+-- | writing.
+-- |
+-- | **Stranding a recording is the worst failure this surface has.** One
+-- | converter means a loop left recording locks out all five others, and it does
+-- | it silently from a bank you are no longer standing on. It happened twice in
+-- | one session.
+-- |
+-- | Closing is also what the gesture meant either way. If the hold was
+-- | deliberate you are asking to configure a loop, and a loop still being
+-- | recorded has no length to configure; if it was a tap held a little too long,
+-- | closing is exactly what the tap would have done.
+onHoldLoop :: Int -> Maybe LoopState -> Array Action
+onHoldLoop i = case _ of
+  Just st
+    | st.state == "recordingFirst" || st.state == "overdubbing" || st.state == "multiplying" ->
+        [ Command (cmd i "r")
+        , Handled ("closed loop " <> show (i + 1) <> " on the way to its config")
+        ]
+    -- A waiting arm is the same hazard: it holds the input for a recording that
+    -- may never begin.
+    | st.armed ->
+        [ Command (cmd i "r")
+        , Handled ("stopped loop " <> show (i + 1) <> " listening")
+        ]
+  _ -> [ Handled ("configuring loop " <> show (i + 1)) ]
 
 -- | A double tap: overdub, per the plan.
 onDouble :: Int -> Maybe LoopState -> Array Action
