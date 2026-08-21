@@ -29,7 +29,9 @@ import Component.Looper.Slots as Slots
 import Data.Looper.Banks as LB
 import Data.MC6.Diagnostics as Diagnostics
 import Data.Looper.Machine as Machine
+import Data.Enum as Enum
 import Data.String as String
+import Data.String.CodeUnits as StringCU
 import Data.MC6.Read as Read
 import Data.MC6.SysEx as SysEx
 import Data.MC6.Dump as Dump
@@ -1548,6 +1550,13 @@ main = do
       familySwitches = do
         cb <- family
         Array.mapWithIndex (\i sw -> { cb, i, sw }) cb.switches
+      -- Every switch this app can put on the device, diagnostics included. The
+      -- byte and width checks below belong to all of them: the probe bank is
+      -- uploaded to real hardware by a real button, and it broke twice by being
+      -- treated as somehow less real than the rest.
+      everyGeneratedSwitch =
+        (LB.banks { base: 22, boardBank: 0 } <> [ Diagnostics.gestureProbeBank 28 0 ])
+          >>= _.switches
 
   assert "six banks, on consecutive numbers from the base"
     (map _.mc6BankNumber family == Array.range 22 27)
@@ -1655,14 +1664,38 @@ main = do
   -- call site that got it wrong.
   assert "no generated message carries a byte that would end a SysEx frame"
     (let
-       everyMessage =
-         ((LB.banks { base: 22, boardBank: 0 } <> [ Diagnostics.gestureProbeBank 28 0 ])
-            >>= _.switches) >>= _.messages
+       everyMessage = everyGeneratedSwitch >>= _.messages
        inSeven n = n >= 0 && n <= 127
      in Array.all
           (\m -> inSeven m.data1 && inSeven m.data2 && inSeven m.data3
                    && inSeven m.data4 && inSeven m.channel)
           everyMessage)
+
+  -- **And neither does a name.** The same failure, one field over, and it cost
+  -- the same twenty minutes: an em dash in a probe switch's long name is a
+  -- character above 127, so the frame carrying it truncates exactly as an
+  -- out-of-range CC does — the write stalls, the device stops acking, and
+  -- nothing says why. The message-byte check above cannot see it, because the
+  -- character never becomes a message.
+  --
+  -- Typographic punctuation is right everywhere else in this codebase, which is
+  -- precisely why it reaches for an em dash without being asked. The device
+  -- takes ASCII.
+  assert "and no label or long name carries a character the device cannot send"
+    (Array.all
+      (\sw -> Array.all (\c -> c >= 32 && c <= 126)
+        (map Enum.fromEnum
+          (StringCU.toCharArray (sw.label <> sw.longName))))
+      everyGeneratedSwitch)
+
+  -- Checked over every generated bank rather than over the looper family alone.
+  -- The probe bank was outside the length tests, so "Press 60 Rel 61 Dbl 62
+  -- Long 63" — thirty characters into a twenty-four character field — has been
+  -- silently truncated on the device since the day it was written.
+  assert "and every generated name fits the field the device gives it"
+    (Array.all
+      (\sw -> String.length sw.label <= 8 && String.length sw.longName <= 24)
+      everyGeneratedSwitch)
 
   -- Switches 9-11 are a second FS3X that may not be plugged in. A way out that
   -- lands there is a bank you can walk into and not leave, and you would find

@@ -127,21 +127,47 @@ chunk n xs
 -- |
 -- | The device withholds the single until it knows. So `Release`,
 -- | `DoubleTapRelease` and `LongPress` are a mutually exclusive triple, the app
--- | stopped recognising gestures, and `Data.Looper.Gestures` was deleted. Kept
--- | here rather than retired, because the **double-tap window is still not
--- | pinned** — only bounded — and `Engine.looperDeferral` is guessing at it.
--- | Two presses at a known spacing against this bank would settle it.
+-- | stopped recognising gestures, and `Data.Looper.Gestures` was deleted.
+-- |
+-- | ## The open question, and why it decides a redesign
+-- |
+-- | **Is the deferral global, or only on a switch that carries a double?**
+-- |
+-- | Every switch above has a double-tap message bound or is multi-bound, so
+-- | none of them can answer it. But the answer decides how the whole looper
+-- | surface should be laid out. A long press does *not* force a wait — a hold
+-- | starts as a press, which is why D sees `Press` and then `LongPress`. Only
+-- | the double is ambiguous at press-down. So if the device defers per binding
+-- | rather than globally, **a loop switch carrying nothing but a press is
+-- | instantaneous**, and moving the double and the hold onto a page of their own
+-- | buys back every millisecond the recogniser used to cost.
+-- |
+-- | Switch **E** is that experiment, and it needs no timing gear:
+-- |
+-- | > Press E and **hold your foot down for a slow two**. If `40` appears in the
+-- | > log while the switch is still down, the press fired at press-down and the
+-- | > deferral is per-binding. If nothing appears until you lift — and then `40`
+-- | > and `41` arrive together — it is global.
+-- |
+-- | Do the same on **A** as the control: A carries a double, so it must defer.
+-- | If A waits and E does not, the answer is per-binding.
+-- |
+-- | The **double-tap window is also still unpinned** — only bounded at 414 ms —
+-- | and `Engine.looperDeferral` is guessing at it. Two presses at a known
+-- | spacing against C would settle that one.
 -- |
 -- | Layout, one question per switch:
 -- |
 -- |   * **A** — every action at once. Tap it, double it, hold it, and see which
--- |     of 100/101/102/103 appear and in what order.
+-- |     of 60/61/62/63 appear and in what order. Also the control for E.
 -- |   * **B** — press and double only, so a double tap cannot hide behind a
--- |     release. If 110 arrives twice before 111, the single is not withheld.
--- |   * **C** — the release-side pair, which is what this app would actually
--- |     use if the device turned out to do the work.
+-- |     release. If 70 arrives twice before 71, the single is not withheld.
+-- |   * **C** — the release-side pair, which is what this app actually uses.
 -- |   * **D** — long press against its release, for the same question one
 -- |     gesture over.
+-- |   * **E** — press and release and **nothing else**, which is the shape a
+-- |     redesigned loop switch would have. The one switch here with no
+-- |     ambiguity for the device to resolve.
 -- |
 -- | On its own channel so nothing here can be mistaken for a pedal or for the
 -- | looper's own switch namespace.
@@ -161,7 +187,7 @@ gestureProbeBank bankNum boardBank =
   , mc6BankNumber: bankNum
   , returnSwitchIndex: 5
   , switches:
-      [ probe "A 60s" "Press 60 Rel 61 Dbl 62 Long 63"
+      [ probe "A 60s" "P60 R61 D62 L63"
           [ Tuple ActionPress 60
           , Tuple ActionRelease 61
           , Tuple ActionDoubleTap 62
@@ -169,11 +195,15 @@ gestureProbeBank bankNum boardBank =
           ]
       , probe "B 70s" "Press 70, DoubleTap 71"
           [ Tuple ActionPress 70, Tuple ActionDoubleTap 71 ]
-      , probe "C 80s" "Release 80, DoubleTapRelease 81"
+      , probe "C 80s" "Rel 80, DblRel 81"
           [ Tuple ActionRelease 80, Tuple ActionDoubleTapRelease 81 ]
-      , probe "D 90s" "LongPress 90, LongPressRelease 91"
+      , probe "D 90s" "Long 90, LongRel 91"
           [ Tuple ActionLongPress 90, Tuple ActionLongPressRelease 91 ]
-      , { label: "", longName: "", toToggle: false, messages: [] }
+      -- Nothing on the double and nothing on the hold, so the device has no
+      -- ambiguity to resolve. Hold it down for a slow two: if 40 arrives before
+      -- your foot lifts, a press-only switch is instantaneous.
+      , probe "E 40s" "Press 40 Rel 41, no more"
+          [ Tuple ActionPress 40, Tuple ActionRelease 41 ]
       , { label: "< Board", longName: "Back to the board bank", toToggle: false
         , messages: [ MC6Msg.bankJumpMessage boardBank ActionPress ]
         }
