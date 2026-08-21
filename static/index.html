@@ -1926,7 +1926,24 @@ body {
   display: flex; flex-direction: column; gap: 1px; padding: 1px; overflow: hidden;
 }
 .loop-layer { display: flex; flex: 1 1 0; min-height: 3px; gap: 1px; }
-.loop-block { height: 100%; }
+.loop-block { height: 100%; position: relative; overflow: hidden; }
+/* The envelope sits inside the block rather than replacing it: the block says
+   where in the cycle this layer sounds, which is what a waveform cannot show.
+   Drawn in the block's own colour at low contrast so the shape reads without
+   the block ceasing to read as a block. */
+.loop-wave {
+  position: absolute; inset: 0; width: 100%; height: 100%; display: block;
+}
+/* The envelope is the ink and the block is the ground behind it, not the other
+   way round — a loud layer has to be *more* mark, not less, or the picture
+   reads inverted. The block keeps a tint so the structure it carries (which
+   part of the cycle this layer sounds in) survives underneath. */
+.loop-block.sounds.has-wave { background: #d3e2dc; }
+.loop-wave path { fill: #3a7d6c; }
+.loop-slot.is-recording .loop-block.sounds.has-wave { background: #f0d6d2; }
+.loop-slot.is-recording .loop-wave path { fill: #c0392b; }
+.loop-slot.is-stopped .loop-block.sounds.has-wave { background: #e4e1dc; }
+.loop-slot.is-stopped .loop-wave path { fill: #b9b3a9; }
 .loop-block.sounds { background: #3a7d6c; }
 .loop-block.rest   { background: repeating-linear-gradient(
     45deg, #e2ded7, #e2ded7 3px, #eeebe6 3px, #eeebe6 6px); }

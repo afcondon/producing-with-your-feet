@@ -25,6 +25,7 @@ import Data.MC6.Model as Model
 import Data.MC6.Settings as Settings
 import Test.MC6Capture as Capture
 import Data.Looper as Looper
+import Component.Looper.Slots as Slots
 import Data.Looper.Banks as LB
 import Data.Looper.Gestures as Gestures
 import Data.Looper.Machine as Machine
@@ -1128,6 +1129,17 @@ main = do
 
   -- The word lives beside the value in one table, so the switch, the screen and
   -- the wire cannot come to describe different odds.
+  -- **Loud is more ink.** The envelope was first drawn as the block's fill with
+  -- the waveform in the background colour, which made a loud layer *less* mark
+  -- than a quiet one — inverted, and obvious the moment it was on screen. The
+  -- floor is because a layer that is quiet is still a layer.
+  assert "a louder bucket draws a taller mark, and a silent one is still visible"
+    (Slots.waveEdge 255 < Slots.waveEdge 128
+      && Slots.waveEdge 128 < Slots.waveEdge 0
+      && Slots.waveEdge 255 == 0.0
+      && Slots.waveEdge 0 < 0.95
+      && Slots.waveEdge 0 > 0.9)
+
   -- A stepper cannot say where it is, so its long name says where it can go.
   -- The MC6 flashes this on every press and has no way to update it, so the
   -- alternative was a description of the switch you are already standing on.

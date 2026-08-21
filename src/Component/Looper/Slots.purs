@@ -73,13 +73,15 @@
 -- | *backwards* across the whole track. So the transition is suppressed for the
 -- | first fraction of a cycle, which is computable from the snapshot alone and
 -- | costs a jump nobody can see at the one moment a jump is correct.
-module Component.Looper.Slots (render) where
+module Component.Looper.Slots (render, waveEdge) where
 
 import Prelude
 
 import Data.Array as Array
 import Data.Int (round, toNumber)
-import Data.Maybe (Maybe(..))
+import Data.String (joinWith)
+import Halogen (AttrName(..), ElemName(..), Namespace(..))
+import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Looper.Banks as LB
 import Foreign.LooperSocket (LoopState, LayerShape, LooperState)
 import Halogen.HTML as HH
@@ -181,6 +183,74 @@ slot top fc idx st =
         ]
     ]
 
+-- | The layer's shape, mirrored about the middle the way a waveform is read.
+-- |
+-- | `preserveAspectRatio="none"` so one path stretches to whatever width the
+-- | block happens to be — the blocks are laid out by the tiling and their width
+-- | is not this module's to know.
+-- |
+-- | Nothing here rescales the peaks. They arrive absolute, on a decibel curve
+-- | with a -60 dBFS floor, and drawing them any other way would throw away the
+-- | one thing the picture is insurance against.
+wave :: forall w i. Array Int -> Array (HH.HTML w i)
+wave env
+  | Array.null env = []
+  | otherwise =
+      [ svgEl "svg"
+          [ sAttr "viewBox" ("0 0 " <> show (Array.length env - 1) <> " 2")
+          , sAttr "preserveAspectRatio" "none"
+          -- **`sAttr`, not `HP.class_`.** See `svgEl` below: on an SVG element
+          -- the property form silently does nothing, and the symptom is a
+          -- picture that renders perfectly at the wrong size.
+          , sAttr "class" "loop-wave"
+          ]
+          [ svgEl "path" [ sAttr "d" path ] [] ]
+      ]
+  where
+  -- Out along the top and back along the bottom, so the fill is the envelope
+  -- rather than an outline of half of it.
+  path =
+    joinWith " "
+      ( [ "M0," <> show (top 0) ]
+          <> Array.mapWithIndex (\i v -> "L" <> show i <> "," <> show (edge v)) env
+          <> Array.reverse
+              (Array.mapWithIndex (\i v -> "L" <> show i <> "," <> show (2.0 - edge v)) env)
+          <> [ "Z" ]
+      )
+  top i = waveEdge (fromMaybe 0 (Array.index env i))
+  edge = waveEdge
+
+-- | A peak byte to the top edge of the mark, in a viewBox two units tall.
+-- |
+-- | **Loud is more ink.** The first version filled the block and drew the
+-- | envelope in the background colour, so a loud layer was *less* mark than a
+-- | quiet one — inverted, and instantly wrong to look at once it was on screen.
+-- |
+-- | The floor is because a layer that is quiet is still a layer: a mark you
+-- | cannot see reads as one that is not there, which is the opposite of what
+-- | this picture is for.
+waveEdge :: Int -> Number
+waveEdge v = 1.0 - max 0.06 (toNumber v / 255.0)
+
+-- | Just enough SVG to draw one shape, on the same house pattern as
+-- | `Component.Controls.Survey`: Halogen ships the namespace-aware constructor
+-- | and this needs two elements and three attributes.
+-- |
+-- | **Classes on SVG go through `sAttr`, never `HP.class_`.** `HP.class_` sets
+-- | the DOM *property*, and `SVGElement.className` is a read-only
+-- | `SVGAnimatedString` — so the assignment does nothing, quietly, and every
+-- | rule keyed on that class simply never applies. The symptom is not a missing
+-- | element: the shape renders correctly and at completely the wrong size,
+-- | because with no CSS the browser falls back to sizing the SVG from its
+-- | viewBox aspect ratio. Survey already did it this way; this did not, and
+-- | cost a round of looking at the geometry for a fault that was in the class
+-- | attribute.
+svgEl :: forall r w i. String -> Array (HH.IProp r i) -> Array (HH.HTML w i) -> HH.HTML w i
+svgEl name = HH.elementNS (Namespace "http://www.w3.org/2000/svg") (ElemName name)
+
+sAttr :: forall r i. String -> String -> HH.IProp r i
+sAttr k v = HP.attr (AttrName k) v
+
 mark :: forall w i. Mark -> HH.HTML w i
 mark m =
   HH.span [ HP.class_ (HH.ClassName ("loop-mark " <> markClass m)) ]
@@ -213,9 +283,16 @@ layerRow st i sh =
 
   widthPc = 100.0 / toNumber blocks
 
+  -- Whether there is a picture to draw. A layer being recorded has none yet,
+  -- and one recorded before the daemon knew how to draw them never will — both
+  -- keep the solid block they always had rather than going pale and empty.
+  drawn = not (Array.null sh.env)
+
   block s =
     HH.div
-      [ HP.class_ (HH.ClassName ("loop-block" <> if sounds s then " sounds" else " rest"))
+      [ HP.class_ (HH.ClassName ("loop-block"
+          <> (if sounds s then " sounds" else " rest")
+          <> (if drawn then " has-wave" else "")))
       -- Decay is invisible in the arena — nothing is scaled there — so the only
       -- way a receding loop can be seen is if the display asks the engine what
       -- each layer is currently worth. A floor of a tenth, because a layer on
@@ -225,7 +302,12 @@ layerRow st i sh =
           <> (if sh.gain >= 1.0 then ""
               else ";opacity:" <> show (max 0.1 sh.gain))
       ]
-      []
+      -- **Inside the block, not instead of it.** The block says *where in the
+      -- cycle* this layer sounds, which is the thing a waveform cannot show and
+      -- the reason the chart was drawn this way in the first place. The
+      -- envelope goes in it and answers a different question: which loop is
+      -- this, and how loud.
+      (if sounds s && drawn then wave sh.env else [])
 
 -- | Present only when there is a cycle to sweep, and positioned outright from
 -- | `phase` rather than from anything that keeps its own time.
