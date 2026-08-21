@@ -152,6 +152,12 @@ type AppState =
   -- | including the refusals: a press that leaves no trace anywhere is the
   -- | thing the whole looper surface exists to prevent.
   , looperLastAction :: Maybe String
+  -- | The `ackSeq` of the last thing the daemon said that we have shown.
+  -- |
+  -- | A counter rather than the text, because two identical refusals in a row
+  -- | are two refusals: pressing the same dead switch twice should say so
+  -- | twice, and comparing the sentences would swallow the second.
+  , looperAckSeq :: Int
   -- | Which face the Looper page is showing. The six-slot display is what the
   -- | board drives; the old transport is kept because it can drive the engine
   -- | by hand, which is how the six-slot display gets something to show.
@@ -296,6 +302,7 @@ initAppState =
       }
   , looperFocus: 0
   , looperLastAction: Nothing
+  , looperAckSeq: 0
   , looperShowsSlots: true
   , looperBankShown: Just LooperBanks.LoopBank
   , looperProgramStatus: Nothing

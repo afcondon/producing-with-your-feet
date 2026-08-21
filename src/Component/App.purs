@@ -1913,6 +1913,27 @@ handleAction = case _ of
     cur <- H.get
     when (cur.looper /= snap || cur.looperStatus /= st') do
       H.modify_ _ { looper = snap, looperStatus = st' }
+      -- **What the daemon had to say, which nothing was reading.**
+      --
+      -- The engine refuses things the app cannot know about — one converter, so
+      -- a second loop cannot record while another holds it; a loop at a speed
+      -- cannot be recorded into; a one-shot cannot fire when it is empty. Every
+      -- one of those refusals is a sentence, and every one of them has been
+      -- going into the snapshot's `ack` since the socket existed with no reader
+      -- at either end of it.
+      --
+      -- What the display said instead was the *send*: "→ 0r", cheerfully,
+      -- because the socket write succeeded. So a press that the engine had
+      -- explicitly declined showed on screen as a press that worked. It cost an
+      -- afternoon: a recording left open on loop 6 locked out all five others,
+      -- the daemon said exactly that every time, and nobody was told.
+      --
+      -- `ackSeq` rather than the text, because two identical refusals in a row
+      -- are two refusals — pressing the same dead switch twice should say so
+      -- twice, and comparing strings would silently swallow the second.
+      for_ snap \lp ->
+        when (lp.ackSeq /= cur.looperAckSeq && lp.ack /= "") do
+          H.modify_ _ { looperLastAction = Just lp.ack, looperAckSeq = lp.ackSeq }
       -- The daemon's `k` and `m` flip rather than set, so the app's idea of
       -- them could drift from the engine's after one dropped command and never
       -- recover. It reports both in every snapshot, so take its word: for the
