@@ -19,7 +19,6 @@ package:
     - hylograph-transitions
     - integers: ">=6.0.0 <7.0.0"
     - js-date: ">=8.0.0 <9.0.0"
-    - machines
     - maybe: ">=6.0.0 <7.0.0"
     - newtype: ">=5.0.0 <6.0.0"
     - numbers: ">=9.0.1 <10.0.0"
@@ -42,11 +41,6 @@ workspace:
   packageSet:
     registry: 77.13.1
   extraPackages:
-    # Kmett's machines, ported. Local path rather than a registry version
-    # because the port lives in this workspace and is not published — and
-    # because the looper's input path is the first thing to actually use it.
-    machines:
-      path: ../../purescript-ports/purescript-machines
     hylograph-selection: 0.5.3
     hylograph-graph: 0.3.0
     hylograph-transitions: 0.1.0

@@ -24,7 +24,6 @@ import Data.MC6.ControlBank (ControlBank, exampleControlBank)
 import Data.MC6.Dump as Dump
 import Data.MC6.Settings as Settings
 import Data.Looper.Banks as LooperBanks
-import Data.Looper.Gestures as Gestures
 import Data.MC6.Types (MC6NativeBank)
 import Data.MC6.Wire as Wire
 import Data.Array as Array
@@ -145,7 +144,25 @@ type AppState =
   -- | The footswitch recogniser, mid-stream. A `Mealy` from
   -- | `purescript-machines`: its state is the closure, so this field IS the
   -- | machine's memory and stepping it replaces it.
-  , looperGestures :: Gestures.Recogniser
+  -- | How long the MC6 sat on a gesture before telling us, in milliseconds.
+  -- |
+  -- | **An estimate, and the one thing device-side recognition cost.** When the
+  -- | app timed the switch edges it knew exactly when the foot went down, and
+  -- | stamped every command with the gap so the daemon could reach back into the
+  -- | pre-roll ring and un-do the delay. The device sends one message and no
+  -- | timestamp, so that number now has to be reconstructed.
+  -- |
+  -- | It is reconstructible because the deferral is the device's own threshold,
+  -- | not a variable delay: a tap cannot be emitted until the double-tap window
+  -- | has passed without a second press, and a long press fires at its
+  -- | threshold. Both are settings on the board.
+  -- |
+  -- | Both figures here are honest about their standing. The hold is the
+  -- | device's own long-press time and is exact. The tap is **under** the truth
+  -- | by however long the foot was on the switch, which nothing tells us — a
+  -- | known, bounded, one-sided error, which is better than the zero it would
+  -- | otherwise be and worse than the measurement it replaces.
+  , looperDeferral :: { tapMs :: Number, holdMs :: Number }
   -- | The loop the config bank acts on — the last one a foot touched.
   , looperFocus :: Int
   -- | What the last footswitch press did, in words. Every press produces one,
@@ -294,24 +311,17 @@ initAppState =
   -- 22-27, just above the legacy transport bank and below the two the device
   -- has left. Wire numbers; the editor shows each one higher.
   , mc6LoopBankBase: 22
-  -- 600 ms is a placeholder with a known replacement. The device's own
-  -- long-press setting is readable (`03 21`, offset 3, currently 4) but its
-  -- scale is not yet known — 4 is 700 ms and one point gives no conversion —
-  -- so agreeing by hand is honest until a second reading pins it.
-  , looperGestures: Gestures.recogniser
-      -- **Seven hundred, because that is what the device does.**
-      --
-      -- `Data.MC6.Settings` already names the failure: "if the two thresholds
-      -- disagree, a hold changes bank on the device while the app records it as
-      -- a tap". The reverse is worse and is what happened — between 600 and 700
-      -- the app fires a hold while the board does not move, so a press meant to
-      -- close a recording only moved the focus. Nothing visible happened, so it
-      -- did not feel like a long press, and the recording was left open holding
-      -- the one converter the rig has.
-      { holdMs: 700.0
-      , doubleTapMs: 260.0
-      , hasDouble: LooperBanks.hasDouble
-      }
+  -- **Seven hundred, because that is what the device does.** Set in
+  -- Morningstar's editor and confirmed against `03 21` offset 3, which moved
+  -- from 2 to 4 when the setting went from 750 ms to 700 — so the byte is the
+  -- right byte even though one data point gives no scale to read it by.
+  --
+  -- Two-fifty for the tap is the weaker number and the more important one, and
+  -- it is the next thing to measure rather than to reason about: the double-tap
+  -- window was bounded from above at 414 ms by the gesture probe (two presses
+  -- that far apart read as two singles) and has never been pinned. A press log
+  -- against a metronome would settle it in a minute.
+  , looperDeferral: { tapMs: 250.0, holdMs: 700.0 }
   , looperFocus: 0
   , looperLastAction: Nothing
   , looperAckSeq: 0

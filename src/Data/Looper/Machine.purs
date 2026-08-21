@@ -1,21 +1,23 @@
 -- | What a gesture means, given what the loops are doing.
 -- |
--- | The second half of the input path. `Data.Looper.Gestures` is a `Mealy` and
--- | has memory; this has none, and that is the interesting part.
+-- | The whole input path, now that there is nothing in front of it. There used
+-- | to be a `Data.Looper.Gestures` — a `Mealy` transducer timing switch edges
+-- | into taps, doubles and holds — and it is gone: the MC6 does that itself, and
+-- | does it without the three failure modes an app-side recogniser has (see
+-- | `Data.Looper.Banks`). A press arrives already knowing which gesture it was.
 -- |
--- | ## It holds no state, because the engine already does
+-- | ## It holds no state at all
 -- |
 -- | A looper's phase — empty, recording, playing — is not something this app
 -- | should model. The daemon reports it thirty times a second and the app has
 -- | always taken that as authoritative (`Foreign.LooperSocket`: "the app holds
 -- | only what the daemon last reported; it never models the engine itself").
 -- |
--- | So the machine's own state is only what nothing else knows: whether a
--- | second tap is still possible, and how long a switch has been down. That is
--- | the recogniser's, and it is all of it. Here there is a pure function from
--- | (gesture, engine truth) to actions — which means it can be tested by
--- | enumeration, and cannot drift out of step with the engine, because it has
--- | nothing of its own to drift with.
+-- | The recogniser held the only state anything here ever had — whether a second
+-- | tap was still possible, and how long a switch had been down — and the device
+-- | now holds it instead. What is left is a pure function from (gesture, engine
+-- | truth) to actions, which can be tested by enumeration and cannot drift out
+-- | of step with the engine, because it has nothing of its own to drift with.
 -- |
 -- | The same argument as the MC6: *the device is compiled output, the store is
 -- | the truth.* Here the daemon is the store.
@@ -42,9 +44,8 @@ module Data.Looper.Machine
 import Prelude
 
 import Data.Array as Array
-import Data.Looper.Banks (BankSlot(..), loopSwitches)
+import Data.Looper.Banks (BankSlot(..), Gesture(..), SwitchGesture, loopSwitches)
 import Data.Looper.Banks as LB
-import Data.Looper.Gestures (Gesture(..))
 import Data.Maybe (Maybe(..), maybe)
 import Foreign.LooperSocket (LoopState)
 
@@ -88,36 +89,36 @@ type Rig =
 -- | command on the wire are three renderings of one value, so they cannot
 -- | disagree — and a new duty is a compile error here until it is given a
 -- | meaning, rather than a switch that silently does nothing.
-act :: Rig -> Gesture -> Array Action
-act rig = case _ of
+act :: Rig -> SwitchGesture -> Array Action
+act rig p = case LB.dutiesAt p.slot p.switch of
+  Nothing -> [ missing p.slot p.switch ]
+  Just s -> case p.gesture, LB.dutyFor p.gesture s of
 
-  Tap slot i _ -> gesture rig slot i _.tap
+    Tap, Just d -> onDuty rig p.slot d
 
-  -- A double tap on a loop switch overdubs, which is the one place the second
-  -- press means something other than "the same thing again".
-  DoubleTap slot i _ -> case LB.dutiesAt slot i of
-    Just s -> case s.double of
-      Just (LB.SelectLoop n) -> Array.cons (Focus n) (onDouble n (loopAt rig n))
-      Just d -> onDuty rig slot d
-      Nothing -> [ Handled ("nothing on a double tap of " <> LB.dutyLabel s.tap) ]
-    Nothing -> [ missing slot i ]
+    -- A double tap on a loop switch overdubs, which is the one place the second
+    -- press means something other than "the same thing again".
+    Double, Just (LB.SelectLoop n) -> Array.cons (Focus n) (onDouble n (loopAt rig n))
+    Double, Just d -> onDuty rig p.slot d
 
-  Hold slot i _ -> case LB.dutiesAt slot i of
-    Just s -> case s.hold of
-      -- The MC6 makes this jump itself, from the table it was programmed with;
-      -- all the app has to do is agree which loop that bank now talks about.
-      Just (LB.Enter LB.ConfigBank) | LB.SelectLoop n <- s.tap ->
-        Array.cons (Focus n) (onHoldLoop n (loopAt rig n))
-      Just d -> onDuty rig slot d
-      Nothing -> [ Handled ("nothing on a long press of " <> LB.dutyLabel s.tap) ]
-    Nothing -> [ missing slot i ]
+    -- The MC6 makes this jump itself, from the table it was programmed with;
+    -- all the app has to do is agree which loop that bank now talks about.
+    Hold, Just (LB.Enter LB.ConfigBank) | LB.SelectLoop n <- s.tap ->
+      Array.cons (Focus n) (onHoldLoop n (loopAt rig n))
+    Hold, Just d -> onDuty rig p.slot d
 
-gesture :: Rig -> BankSlot -> Int -> (LB.Duties -> Duty') -> Array Action
-gesture rig slot i pick = case LB.dutiesAt slot i of
-  Just s -> onDuty rig slot (pick s)
-  Nothing -> [ missing slot i ]
-
-type Duty' = LB.Duty
+    -- **The board and this table have fallen out of step.** A gesture only
+    -- arrives because the device was programmed to send it, and the device is
+    -- programmed from this table — so an unbound one means the board is running
+    -- an older upload. Said out loud rather than swallowed: that is exactly the
+    -- disagreement a press should be able to report.
+    g, Nothing ->
+      [ Unavailable
+          ( "the board sent a " <> LB.gestureName g <> " on "
+              <> LB.dutyLabel s.tap
+              <> ", which this bank does not carry — reprogram the MC6"
+          )
+      ]
 
 missing :: BankSlot -> Int -> Action
 missing slot i = Unavailable (show' slot <> " switch " <> show i <> " has nothing on it")

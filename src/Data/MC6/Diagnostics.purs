@@ -106,16 +106,31 @@ chunk n xs
 -- | A bank for finding out what the MC6 actually does with a gesture.
 -- |
 -- | **Written because two people disagreed and neither had looked.** The
--- | question is whether the device fires a switch's `Press` action when a
+-- | question was whether the device fires a switch's `Press` action when a
 -- | second press follows inside its double-tap window, or withholds it. It
--- | decides something real: if the single always fires, then a switch cannot
--- | carry both Undo and Redo, because a double tap would send Undo and then
--- | Redo and land exactly where it started. If it withholds, the device can do
--- | the recognition and the app's own recogniser — with its orphan-release and
--- | phantom-hold failure modes — is unnecessary weight.
+-- | decided something real: if the single always fires, a switch cannot carry
+-- | both Undo and Redo, because a double tap would send Undo and then Redo and
+-- | land exactly where it started.
 -- |
 -- | Every action a switch can carry gets its own CC, so the answer is whatever
 -- | arrives. Nothing here interprets anything; read the log.
+-- |
+-- | ## What it answered, 2026-08-21
+-- |
+-- | ```
+-- | single tap   Press and Release arrive 1 ms apart  (deferred, not at press-down)
+-- | double tap   DoubleTap alone — no Press at all, three trials of three
+-- | double tap   DoubleTapRelease alone — Release suppressed too
+-- | long press   Press, then LongPress ~600 ms later, and no Release
+-- | window       under 414 ms: two presses that far apart read as two singles
+-- | ```
+-- |
+-- | The device withholds the single until it knows. So `Release`,
+-- | `DoubleTapRelease` and `LongPress` are a mutually exclusive triple, the app
+-- | stopped recognising gestures, and `Data.Looper.Gestures` was deleted. Kept
+-- | here rather than retired, because the **double-tap window is still not
+-- | pinned** — only bounded — and `Engine.looperDeferral` is guessing at it.
+-- | Two presses at a known spacing against this bank would settle it.
 -- |
 -- | Layout, one question per switch:
 -- |

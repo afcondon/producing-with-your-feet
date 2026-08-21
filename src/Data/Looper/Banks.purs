@@ -63,50 +63,72 @@
 -- | through Itajara's pedal CCs on channel 13, and stays as long as the old
 -- | Looper page does. This is the six-loop machine, and it addresses the app.
 -- |
--- | ## Press, release, and the hold
+-- | ## The device says which gesture, and the value says which
 -- |
--- | Each switch sends its CC at 127 on press and 0 on release, and **the app
--- | times the gap — which is a choice, not a necessity.**
--- |
--- | This used to say the MC6 could not do it. Measured on the device
--- | 2026-08-21 with the gesture probe in `Data.MC6.Diagnostics`, that is wrong,
--- | and wrong in the direction that matters:
+-- | **Tap, double tap and long press are recognised on the MC6, not here.**
+-- | Measured on the device 2026-08-21 with the gesture probe in
+-- | `Data.MC6.Diagnostics`, one CC per action, read off a MIDI listener:
 -- |
 -- | ```
 -- | single tap   Press and Release arrive 1 ms apart  (deferred, not at press-down)
 -- | double tap   DoubleTap alone — no Press at all, three times out of three
--- | long press   Press, then LongPress ~600 ms later, and no Release
 -- | double tap   DoubleTapRelease alone — Release suppressed too
+-- | long press   Press, then LongPress ~600 ms later, and no Release
+-- | window       under 414 ms: two presses that far apart read as two singles
 -- | ```
 -- |
 -- | Which gives a **clean, mutually exclusive triple**: `Release` fires on a
 -- | single tap and on nothing else, because a double takes `DoubleTapRelease`
--- | and a hold takes `LongPress`. Tap, double and hold can each carry their own
--- | meaning on one switch with no overlap and nothing to suppress by hand.
+-- | and a hold takes `LongPress`. Nothing has to be suppressed by hand and
+-- | nothing overlaps. The device withholds the single press until it knows —
+-- | which is the whole difficulty of gesture recognition, and the reason it has
+-- | a configurable window at all.
 -- |
--- | So the device withholds the single until it knows, which is the whole
--- | difficulty of gesture recognition and the reason it has a configurable
--- | window. A switch carrying Undo on a tap and Redo on a double would be safe
--- | on the hardware; the assumption that it would fire both and land back where
--- | it started was mine and it was untested.
+-- | So the app stopped doing it. There was an `Data.Looper.Gestures`, a `Mealy`
+-- | transducer timing the gap between a CC at 127 and the same CC at 0, and it
+-- | was well made and it is gone. Its stated justification — the double-tap
+-- | window should be a function of the grid, which the device cannot know — was
+-- | real and never exercised: the window was a constant. What it cost was three
+-- | failure modes the hardware does not have, all of which were met in one day:
+-- | the **orphan release** (a bank jump on press means the release arrives from
+-- | the bank you have already reached, so the pair never completes), the
+-- | **phantom hold** (that orphan's timer firing a gesture nobody made), and the
+-- | app and the board **disagreeing about a threshold** — 600 ms here against
+-- | 700 there, so a press in the gap closed nothing and stranded a recording.
 -- |
--- | The remaining reason to keep it here is the stated one: the double-tap
--- | window should be a function of the grid, and the MC6 cannot know the grid.
--- | That is real but currently unexercised — `doubleTapMs` is a constant. Until
--- | it is not, the app is doing by hand something the device does natively, and
--- | paying for it in failure modes the device does not have: the orphan release,
--- | the phantom hold, and the app and the board disagreeing about a threshold.
+-- | ### The value carries the gesture
 -- |
--- | Its double-tap window is under 414 ms: two presses that far apart were read
--- | as two singles.
+-- | The CC number still says which switch on which bank. The **value** says
+-- | which of the three gestures it was:
 -- |
--- | A **hold** is the one gesture the MC6 resolves by itself: a long press on a
--- | loop switch jumps to the config bank unconditionally, no state required.
--- | The app must reach the same conclusion, and it does so by arming a timer on
--- | the *press* rather than by measuring at the release — so the two agree at
--- | the same instant, and it does not matter whether the device suppresses the
--- | release message after a long press or sends it anyway. The release only
--- | cancels a timer that has not fired.
+-- | ```
+-- | 127  tap        ActionRelease
+-- |  64  double     ActionDoubleTapRelease
+-- |   1  hold       ActionLongPress
+-- | ```
+-- |
+-- | Three widely spaced values rather than three CC blocks, because the
+-- | namespace is already spent — six banks of sixteen is ninety-six CCs, and
+-- | tripling that does not fit. A monitor still reads it at a glance: CC 51
+-- | value 64 is a double tap on slot 2, switch D.
+-- |
+-- | Decoding is exact rather than banded, which makes a board programmed by an
+-- | older version *say so*: its release sends 0, which is on no gesture and gets
+-- | logged instead of silently meaning something.
+-- |
+-- | ### A switch with no second meaning still answers a double
+-- |
+-- | The device suppresses `Release` on a double tap whether or not anything is
+-- | bound to the double. Left alone, that would make a fumbled double tap on
+-- | Click — or on any of the value banks — do **nothing at all**, which is a
+-- | worse answer than doing it once.
+-- |
+-- | So `bindings` gives such a switch the *tap's* value on
+-- | `ActionDoubleTapRelease`, and its jump with it. Two taps too close together
+-- | come out as one tap, which is what the player meant. The table is untouched:
+-- | `Duties.double` stays `Nothing`, the screen still says the switch has no
+-- | second meaning, and the fallback lives in the one function that programs the
+-- | device.
 module Data.Looper.Banks
   ( switchChannel
   , BankSlot(..)
@@ -116,7 +138,14 @@ module Data.Looper.Banks
   , slotName
   , loopSwitches
   , switchCC
-  , SwitchPress
+  , Gesture(..)
+  , allGestures
+  , gestureName
+  , gestureAction
+  , gestureValue
+  , gestureFromValue
+  , SwitchGesture
+  , switchGesture
   , decodeSwitch
   , labelOf
   , mc6OwnSwitches
@@ -125,7 +154,7 @@ module Data.Looper.Banks
   , Duty(..)
   , Duties
   , dutiesAt
-  , hasDouble
+  , dutyFor
   , dutyAt
   , dutyLabel
   , dutyName
@@ -165,7 +194,7 @@ import Data.MC6.ControlBank (ControlBank, ControlBankSwitch, switchCount)
 import Data.String (joinWith)
 import Data.MC6.Message as MC6Msg
 import Data.MC6.Types (MC6Action(..), MC6Message)
-import Data.Maybe (Maybe(..), fromMaybe, isJust, maybe)
+import Data.Maybe (Maybe(..), fromMaybe, maybe)
 
 -- | The channel the MC6 uses to address the app about its own switches.
 switchChannel :: Int
@@ -244,19 +273,80 @@ slotId = case _ of
 switchCC :: BankSlot -> Int -> Int
 switchCC slot i = stride * (slotIndex slot + 1) + i
 
--- | A switch going down or coming up, as the app reads it off the wire.
-type SwitchPress =
+-- | The three gestures, told apart by the device rather than by the app.
+-- |
+-- | A closed set, and closed for a hardware reason: these are the three the MC6
+-- | resolves without overlap. It has more actions than this — `LongDoubleTap`,
+-- | the scroll pair, the release halves of each — and every one of them is
+-- | another thing to remember while standing on an unmarked switch. Three is
+-- | already more than most switches use.
+data Gesture = Tap | Double | Hold
+
+derive instance Eq Gesture
+derive instance Ord Gesture
+
+allGestures :: Array Gesture
+allGestures = [ Tap, Double, Hold ]
+
+gestureName :: Gesture -> String
+gestureName = case _ of
+  Tap -> "tap"
+  Double -> "double tap"
+  Hold -> "long press"
+
+-- | Which of the device's actions carries each gesture.
+-- |
+-- | **The measured triple**, and the reason this module can stop timing
+-- | anything. `Release` fires on a single tap and on nothing else; a double
+-- | takes `DoubleTapRelease` and suppresses the release; a long press takes
+-- | `LongPress` and sends no release at all.
+-- |
+-- | The release halves rather than `Press` and `DoubleTap`, because the device
+-- | is already deferring — it cannot know a tap is a tap until the window
+-- | expires — so the earlier action buys nothing and, on a hold, would fire
+-- | before the gesture had happened.
+gestureAction :: Gesture -> MC6Action
+gestureAction = case _ of
+  Tap -> ActionRelease
+  Double -> ActionDoubleTapRelease
+  Hold -> ActionLongPress
+
+-- | The CC value that says which gesture it was. See the module header.
+gestureValue :: Gesture -> Int
+gestureValue = case _ of
+  Tap -> 127
+  Double -> 64
+  Hold -> 1
+
+-- | Exact, so that a board programmed by an older version is *noticed* rather
+-- | than half-understood: its release sends 0, which is on no gesture.
+gestureFromValue :: Int -> Maybe Gesture
+gestureFromValue = case _ of
+  127 -> Just Tap
+  64 -> Just Double
+  1 -> Just Hold
+  _ -> Nothing
+
+-- | A recognised gesture on a known switch, as the app reads it off the wire.
+-- |
+-- | One message, complete. There is no half of this: the device does not tell
+-- | the app a switch went down, so there is nothing to hold onto between
+-- | messages and nothing that can be left holding it.
+type SwitchGesture =
   { slot :: BankSlot
   , switch :: Int
-  , down :: Boolean
+  , gesture :: Gesture
   }
 
--- | Read a CC as a switch press, or refuse it.
+switchGesture :: BankSlot -> Int -> Gesture -> SwitchGesture
+switchGesture slot switch gesture = { slot, switch, gesture }
+
+-- | Read a CC as a gesture on a switch, or refuse it.
 -- |
 -- | Total and cheap, so the router can offer it every incoming CC and let the
 -- | `Nothing` mean "not ours" — which is what keeps this namespace from having
 -- | to be checked for at the call site as well as here.
-decodeSwitch :: Int -> Int -> Int -> Maybe SwitchPress
+decodeSwitch :: Int -> Int -> Int -> Maybe SwitchGesture
 decodeSwitch channel ccNum value =
   if channel /= switchChannel || ccNum < stride then Nothing
   else do
@@ -265,7 +355,9 @@ decodeSwitch channel ccNum value =
     -- The four CCs above each block are the gap that makes the arithmetic
     -- legible; nothing sends them, so nothing should accept them either.
     if sw >= switchCount then Nothing
-      else Just { slot, switch: sw, down: value > 63 }
+      else do
+        gesture <- gestureFromValue value
+        Just { slot, switch: sw, gesture }
 
 -- | What a switch is labelled, for logging a press the app was not expecting.
 -- |
@@ -763,12 +855,18 @@ dutyTap = case _ of
   Back j -> Just j
   _ -> Nothing
 
--- | A long press navigates only when the duty it carries navigates. The device
--- | is programmed from this, so a hold that is an app-side action leaves the
--- | MC6 doing nothing at all — which is right, because the app is the only
--- | thing that can act on it.
-dutyHold :: Duties -> Maybe Jump
-dutyHold s = s.hold >>= dutyTap
+-- | What a switch is for under a given gesture, when it is for anything.
+-- |
+-- | `Nothing` is a real answer twice over: most switches carry no hold, and a
+-- | double on a switch with no second meaning is a fumble the device programming
+-- | already turned into a tap (see the module header) — so a `Double` reaching
+-- | here unbound means the board and this table have fallen out of step, which
+-- | is worth saying rather than covering for.
+dutyFor :: Gesture -> Duties -> Maybe Duty
+dutyFor g s = case g of
+  Tap -> Just s.tap
+  Double -> s.double
+  Hold -> s.hold
 
 -- | Where a press sends the board, if anywhere.
 -- |
@@ -781,10 +879,11 @@ dutyHold s = s.hold >>= dutyTap
 -- | and the legend describes a bank nobody is standing on.
 -- |
 -- | It does not have to wait. It wrote the jumps; it can read them back.
-sendsTo :: BankSlot -> Int -> Boolean -> Maybe Jump
-sendsTo slot i long = do
+sendsTo :: BankSlot -> Int -> Gesture -> Maybe Jump
+sendsTo slot i g = do
   s <- dutiesAt slot i
-  if long then dutyHold s else dutyTap s.tap
+  d <- dutyFor g s
+  dutyTap d
 
 -- | What a given switch on a given bank is for. The whole surface, in one
 -- | lookup that everything else goes through.
@@ -793,13 +892,6 @@ dutiesAt slot = Array.index (layout slot)
 
 dutyAt :: BankSlot -> Int -> Maybe Duty
 dutyAt slot i = _.tap <$> dutiesAt slot i
-
--- | Whether a switch can be double-tapped, and so whether a tap on it has to
--- | wait to find out. Read by the recogniser, which is why it is here.
-hasDouble :: BankSlot -> Int -> Boolean
-hasDouble slot i = case dutiesAt slot i of
-  Just s -> isJust s.double
-  Nothing -> false
 
 -- | The twelve switches of each bank.
 -- |
@@ -976,41 +1068,53 @@ banks cfg = map toBank allSlots
     -- Blank switches are written blank rather than left alone, so uploading
     -- over whatever the bank held before leaves no stragglers doing something
     -- from a previous life.
-    , messages: if sw.tap == Nothing_ then [] else pressPair slot i <> jumps sw
+    , messages:
+        if sw.tap == Nothing_ then []
+        else
+          let bs = bindings slot i sw
+          in map _.cc bs <> Array.mapMaybe _.jump bs
     }
 
-  pressPair :: BankSlot -> Int -> Array MC6Message
-  pressPair slot i =
-    [ MC6Msg.ccMessage switchChannel (switchCC slot i) 127 ActionPress
-    , MC6Msg.ccMessage switchChannel (switchCC slot i) 0 ActionRelease
-    ]
-
-  -- | **On release, not on press.**
+  -- | Every message this switch carries, one row per gesture the device can
+  -- | tell apart.
   -- |
-  -- | A bank jump that fires while the switch is still down means the *release*
-  -- | is emitted from the bank you have already arrived at. The app then sees a
-  -- | `Down` on one bank and an `Up` on another; it forgets the orphan up — which
-  -- | is right, inventing a tap would be worse — and six hundred milliseconds
-  -- | later its hold timer fires a `Hold` nobody made. `followBoard` reads that
-  -- | phantom hold as "this switch navigates nowhere" and snaps the display back
-  -- | to the bank you just left, which is exactly what it looked like: press
-  -- | Modes, see the long name, watch it return to Config.
+  -- | The gesture travels in the value and the bank jump rides on the same
+  -- | action, so the app is told what happened by the same press that made it
+  -- | happen. There is nothing left to infer from timing, from ordering, or from
+  -- | a memory of the last bank change.
   -- |
-  -- | The messages are ordered so the CC release goes out before the jump, so
-  -- | the app gets its clean pair and *then* the board moves.
+  -- | **The double-tap fallback is here and nowhere else.** A switch with no
+  -- | second meaning still binds `DoubleTapRelease` — to the tap's own value and
+  -- | the tap's own jump — because the device suppresses `Release` on a double
+  -- | whether or not anything is listening, and a fumbled double that does
+  -- | nothing is worse than one that does the thing once.
+  bindings
+    :: BankSlot -> Int -> Duties
+    -> Array { cc :: MC6Message, jump :: Maybe MC6Message }
+  bindings slot i sw = Array.mapMaybe row allGestures
+    where
+    row g = do
+      duty <- case g of
+        -- The fallback: no second meaning means a double is a tap said twice.
+        Double -> Just (fromMaybe sw.tap sw.double)
+        _ -> dutyFor g sw
+      let value = case g of
+            Double | sw.double == Nothing -> gestureValue Tap
+            _ -> gestureValue g
+          action = gestureAction g
+      Just
+        { cc: MC6Msg.ccMessage switchChannel (switchCC slot i) value action
+        , jump: (\j -> MC6Msg.bankJumpMessage (target j) action) <$> dutyTap duty
+        }
+
+  -- | **The CCs before the jumps.**
   -- |
-  -- | Long presses stay on `ActionLongPress`: a hold is meant to fire while held,
-  -- | and the app resolves it from its own timer rather than from the release, so
-  -- | a misbanked up is harmless there.
-  jumps :: Duties -> Array MC6Message
-  jumps sw =
-    jumpFor ActionRelease (dutyTap sw.tap) <> jumpFor ActionLongPress (dutyHold sw)
-
-  jumpFor :: MC6Action -> Maybe Jump -> Array MC6Message
-  jumpFor action = case _ of
-    Nothing -> []
-    Just j -> [ MC6Msg.bankJumpMessage (target j) action ]
-
+  -- | A bank jump that goes out first means the message after it is emitted from
+  -- | the bank the board has already reached — which is how the app came to see
+  -- | a press on one bank and its release on another, forget the orphan, and
+  -- | then fire a hold nobody made. The gesture is one message now, so this is
+  -- | belt as well as braces; the ordering is kept because the reason it was
+  -- | needed has not stopped being true of the device.
   target :: Jump -> Int
   target = case _ of
     ToSlot s -> cfg.base + slotIndex s

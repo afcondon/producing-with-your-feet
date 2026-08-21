@@ -141,13 +141,22 @@ type GeneralConfig = { bytes :: Array Int }
 -- | the editor's write, and 4 when the device was read back afterwards.
 -- |
 -- | **This is not milliseconds.** 4 is 700 ms; one data point does not give the
--- | scale, and inventing one would put the app's hold timer at a threshold the
--- | device does not share. Returned raw for that reason, with the conversion
--- | left as the small experiment it is: set two known values, read twice.
+-- | scale, and inventing one would be inventing a number. Returned raw for that
+-- | reason, with the conversion left as the small experiment it is: set two
+-- | known values, read twice.
 -- |
--- | It matters because the loop banks' hold gesture has to agree with it. The
--- | app arms its timer on the press; if the two thresholds disagree, a hold
--- | changes bank on the device while the app records it as a tap.
+-- | It used to matter because the app had a hold timer of its own that had to
+-- | agree with this one, and between 600 here and 700 there a press meant to
+-- | close a recording did nothing visible and stranded it. There is no app-side
+-- | timer any more — the device recognises its own gestures
+-- | (`Data.Looper.Banks`) — so the two cannot disagree. What this number is
+-- | wanted for now is `Engine.looperDeferral`: a long press is reported at the
+-- | threshold, so the threshold *is* how late the message is, and the daemon
+-- | spends that on the pre-roll ring.
+-- |
+-- | The **double-tap window is the one still missing**, and it is the one the
+-- | common gesture needs. Bounded from above at 414 ms by the gesture probe and
+-- | never pinned. Same experiment, one byte along.
 -- |
 -- | **Offset 13 was the previous answer here and was wrong.** It was placed
 -- | because 12 occurs exactly once in the payload and the March backup names a

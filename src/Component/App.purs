@@ -15,9 +15,7 @@ import Data.Argonaut.Parser (jsonParser)
 import Data.Looper as Looper
 import Data.Looper.Banks as LoopBanks
 import Component.Looper.Slots as Slots
-import Data.Looper.Gestures as Gestures
 import Data.Looper.Machine as Machine
-import Data.JSDate as JSDate
 import Data.MC6.Backup as Backup
 import Data.MC6.ControlBank (ControlBank)
 import Data.MC6.ControlBank as ControlBank
@@ -45,7 +43,7 @@ import Data.Preset as Preset
 import Data.String as String
 import Data.String.CodeUnits (contains)
 import Data.String.Pattern (Pattern(..))
-import Data.Tuple (Tuple(..), fst, snd)
+import Data.Tuple (Tuple(..))
 import Data.Twister (SideBtn(..), TwisterEncoder(..), TwisterMsg(..), parseTwisterMsg)
 import Effect.Aff (Milliseconds(..), delay)
 import Effect.Aff.Class (class MonadAff)
@@ -128,7 +126,6 @@ data Action
   | BackupSaveNowAction
   | BackupDisconnectAction
   | LooperPoll
-  | LooperTick
   | LooperCommand String
 
 type Slots =
@@ -1841,10 +1838,10 @@ handleAction = case _ of
           Just c, Just v -> handleAction (SetValue Looper.itajaraId c v)
           _, _ -> pure unit
 
-      -- The app's own switch namespace (`Data.Looper.Banks`). A press here says
-      -- which switch on which bank, so nothing has to be inferred from a memory
-      -- of the last bank change — and both edges arrive, because the recogniser
-      -- times the gap between them.
+      -- The app's own switch namespace (`Data.Looper.Banks`). One message per
+      -- press, and it says everything: which bank, which switch, and which of
+      -- the three gestures the device decided it was. Nothing is inferred from
+      -- timing, from ordering, or from a memory of the last bank change.
       [status, ccNum, val] | status == 0xB0 + LoopBanks.switchChannel - 1 ->
         case LoopBanks.decodeSwitch LoopBanks.switchChannel ccNum val of
           Just press -> do
@@ -1852,13 +1849,15 @@ handleAction = case _ of
             -- display never has to guess — including after a bank change made
             -- with a foot, which nothing else would have told us about.
             H.modify_ _ { looperBankShown = Just press.slot }
-            t <- liftEffect (JSDate.getTime <$> JSDate.now)
-            feedGesture (if press.down then Gestures.Down press t else Gestures.Up press t)
-          -- A CC on our channel that is not one of our switches. Worth saying
-          -- out loud: it means the board is sending something this app wrote
-          -- and no longer understands.
+            runGesture press
+          -- A CC on our channel that is not one of our switches, or one of them
+          -- carrying a value that is on no gesture. Worth saying out loud both
+          -- ways: it means the board is sending something this app wrote and no
+          -- longer understands — most likely a bank programmed before gestures
+          -- moved onto the device, whose release still sends 0.
           Nothing -> liftEffect $ Console.log $
-            "MC6: CC " <> show ccNum <> " on the switch channel is not a switch."
+            "MC6: CC " <> show ccNum <> " value " <> show val
+              <> " on the switch channel is not a gesture on a switch."
 
       -- Channel 1 CC with value 127 = a board-recall footswitch press.
       [status, ccNum, 127] | status == 0xB0 ->
@@ -1927,12 +1926,11 @@ handleAction = case _ of
   -- | a second forever, which is how the Overview's footswitches died. Only
   -- | touch state when the daemon actually said something new; with no daemon
   -- | running this settles to zero work.
-  -- | Time is an input like any other: a tap becomes a tap by the double-tap
-  -- | window expiring, and a transducer only moves when it is fed.
-  LooperTick -> do
-    t <- liftEffect (JSDate.getTime <$> JSDate.now)
-    feedGesture (Gestures.Tick t)
-
+  -- |
+  -- | This used to be two actions: a poll and a `LooperTick` that fed the
+  -- | gesture recogniser, because a tap became a tap by a window expiring and a
+  -- | transducer only moves when it is fed. Nothing here waits on time any more
+  -- | — the device does the waiting — so the tick went with the recogniser.
   LooperPoll -> do
     st' <- liftEffect LooperSocket.status
     snap <- liftEffect LooperSocket.latest
@@ -2000,7 +1998,6 @@ looperPollLoop :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m
 looperPollLoop = do
   H.liftAff (delay (Milliseconds 100.0))
   handleAction LooperPoll
-  handleAction LooperTick
   looperPollLoop
 
 -- Grid output handler (shared by HandleGrid)
@@ -2459,21 +2456,6 @@ inUpload output act = inSession output \open -> Wire.withUpload open act
 -- | a read-back confirming those five were untouched rather than merely
 -- | unconfirmed — which is the difference between a slow afternoon and a
 -- | silently wrong pedalboard.
--- | Step the recogniser, and act on whatever it decided.
--- |
--- | `Mealy` returns the *next machine* alongside the output, so stepping it is
--- | a state update — which is why the machine lives in `AppState` rather than
--- | in a closure somewhere. The library's shape and Halogen's agree here
--- | without either being bent.
-feedGesture
-  :: forall o m. MonadAff m
-  => Gestures.Event -> H.HalogenM AppState Action Slots o m Unit
-feedGesture ev = do
-  st <- H.get
-  let stepped = Gestures.feed st.looperGestures ev
-  H.modify_ _ { looperGestures = fst stepped }
-  traverse_ runGesture (snd stepped)
-
 -- | What a gesture means, and then doing it.
 -- |
 -- | The meaning is a pure function of the gesture and the *daemon's* report of
@@ -2481,25 +2463,33 @@ feedGesture ev = do
 -- | here that can fall out of step with the engine.
 runGesture
   :: forall o m. MonadAff m
-  => Gestures.Gesture -> H.HalogenM AppState Action Slots o m Unit
+  => LoopBanks.SwitchGesture -> H.HalogenM AppState Action Slots o m Unit
 runGesture g = do
   st <- H.get
   let rig = { loops: maybe [] _.loops st.looper, focus: st.looperFocus }
   followBoard g
-  -- How late this command will be, measured from the press rather than
-  -- assumed. The daemon spends it where a frame matters (`@ms` in its
-  -- dispatch) and strips it everywhere else, so everything can be stamped
-  -- without the app having to know which commands care.
-  now <- liftEffect (JSDate.getTime <$> JSDate.now)
-  let late = max 0.0 (now - gestureAt g)
-  traverse_ (runAction late) (Machine.act rig g)
+  traverse_ (runAction (deferralOf st.looperDeferral g.gesture)) (Machine.act rig g)
 
--- | When the foot went down, which is not when the gesture was recognised.
-gestureAt :: Gestures.Gesture -> Number
-gestureAt = case _ of
-  Gestures.Tap _ _ t -> t
-  Gestures.DoubleTap _ _ t -> t
-  Gestures.Hold _ _ t -> t
+-- | How late this command already is, before it has gone anywhere.
+-- |
+-- | The daemon spends it where a frame matters (`@ms` in its dispatch) and
+-- | strips it everywhere else, so everything can be stamped without the app
+-- | having to know which commands care.
+-- |
+-- | **It is the device's own threshold rather than a measurement**, and that is
+-- | what moving gesture recognition onto the MC6 cost. The app used to see the
+-- | switch go down and could subtract; now it sees one message that the device
+-- | withheld until it knew, and the length of that wait is a setting rather than
+-- | an observation. See `Engine.looperDeferral` for what each number is worth.
+deferralOf :: { tapMs :: Number, holdMs :: Number } -> LoopBanks.Gesture -> Number
+deferralOf d = case _ of
+  LoopBanks.Tap -> d.tapMs
+  -- The window again, measured from the second press. Doubles used to be dated
+  -- from the *first* of the pair, on the grounds that it is where the player
+  -- committed; that is no longer knowable, and a double tap is not the gesture
+  -- anything sample-critical hangs on.
+  LoopBanks.Double -> d.tapMs
+  LoopBanks.Hold -> d.holdMs
 
 -- | Keep track of which bank the board is showing, including the jumps it makes
 -- | on its own.
@@ -2517,18 +2507,13 @@ gestureAt = case _ of
 -- | inventing a board.
 followBoard
   :: forall o m. MonadAff m
-  => Gestures.Gesture -> H.HalogenM AppState Action Slots o m Unit
-followBoard g = do
-  let
-    Tuple from (Tuple i long) = case g of
-      Gestures.Tap slot i' _ -> Tuple slot (Tuple i' false)
-      Gestures.DoubleTap slot i' _ -> Tuple slot (Tuple i' false)
-      Gestures.Hold slot i' _ -> Tuple slot (Tuple i' true)
-  H.modify_ _ { looperBankShown = case LoopBanks.sendsTo from i long of
+  => LoopBanks.SwitchGesture -> H.HalogenM AppState Action Slots o m Unit
+followBoard g =
+  H.modify_ _ { looperBankShown = case LoopBanks.sendsTo g.slot g.switch g.gesture of
       Just (LoopBanks.ToSlot to) -> Just to
       Just LoopBanks.ToBoard -> Nothing
       -- Not a navigating switch, so the board stayed where the press came from.
-      Nothing -> Just from
+      Nothing -> Just g.slot
     }
 
 runAction
