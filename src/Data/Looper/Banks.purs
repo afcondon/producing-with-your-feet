@@ -107,6 +107,9 @@ module Data.Looper.Banks
   , fadeLadder
   , stepFade
   , fadeWord
+  , decayLadder
+  , stepDecay
+  , decayWord
   , Face
   , Switch
   , face
@@ -448,6 +451,20 @@ data Duty
   -- |
   -- | Applied at playback, so it costs nothing to change and nothing to undo.
   | StepFade
+  -- | Step how much a pass costs the material already there.
+  -- |
+  -- | **The parameter that separates Frippertronics from song looping.** Two
+  -- | Revoxes with the second one feeding back below unity is this number, and
+  -- | so is what a tape echo does to its repeats. Without it every layer plays
+  -- | at full for ever and the only shape a loop can have is the one it was
+  -- | given.
+  -- |
+  -- | Per layer, counted from each one's own birth, so new material enters at
+  -- | full while everything underneath recedes — which a single feedback gain
+  -- | cannot do, because it destroys as it goes and has no idea how old
+  -- | anything is. Here it is a resolution at playback: a loop faded to nothing
+  -- | is still all there, and turning decay off brings it back.
+  | StepDecay
   -- | Claim the recent past. **The one thing a pedal cannot do**, and the
   -- | reason for a sixty-second ring: you played something good and did not
   -- | hit record, so hit it afterwards. It had no footswitch at all until
@@ -499,6 +516,7 @@ dutyLabel = case _ of
   LevelArm -> "Listen"
   StepChance -> "Chance"
   StepFade -> "Fade"
+  StepDecay -> "Decay"
   Free -> "Free"
   Grid n -> show n <> (if n == 1 then " Bar" else " Bars")
   Rate r -> "x " <> rateWord r
@@ -530,6 +548,7 @@ dutyName = case _ of
   LevelArm -> "Start when you play"
   StepChance -> ladderLine chanceLadder
   StepFade -> ladderLine fadeLadder
+  StepDecay -> ladderLine decayLadder
   Free -> "Free length and launch"
   Grid n -> "Round to " <> show n <> (if n == 1 then " bar" else " bars")
   Rate r -> rateWord r <> " speed"
@@ -628,6 +647,31 @@ stepFade = nextRung fadeLadder
 
 fadeWord :: Number -> String
 fadeWord ms = fromMaybe (show (Int.round ms) <> " ms") (rungWord fadeLadder ms)
+
+-- | How much a pass costs what is already there, in decibels.
+-- |
+-- | **Hold first, and hold by default**, because holding is what a looper has
+-- | always done and every loop recorded before this existed was recorded
+-- | expecting it.
+-- |
+-- | The rungs are chosen by how long they take rather than by round numbers: at
+-- | one a pass a phrase is still there thirty passes later, which is Fripp's
+-- | Soundscapes; at twelve it is gone in three, which is a slapback with
+-- | delusions. Three and six are where most of the interesting ambience lives.
+decayLadder :: Array Rung
+decayLadder =
+  [ { value: 0.0, word: "hold", tick: "hold" }
+  , { value: -1.0, word: "-1 dB", tick: "1" }
+  , { value: -3.0, word: "-3 dB", tick: "3" }
+  , { value: -6.0, word: "-6 dB", tick: "6" }
+  , { value: -12.0, word: "-12 dB", tick: "12" }
+  ]
+
+stepDecay :: Number -> Number
+stepDecay = nextRung decayLadder
+
+decayWord :: Number -> String
+decayWord db = fromMaybe (show (Int.round db) <> " dB") (rungWord decayLadder db)
 
 shortSlot :: BankSlot -> String
 shortSlot = case _ of
@@ -845,7 +889,7 @@ own = case _ of
     , only LevelArm
     , only StepChance
     , only StepFade
-    , only Nothing_
+    , only StepDecay
     , only (Back (ToSlot ConfigBank))
     ]
 

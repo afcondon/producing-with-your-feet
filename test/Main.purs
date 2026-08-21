@@ -872,7 +872,7 @@ main = do
                , pos: 0, phase: 0.0, armed: false, recording: false, quant: false
                , muted: false, reverse: false, pan: 64, speed: 1.0, pendulum: false
                , oneShot: false, levelArm: false, firing: false
-               , chance: 1.0, skipping: false, fadeMs: 0.0
+               , chance: 1.0, skipping: false, fadeMs: 0.0, decayDb: 0.0
                , pendingAt: -1, shapes: [] }
       withState n s ls = (idle n) { state = s, layers = ls }
       rigOf ls = { loops: ls, focus: 0 }

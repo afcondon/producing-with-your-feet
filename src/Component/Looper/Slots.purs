@@ -212,7 +212,14 @@ layerRow st i sh =
   block s =
     HH.div
       [ HP.class_ (HH.ClassName ("loop-block" <> if sounds s then " sounds" else " rest"))
-      , HP.style ("width:" <> show widthPc <> "%; --layer:" <> show i)
+      -- Decay is invisible in the arena — nothing is scaled there — so the only
+      -- way a receding loop can be seen is if the display asks the engine what
+      -- each layer is currently worth. A floor of a tenth, because a layer on
+      -- its way out is still a fact about the loop and a block you cannot see
+      -- reads as a block that is not there.
+      , HP.style $ "width:" <> show widthPc <> "%; --layer:" <> show i
+          <> (if sh.gain >= 1.0 then ""
+              else ";opacity:" <> show (max 0.1 sh.gain))
       ]
       []
 
@@ -368,6 +375,7 @@ marks st = joinWith " · " (Array.catMaybes
   -- to be written down: otherwise the only evidence a setting took is the
   -- absence of a click nobody was listening for.
   , if st.fadeMs <= 0.0 then Nothing else Just ("~" <> LB.fadeWord st.fadeMs)
+  , if st.decayDb >= 0.0 then Nothing else Just ("\x2193 " <> LB.decayWord st.decayDb)
   ])
 
 -- | Speed as the multiplier the switch was labelled with, not a decimal.

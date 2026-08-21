@@ -175,6 +175,12 @@ onDuty rig slot = case _ of
        , Handled ("loop " <> show (rig.focus + 1) <> " wraps " <> LB.fadeWord next)
        ]
 
+  LB.StepDecay ->
+    let next = LB.stepDecay (maybe 0.0 _.decayDb (loopAt rig rig.focus))
+    in [ Command (cmd rig.focus ("dec" <> show next))
+       , Handled ("loop " <> show (rig.focus + 1) <> " decays " <> LB.decayWord next)
+       ]
+
   -- The one thing a pedal cannot do. With no loop yet it claims the daemon's
   -- default of the last few seconds; with one running it claims the last
   -- complete cycle, which lands on the grid because the fill is addressed in
