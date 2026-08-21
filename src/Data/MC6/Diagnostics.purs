@@ -12,6 +12,8 @@
 module Data.MC6.Diagnostics
   ( bypassBanks
   , switchesPerBank
+  , gestureProbeBank
+  , gestureProbeChannel
   ) where
 
 import Prelude
@@ -25,6 +27,7 @@ import Data.Midi (unCC)
 import Data.Pedal (PedalDef)
 import Data.Pedal.Engage (EngageConfig(..))
 import Data.String as String
+import Data.Tuple (Tuple(..))
 import Data.String.CodeUnits as SCU
 
 -- | The MC6 bank the app models is a 3×3 grid: six footswitches plus three
@@ -99,3 +102,82 @@ chunk n xs
   | n <= 0 = [ xs ]
   | Array.null xs = []
   | otherwise = Array.cons (Array.take n xs) (chunk n (Array.drop n xs))
+
+-- | A bank for finding out what the MC6 actually does with a gesture.
+-- |
+-- | **Written because two people disagreed and neither had looked.** The
+-- | question is whether the device fires a switch's `Press` action when a
+-- | second press follows inside its double-tap window, or withholds it. It
+-- | decides something real: if the single always fires, then a switch cannot
+-- | carry both Undo and Redo, because a double tap would send Undo and then
+-- | Redo and land exactly where it started. If it withholds, the device can do
+-- | the recognition and the app's own recogniser — with its orphan-release and
+-- | phantom-hold failure modes — is unnecessary weight.
+-- |
+-- | Every action a switch can carry gets its own CC, so the answer is whatever
+-- | arrives. Nothing here interprets anything; read the log.
+-- |
+-- | Layout, one question per switch:
+-- |
+-- |   * **A** — every action at once. Tap it, double it, hold it, and see which
+-- |     of 100/101/102/103 appear and in what order.
+-- |   * **B** — press and double only, so a double tap cannot hide behind a
+-- |     release. If 110 arrives twice before 111, the single is not withheld.
+-- |   * **C** — the release-side pair, which is what this app would actually
+-- |     use if the device turned out to do the work.
+-- |   * **D** — long press against its release, for the same question one
+-- |     gesture over.
+-- |
+-- | On its own channel so nothing here can be mistaken for a pedal or for the
+-- | looper's own switch namespace.
+-- |
+-- | **The CCs are decades, and they are all under 128.** The first version used
+-- | 100/110/120/130, and 130 does not fit in seven bits: encoded into the preset
+-- | frame it becomes `0x82`, which is a *status byte*, and a status byte inside
+-- | a SysEx message ends the message. Switch D's frame was therefore malformed
+-- | and took the rest of the upload session with it — D, E and F all silently
+-- | never arrived while A, B and C landed perfectly. It looked exactly like a
+-- | device that stops acking, and cost an hour of blaming the browser.
+gestureProbeBank :: Int -> Int -> ControlBank
+gestureProbeBank bankNum boardBank =
+  { id: "gesture-probe"
+  , name: "Gestures"
+  , description: "Every gesture on its own CC, to settle what the device sends"
+  , mc6BankNumber: bankNum
+  , returnSwitchIndex: 5
+  , switches:
+      [ probe "A 60s" "Press 60 Rel 61 Dbl 62 Long 63"
+          [ Tuple ActionPress 60
+          , Tuple ActionRelease 61
+          , Tuple ActionDoubleTap 62
+          , Tuple ActionLongPress 63
+          ]
+      , probe "B 70s" "Press 70, DoubleTap 71"
+          [ Tuple ActionPress 70, Tuple ActionDoubleTap 71 ]
+      , probe "C 80s" "Release 80, DoubleTapRelease 81"
+          [ Tuple ActionRelease 80, Tuple ActionDoubleTapRelease 81 ]
+      , probe "D 90s" "LongPress 90, LongPressRelease 91"
+          [ Tuple ActionLongPress 90, Tuple ActionLongPressRelease 91 ]
+      , { label: "", longName: "", toToggle: false, messages: [] }
+      , { label: "< Board", longName: "Back to the board bank", toToggle: false
+        , messages: [ MC6Msg.bankJumpMessage boardBank ActionPress ]
+        }
+      ]
+  }
+  where
+  probe :: String -> String -> Array (Tuple MC6Action Int) -> ControlBankSwitch
+  probe label longName pairs =
+    { label
+    , longName
+    , toToggle: false
+    -- 127 every time: the value carries nothing, only the CC number and the
+    -- order of arrival are being measured.
+    , messages: map
+        (\(Tuple action cc) -> MC6Msg.ccMessage gestureProbeChannel cc 127 action)
+        pairs
+    }
+
+-- | Channel 4 — not the app's switch namespace and not a pedal's, so anything
+-- | arriving here came from this bank and nowhere else.
+gestureProbeChannel :: Int
+gestureProbeChannel = 4

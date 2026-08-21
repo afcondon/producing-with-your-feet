@@ -27,6 +27,7 @@ import Test.MC6Capture as Capture
 import Data.Looper as Looper
 import Component.Looper.Slots as Slots
 import Data.Looper.Banks as LB
+import Data.MC6.Diagnostics as Diagnostics
 import Data.Looper.Gestures as Gestures
 import Data.Looper.Machine as Machine
 import Data.String as String
@@ -1639,6 +1640,28 @@ main = do
   -- are two copies of one number, and the daemon cannot be asked from here.
   assert "the loop bank offers as many loops as the engine has"
     (LB.loopSwitches == 6)
+
+  -- **Seven bits, or the frame stops being a frame.**
+  --
+  -- A SysEx message is bytes below 0x80; anything with the high bit set is a
+  -- status byte and ends the message where it stands. So a CC number of 130 in
+  -- a preset frame does not produce a wrong CC, it produces a *truncated
+  -- upload* — and the switches after it never arrive, silently, looking for all
+  -- the world like a device that has stopped acking. That is exactly what the
+  -- gesture probe did on its first outing.
+  --
+  -- Every value that reaches a frame is checked here rather than at the one
+  -- call site that got it wrong.
+  assert "no generated message carries a byte that would end a SysEx frame"
+    (let
+       everyMessage =
+         ((LB.banks { base: 22, boardBank: 0 } <> [ Diagnostics.gestureProbeBank 28 0 ])
+            >>= _.switches) >>= _.messages
+       inSeven n = n >= 0 && n <= 127
+     in Array.all
+          (\m -> inSeven m.data1 && inSeven m.data2 && inSeven m.data3
+                   && inSeven m.data4 && inSeven m.channel)
+          everyMessage)
 
   -- Switches 9-11 are a second FS3X that may not be plugged in. A way out that
   -- lands there is a bank you can walk into and not leave, and you would find

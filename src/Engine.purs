@@ -158,6 +158,9 @@ type AppState =
   -- | are two refusals: pressing the same dead switch twice should say so
   -- | twice, and comparing the sentences would swallow the second.
   , looperAckSeq :: Int
+  -- | Where the gesture probe bank goes. Past the looper family's 22-27 so it
+  -- | cannot land on one of them.
+  , mc6ProbeBankNum :: Int
   -- | Which face the Looper page is showing. The six-slot display is what the
   -- | board drives; the old transport is kept because it can drive the engine
   -- | by hand, which is how the six-slot display gets something to show.
@@ -312,6 +315,7 @@ initAppState =
   , looperFocus: 0
   , looperLastAction: Nothing
   , looperAckSeq: 0
+  , mc6ProbeBankNum: 28
   , looperShowsSlots: true
   , looperBankShown: Just LooperBanks.LoopBank
   , looperProgramStatus: Nothing

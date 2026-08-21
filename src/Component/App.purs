@@ -91,6 +91,7 @@ data Action
   | SetTestCC String
   | SendTestCC Int
   | ProgramBypassBanks
+  | ProgramGestureProbe
   | ReadMC6Banks
   | ProgramLooperBank
   | ProgramLoopBanks
@@ -735,6 +736,11 @@ renderConnectView state =
             ]
             [ HH.text "Program bypass-test banks" ]
         , HH.button
+            [ HP.class_ (H.ClassName "files-btn files-btn-muted")
+            , HE.onClick \_ -> ProgramGestureProbe
+            ]
+            [ HH.text "Program gesture probe" ]
+        , HH.button
             [ HP.class_ (H.ClassName "files-btn")
             , HE.onClick \_ -> ReadMC6Banks
             ]
@@ -1375,6 +1381,26 @@ handleAction = case _ of
         H.modify_ _ { midiTest = Just $
           (if Array.null r.written then "wrote nothing"
            else "programmed bypass-test banks " <> commaList r.written)
+          <> (if Array.null r.refused then ""
+              else "; the MC6 never confirmed moving to " <> commaList r.refused) }
+
+  -- | One bank where every gesture has its own CC, to settle what the device
+  -- | actually sends. See `Data.MC6.Diagnostics.gestureProbeBank`.
+  ProgramGestureProbe -> do
+    st <- H.get
+    case st.connections.mc6Output of
+      Nothing ->
+        H.modify_ _ { midiTest = Just "no MC6 SysEx output selected" }
+      Just output -> do
+        let bank = Diagnostics.gestureProbeBank st.mc6ProbeBankNum st.mc6BoardBankNum
+        r <- uploadBanks "probe" output [ bank ] \n ->
+          H.modify_ _ { midiTest = Just ("writing bank " <> show n <> "...") }
+        invalidateObservation r.written
+        H.modify_ _ { midiTest = Just $
+          (if Array.null r.written
+             then "wrote nothing"
+             else "gesture probe on bank " <> commaList r.written
+                    <> " \x2014 channel " <> show Diagnostics.gestureProbeChannel)
           <> (if Array.null r.refused then ""
               else "; the MC6 never confirmed moving to " <> commaList r.refused) }
 
