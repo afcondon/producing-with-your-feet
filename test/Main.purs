@@ -872,7 +872,8 @@ main = do
                , pos: 0, phase: 0.0, armed: false, recording: false, quant: false
                , muted: false, reverse: false, pan: 64, speed: 1.0, pendulum: false
                , oneShot: false, levelArm: false, firing: false
-               , chance: 1.0, skipping: false, pendingAt: -1, shapes: [] }
+               , chance: 1.0, skipping: false, fadeMs: 0.0
+               , pendingAt: -1, shapes: [] }
       withState n s ls = (idle n) { state = s, layers = ls }
       rigOf ls = { loops: ls, focus: 0 }
 
@@ -1119,16 +1120,31 @@ main = do
 
   -- A probability that is not on a rung still steps somewhere sensible rather
   -- than falling off the ladder, because it can be set to anything by hand.
-  assert "and from between two rungs, to the next one below"
-    (LB.stepChance 0.6 == 0.5 && LB.stepChance 0.01 == 1.0)
+  -- A value on no rung is only reachable by typing at the daemon. It goes to
+  -- the first rung rather than to whichever one it is nearest, because guessing
+  -- is a thing the player would have to learn.
+  assert "and a value on no rung starts the ladder again"
+    (LB.stepChance 0.6 == 1.0 && LB.stepChance 0.01 == 1.0)
 
   -- The word lives beside the value in one table, so the switch, the screen and
   -- the wire cannot come to describe different odds.
   assert "the ladder says its own words"
-    (map (\r -> LB.chanceWord r.odds) LB.chanceLadder
+    (map (\r -> LB.chanceWord r.value) LB.chanceLadder
       == [ "always", "3 in 4", "1 in 2", "1 in 4", "1 in 8" ]
-      && LB.chanceWord 0.6 == "60%"
-      && LB.chanceWord 0.0 == "never")
+      && LB.chanceWord 0.6 == "60%")
+
+  -- One stepping rule for every ladder, rather than one per parameter: the rung
+  -- after the one you are on, and back to the first when there is none.
+  assert "the wrap fade walks the same ladder rule, off first and off again"
+    (map (\r -> LB.stepFade r.value) LB.fadeLadder
+      == [ 10.0, 25.0, 50.0, 100.0, 0.0 ]
+      && map (\r -> LB.fadeWord r.value) LB.fadeLadder
+        == [ "hard", "10 ms", "25 ms", "50 ms", "100 ms" ])
+
+  assert "and a press sends the fade it stepped to"
+    (Machine.act { loops: [ (idle 0) { fadeMs = 25.0 } ], focus: 0 }
+       (Gestures.Tap LB.ModesBank 3 0.0)
+      == [ Machine.Command "0xf50.0", Machine.Handled "loop 1 wraps 50 ms" ])
 
   assert "and a press sends the rung it stepped to"
     (Machine.act { loops: [ (idle 0) { chance = 0.5 } ], focus: 0 }

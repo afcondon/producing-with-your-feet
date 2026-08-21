@@ -99,9 +99,13 @@ module Data.Looper.Banks
   , dutyAt
   , dutyLabel
   , dutyName
+  , Rung
   , chanceLadder
   , stepChance
   , chanceWord
+  , fadeLadder
+  , stepFade
+  , fadeWord
   , Face
   , Switch
   , face
@@ -430,6 +434,18 @@ data Duty
   -- | The pedal says "Chance" and the screen says which rung — the standing
   -- | division of labour, and the reason the board can be programmed once.
   | StepChance
+  -- | Step how much of the wrap is crossfaded with what followed it.
+  -- |
+  -- | The other half of *store everything, flatten late*: the frames recorded
+  -- | after the loop closed were kept rather than trimmed, and this is what they
+  -- | were kept for. A first recording is cut, so the frame after the last one
+  -- | is not the frame that followed it when it was played — the join is a step
+  -- | in the waveform. Arriving at the head through the continuation makes it
+  -- | continuous, because the two are one performance either side of one
+  -- | instant.
+  -- |
+  -- | Applied at playback, so it costs nothing to change and nothing to undo.
+  | StepFade
   -- | Claim the recent past. **The one thing a pedal cannot do**, and the
   -- | reason for a sixty-second ring: you played something good and did not
   -- | hit record, so hit it afterwards. It had no footswitch at all until
@@ -480,6 +496,7 @@ dutyLabel = case _ of
   OneShot -> "One Shot"
   LevelArm -> "Listen"
   StepChance -> "Chance"
+  StepFade -> "Fade"
   Free -> "Free"
   Grid n -> show n <> (if n == 1 then " Bar" else " Bars")
   Rate r -> "x " <> rateWord r
@@ -510,6 +527,7 @@ dutyName = case _ of
   OneShot -> "One pass, then silence"
   LevelArm -> "Start when you play"
   StepChance -> "How often it plays"
+  StepFade -> "Crossfade the wrap"
   Free -> "Free length and launch"
   Grid n -> "Round to " <> show n <> (if n == 1 then " bar" else " bars")
   Rate r -> rateWord r <> " speed"
@@ -517,56 +535,82 @@ dutyName = case _ of
   NotYet l _ -> l
   Nothing_ -> ""
 
--- | The rungs a foot can reach, rarest last, each with the words for it.
+-- | A value a switch can step to, and what to call it.
 -- |
--- | **One table, and the word lives beside the value rather than in a second
--- | function keyed by it.** Three things read this: the step a press takes, what
--- | the screen says, and — through the step — what the engine is told. The
--- | engine itself accepts any probability from zero to one and has no opinion
--- | about which are worth a switch; that is a question about feet, and this is
--- | where feet are answered.
--- |
--- | Descending, because it is what makes `stepChance` the plain thing it is: the
--- | next rung down is the first entry lower than where you are.
-chanceLadder :: Array { odds :: Number, word :: String }
-chanceLadder =
-  [ { odds: 1.0, word: "always" }
-  , { odds: 0.75, word: "3 in 4" }
-  , { odds: 0.5, word: "1 in 2" }
-  , { odds: 0.25, word: "1 in 4" }
-  , { odds: 0.125, word: "1 in 8" }
-  ]
+-- | **The word lives beside the value**, rather than in a second function keyed
+-- | by it. Three things read a ladder: the step a press takes, what the screen
+-- | says, and — through the step — what the engine is told. Keeping them in one
+-- | table is the same move as `Duty` itself.
+type Rung = { value :: Number, word :: String }
 
--- | The next rung down, wrapping round to certainty at the bottom.
+-- | The next rung the switch walks to, wrapping at the end.
 -- |
--- | Found by comparison rather than by index, so a probability the engine
--- | reports that is not exactly on a rung — set by hand, or arrived at through a
--- | float — still steps somewhere sensible instead of falling off the ladder.
--- | And it wraps: a ladder you cannot get off is worse than one that takes five
--- | presses.
-stepChance :: Number -> Number
-stepChance now =
-  maybe 1.0 _.odds (Array.find (\r -> r.odds < now - onRung) chanceLadder)
+-- | **One rule for every ladder**, rather than a step function per parameter:
+-- | *the rung after the one you are standing on, and back to the first if there
+-- | is none.* A value that is on no rung — only reachable by typing at the
+-- | daemon — also goes to the first, because guessing which rung a number
+-- | nobody chose is nearest to is a guess the player would have to learn.
+-- |
+-- | The wrap matters more than it looks: a ladder you cannot get off is worse
+-- | than one that takes five presses, and five presses on a switch you are
+-- | already standing over is nothing.
+nextRung :: Array Rung -> Number -> Number
+nextRung rungs now = case Array.findIndex (\r -> onRung r.value now) rungs of
+  Just i -> maybe first _.value (Array.index rungs (i + 1))
+  Nothing -> first
+  where
+  first = maybe 0.0 _.value (Array.head rungs)
 
--- | A probability as the display says it — the same words the daemon acks with,
--- | because a screen that answers a press differently from the thing that
--- | performed it makes the player do the translation.
--- |
--- | A value off the ladder gets a percentage rather than being rounded to the
--- | nearest rung it is not on.
-chanceWord :: Number -> String
-chanceWord p =
-  case Array.find (\r -> Number.abs (p - r.odds) < onRung) chanceLadder of
-    Just r -> r.word
-    Nothing
-      | p <= 0.0 -> "never"
-      | otherwise -> show (Int.round (p * 100.0)) <> "%"
+-- | This ladder's own word for a value, when it has one.
+rungWord :: Array Rung -> Number -> Maybe String
+rungWord rungs v = _.word <$> Array.find (\r -> onRung r.value v) rungs
 
 -- | How close counts as being on a rung. Wide enough to survive a round trip
 -- | through the wire as text, narrow enough that no two rungs could claim the
 -- | same reading.
-onRung :: Number
-onRung = 1.0e-4
+onRung :: Number -> Number -> Boolean
+onRung a b = Number.abs (a - b) < 1.0e-4
+
+-- | How often a pass sounds. Rarest last, so stepping makes it rarer.
+-- |
+-- | The engine takes any probability from zero to one and has no opinion about
+-- | which are worth a press. That is a question about feet, and this is where
+-- | feet are answered.
+chanceLadder :: Array Rung
+chanceLadder =
+  [ { value: 1.0, word: "always" }
+  , { value: 0.75, word: "3 in 4" }
+  , { value: 0.5, word: "1 in 2" }
+  , { value: 0.25, word: "1 in 4" }
+  , { value: 0.125, word: "1 in 8" }
+  ]
+
+stepChance :: Number -> Number
+stepChance = nextRung chanceLadder
+
+chanceWord :: Number -> String
+chanceWord p = fromMaybe (show (Int.round (p * 100.0)) <> "%") (rungWord chanceLadder p)
+
+-- | How much of the wrap is crossfaded with what followed it, in milliseconds.
+-- |
+-- | **Off first, and off by default.** A fade changes the first few milliseconds
+-- | of every cycle — it has to, that is what makes the join continuous — and a
+-- | looper that quietly softened every downbeat would be doing something nobody
+-- | asked for. Ten is under a drum transient; a hundred is a real dissolve.
+fadeLadder :: Array Rung
+fadeLadder =
+  [ { value: 0.0, word: "hard" }
+  , { value: 10.0, word: "10 ms" }
+  , { value: 25.0, word: "25 ms" }
+  , { value: 50.0, word: "50 ms" }
+  , { value: 100.0, word: "100 ms" }
+  ]
+
+stepFade :: Number -> Number
+stepFade = nextRung fadeLadder
+
+fadeWord :: Number -> String
+fadeWord ms = fromMaybe (show (Int.round ms) <> " ms") (rungWord fadeLadder ms)
 
 shortSlot :: BankSlot -> String
 shortSlot = case _ of
@@ -783,7 +827,7 @@ own = case _ of
     [ only OneShot
     , only LevelArm
     , only StepChance
-    , only Nothing_
+    , only StepFade
     , only Nothing_
     , only (Back (ToSlot ConfigBank))
     ]

@@ -364,6 +364,10 @@ marks st = joinWith " · " (Array.catMaybes
   -- that set it has no screen, so this is the only place the value is written
   -- down, and it has to be written the way it would be said.
   , if st.chance >= 1.0 then Nothing else Just (LB.chanceWord st.chance)
+  -- A crossfaded wrap is inaudible when it works, which is exactly why it has
+  -- to be written down: otherwise the only evidence a setting took is the
+  -- absence of a click nobody was listening for.
+  , if st.fadeMs <= 0.0 then Nothing else Just ("~" <> LB.fadeWord st.fadeMs)
   ])
 
 -- | Speed as the multiplier the switch was labelled with, not a decimal.

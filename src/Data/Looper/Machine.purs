@@ -166,6 +166,15 @@ onDuty rig slot = case _ of
        , Handled ("loop " <> show (rig.focus + 1) <> " plays " <> LB.chanceWord next)
        ]
 
+  -- The same ladder machinery, and the same reason for it: the value is on the
+  -- engine, so the step is computed from what the engine said rather than
+  -- counted anywhere that could fall out of step with it.
+  LB.StepFade ->
+    let next = LB.stepFade (maybe 0.0 _.fadeMs (loopAt rig rig.focus))
+    in [ Command (cmd rig.focus ("xf" <> show next))
+       , Handled ("loop " <> show (rig.focus + 1) <> " wraps " <> LB.fadeWord next)
+       ]
+
   -- The one thing a pedal cannot do. With no loop yet it claims the daemon's
   -- default of the last few seconds; with one running it claims the last
   -- complete cycle, which lands on the grid because the fill is addressed in
