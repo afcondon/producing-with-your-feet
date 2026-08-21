@@ -65,10 +65,40 @@
 -- |
 -- | ## Press, release, and the hold
 -- |
--- | Each switch sends its CC at 127 on press and 0 on release. The app times
--- | the gap, because the double-tap window has to be a function of the grid
--- | rather than a constant (§"Gesture timing"), and the MC6 cannot know the
--- | grid.
+-- | Each switch sends its CC at 127 on press and 0 on release, and **the app
+-- | times the gap — which is a choice, not a necessity.**
+-- |
+-- | This used to say the MC6 could not do it. Measured on the device
+-- | 2026-08-21 with the gesture probe in `Data.MC6.Diagnostics`, that is wrong,
+-- | and wrong in the direction that matters:
+-- |
+-- | ```
+-- | single tap   Press and Release arrive 1 ms apart  (deferred, not at press-down)
+-- | double tap   DoubleTap alone — no Press at all, three times out of three
+-- | long press   Press, then LongPress ~600 ms later, and no Release
+-- | double tap   DoubleTapRelease alone — Release suppressed too
+-- | ```
+-- |
+-- | Which gives a **clean, mutually exclusive triple**: `Release` fires on a
+-- | single tap and on nothing else, because a double takes `DoubleTapRelease`
+-- | and a hold takes `LongPress`. Tap, double and hold can each carry their own
+-- | meaning on one switch with no overlap and nothing to suppress by hand.
+-- |
+-- | So the device withholds the single until it knows, which is the whole
+-- | difficulty of gesture recognition and the reason it has a configurable
+-- | window. A switch carrying Undo on a tap and Redo on a double would be safe
+-- | on the hardware; the assumption that it would fire both and land back where
+-- | it started was mine and it was untested.
+-- |
+-- | The remaining reason to keep it here is the stated one: the double-tap
+-- | window should be a function of the grid, and the MC6 cannot know the grid.
+-- | That is real but currently unexercised — `doubleTapMs` is a constant. Until
+-- | it is not, the app is doing by hand something the device does natively, and
+-- | paying for it in failure modes the device does not have: the orphan release,
+-- | the phantom hold, and the app and the board disagreeing about a threshold.
+-- |
+-- | Its double-tap window is under 414 ms: two presses that far apart were read
+-- | as two singles.
 -- |
 -- | A **hold** is the one gesture the MC6 resolves by itself: a long press on a
 -- | loop switch jumps to the config bank unconditionally, no state required.
