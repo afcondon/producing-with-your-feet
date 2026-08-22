@@ -26,7 +26,7 @@ import Data.MC6.Settings as Settings
 import Test.MC6Capture as Capture
 import Data.Looper as Looper
 import Component.Looper.Slots as Slots
-import Foreign.LooperSocket (isWriting) as LooperSock
+import Foreign.LooperSocket (isWriting, phaseOf, phaseName, allPhases, LoopPhase(..)) as LooperSock
 import Data.Looper.Banks as LB
 import Data.MC6.Diagnostics as Diagnostics
 import Data.Looper.Machine as Machine
@@ -1037,6 +1037,33 @@ main = do
        (map (\s -> withState 0 s 0) [ "recordingFirst", "overdubbing", "multiplying" ])
       && not (LooperSock.isWriting (withState 0 "playing" 2))
       && not (LooperSock.isWriting (idle 0)))
+
+  -- **The one guard on `phaseOf`'s catch-all.**
+  --
+  -- Unknown words become `Idle`, mirroring `state_name`'s own `_ => "idle"` in
+  -- `itajara/src/engine.rs`. That is right for a version skew and wrong for a
+  -- typo, and nothing else in the app can tell the two apart — a mistyped
+  -- phase name would simply read as idle for ever.
+  --
+  -- So: every phase, spelled by `phaseName`, must survive the wire and come
+  -- back as itself. Fed through `withState` so it travels as the daemon sends
+  -- it — a `String` in a snapshot — rather than being compared to a second
+  -- copy of the list written here.
+  assert "every phase round-trips through the wire word"
+    (Array.all
+      (\p -> LooperSock.phaseOf (withState 0 (LooperSock.phaseName p) 0) == p)
+      LooperSock.allPhases)
+
+  -- Six, and the same six the daemon can emit. A seventh added on one side
+  -- only is what this whole type exists to catch.
+  assert "and there are six of them"
+    (Array.length LooperSock.allPhases == 6
+      && Array.length (Array.nub (map LooperSock.phaseName LooperSock.allPhases)) == 6)
+
+  -- A word the daemon has never sent is idle, not a crash and not a seventh
+  -- constructor leaking into the display.
+  assert "an unrecognised word reads as idle, exactly as the daemon does it"
+    (LooperSock.phaseOf (withState 0 "granulating" 0) == LooperSock.Idle)
 
   -- **Stop All reaches the loops that have something to stop, and no others.**
   -- Muting an empty loop does nothing audible and leaves it silenced for

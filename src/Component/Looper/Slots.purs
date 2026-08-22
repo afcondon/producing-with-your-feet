@@ -349,7 +349,7 @@ playhead _ st
                 -- back at the start when it does not.
                 <> ( if st.phase < wrapGuard
                        || st.phase > 1.0 - wrapGuard
-                       || (st.state == "idle" && st.layers == 0) then "transition:none;"
+                       || (Looper.phaseOf st == Looper.Idle && st.layers == 0) then "transition:none;"
                      else "transition:left 110ms linear;"
                    )
           ]
@@ -394,36 +394,48 @@ letter i = case LB.switchLetter i of
   Just l -> l
   Nothing -> "?"
 
--- | The daemon's own words, softened for reading at a distance. `recordingFirst`
+-- | The daemon's own words, softened for reading at a distance. `RecordingFirst`
 -- | is a state name; "recording" is what you need to know while playing.
+-- |
+-- | **Two levels, and they are kept apart deliberately.** The phase is one
+-- | thing; `muted`, `oneShot`, `skipping` and the layer count are orthogonal
+-- | flags that override it on screen. Flattening the two into one `case` is
+-- | what made the ordering here so delicate — and it also meant the phase
+-- | match ended in a catch-all, so a phase nobody had handled fell through
+-- | silently. The guards come first, then the phase is matched exhaustively.
 stateWord :: LoopState -> String
-stateWord st = case st.state of
-  -- Layers first, because a loop undone to nothing keeps its length and its
-  -- state: the engine still calls it "playing" and there is nothing to play.
-  -- The footer still shows the length, which is the useful half — that is what
-  -- the next take will land on.
+stateWord st
   -- Above the emptiness guard, and it has to be: a level-armed loop is empty
   -- by definition — that is what it is waiting to stop being — so reading the
   -- layer count first made the one state the player most needs to see the one
   -- state that could never be shown.
-  "armed" -> if st.pendingAt >= 0 then "waiting" else "listening"
-  _ | st.layers == 0 -> if st.loopFrames > 0 then "empty" else ""
-  _ | st.muted -> "stopped"
+  | Looper.phaseOf st == Looper.Armed =
+      if st.pendingAt >= 0 then "waiting" else "listening"
+  -- Layers next, because a loop undone to nothing keeps its length and its
+  -- phase: the engine still calls it `Playing` and there is nothing to play.
+  -- The footer still shows the length, which is the useful half — that is what
+  -- the next take will land on.
+  | st.layers == 0 = if st.loopFrames > 0 then "empty" else ""
+  | st.muted = "stopped"
   -- Loaded and waiting for a foot, which is a different thing from stopped: a
   -- stopped loop is still turning and comes back where it would have been, and
   -- a one-shot comes back at the top.
-  _ | st.oneShot -> if st.firing then "firing" else "ready"
+  | st.oneShot = if st.firing then "firing" else "ready"
   -- Sitting this one out. Distinct from stopped, which is a decision you made
   -- and which stays made — this one comes back by itself.
-  _ | st.skipping -> "sitting out"
-  "recordingFirst" -> "recording"
-  "overdubbing" -> "overdub"
-  "multiplying" -> "multiply"
-  "playing" -> "playing"
-  _ -> if st.layers > 0 then "idle" else ""
+  | st.skipping = "sitting out"
+  | otherwise = case Looper.phaseOf st of
+      Looper.RecordingFirst -> "recording"
+      Looper.Overdubbing -> "overdub"
+      Looper.Multiplying -> "multiply"
+      Looper.Playing -> "playing"
+      Looper.Idle -> if st.layers > 0 then "idle" else ""
+      -- Answered by the first guard; listed so the compiler can see the set is
+      -- covered rather than being told to assume it by a catch-all.
+      Looper.Armed -> ""
 
 stateClass :: LoopState -> String
-stateClass st = case st.state of
+stateClass st
   -- **Writing beats everything, including emptiness.** This used to ask about
   -- emptiness first and exempt only `recordingFirst` and `armed` — so a loop
   -- that had been undone to nothing and then recorded into again was
@@ -431,21 +443,23 @@ stateClass st = case st.state of
   -- as an empty slot while it held the one converter the rig has. The word
   -- underneath said "overdub"; nobody reads the word, they read the colour.
   --
-  -- Asked through `isWriting` rather than by listing states here, because
+  -- Asked through `isWriting` rather than by listing phases here, because
   -- listing them here is precisely what let this drift out of step with the
   -- meaning table.
-  _ | Looper.isWriting st -> "is-recording"
+  | Looper.isWriting st = "is-recording"
   -- Stopped beats the rest: a loop being recorded into while silenced is a
   -- thing the player most needs told.
-  _ | st.layers == 0 && st.state /= "armed" -> "is-empty"
-  _ | st.muted -> "is-stopped"
-  _ | st.oneShot -> if st.firing then "is-playing" else "is-stopped"
-  "armed" -> "is-armed"
-  "recordingFirst" -> "is-recording"
-  "overdubbing" -> "is-recording"
-  "multiplying" -> "is-recording"
-  "playing" -> "is-playing"
-  _ -> if st.layers > 0 then "is-stopped" else "is-empty"
+  | st.layers == 0 && Looper.phaseOf st /= Looper.Armed = "is-empty"
+  | st.muted = "is-stopped"
+  | st.oneShot = if st.firing then "is-playing" else "is-stopped"
+  | otherwise = case Looper.phaseOf st of
+      Looper.Armed -> "is-armed"
+      Looper.Playing -> "is-playing"
+      Looper.Idle -> if st.layers > 0 then "is-stopped" else "is-empty"
+      -- All three answered by `isWriting` in the first guard.
+      Looper.RecordingFirst -> "is-recording"
+      Looper.Overdubbing -> "is-recording"
+      Looper.Multiplying -> "is-recording"
 
 -- | Length, or the countdown to one.
 -- |

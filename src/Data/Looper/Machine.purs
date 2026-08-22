@@ -145,7 +145,7 @@ onDuty rig slot = case _ of
     Nothing -> [ notInSnapshot rig.focus ]
     Just st
       | st.armed -> [ Handled ("loop " <> show (rig.focus + 1) <> " is already listening") ]
-      | st.state /= "idle" ->
+      | Looper.phaseOf st /= Looper.Idle ->
           [ Unavailable ("loop " <> show (rig.focus + 1) <> " is busy — close it first") ]
       | otherwise ->
           [ Command (cmd rig.focus "lev1"), Command (cmd rig.focus "r") ]

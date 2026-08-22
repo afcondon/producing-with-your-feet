@@ -536,7 +536,7 @@ renderLooperView state =
           (not st.connected) 1 (nextPress lp)
       , gestureBtn "looper-btn small"
           (not st.connected || lp.loopFrames == 0) 2
-          (if lp.state == "multiplying" then "End multiply" else "Multiply")
+          (if LooperSocket.phaseOf lp == LooperSocket.Multiplying then "End multiply" else "Multiply")
       , gestureBtn "looper-btn small" (not st.connected) 5 "Take"
       , gestureBtn "looper-btn small" (not st.connected || lp.layers == 0) 3 "Undo"
       -- Only offered when there is a length and nothing sitting in it, which is
@@ -561,17 +561,23 @@ renderLooperView state =
       [ HH.text label ]
 
   -- | What the next press does, which is the thing every looper hides.
-  nextPress lp = case lp.state of
-    "recordingFirst" -> "Close the loop"
-    "overdubbing" -> "Finish overdub"
-    "multiplying" -> "End multiply"
-    "armed" -> "Starting…"
+  nextPress lp = case LooperSocket.phaseOf lp of
+    LooperSocket.RecordingFirst -> "Close the loop"
+    LooperSocket.Overdubbing -> "Finish overdub"
+    LooperSocket.Multiplying -> "End multiply"
+    LooperSocket.Armed -> "Starting…"
     -- An empty loop with a length is not an overdub, whatever the engine calls
-    -- the state. Saying "Overdub" with nothing to overdub onto is what made a
-    -- kept grid read as a stuck one.
-    _ | lp.loopFrames == 0 -> "Record"
-      | lp.layers == 0 -> "Record on the grid"
-      | otherwise -> "Overdub"
+    -- the phase. Saying "Overdub" with nothing to overdub onto is what made a
+    -- kept grid read as a stuck one. `Playing` and `Idle` differ only in
+    -- whether the playhead is moving, and the next press is the same either
+    -- way, so they share the answer rather than repeating it.
+    LooperSocket.Playing -> byContents
+    LooperSocket.Idle -> byContents
+    where
+    byContents
+      | lp.loopFrames == 0 = "Record"
+      | lp.layers == 0 = "Record on the grid"
+      | otherwise = "Overdub"
 
   readout lp =
     HH.div [ HP.class_ (H.ClassName "looper-readout") ]
