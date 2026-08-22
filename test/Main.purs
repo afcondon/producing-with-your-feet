@@ -1039,6 +1039,42 @@ main = do
       && not (LooperSock.isWriting (withState 0 "playing" 2))
       && not (LooperSock.isWriting (idle 0)))
 
+  -- **`stateWord`'s guards, in the order that matters.**
+  --
+  -- The word under a slot is decided by four orthogonal flags before the phase
+  -- is consulted at all, and the ordering among them is not arbitrary — each
+  -- of these was got wrong at some point and each looks harmless in isolation.
+  --
+  -- Armed outranks emptiness, and it has to: a level-armed loop is empty by
+  -- definition — that is what it is waiting to stop being — so asking the layer
+  -- count first made the one state the player most needs to see the one state
+  -- that could never be shown.
+  assert "listening outranks empty, or arming can never be displayed"
+    (Slots.stateWord ((idle 0) { state = "armed" }) == "listening"
+      && Slots.stateWord ((idle 0) { state = "armed", pendingAt = 4410 }) == "waiting")
+
+  -- A loop undone to nothing keeps its length and its phase: the engine still
+  -- calls it playing and there is nothing to play. The footer still shows the
+  -- length, which is the useful half.
+  assert "an undone loop reads empty, not playing"
+    (Slots.stateWord ((withState 0 "playing" 0) { loopFrames = 155215 }) == "empty"
+      && Slots.stateWord (withState 0 "playing" 0) == "")
+
+  -- Three things that are all "not sounding right now" and are deliberately
+  -- three different words, because they come back by three different routes.
+  assert "stopped, sitting out and ready are told apart"
+    (Slots.stateWord ((withState 0 "playing" 2) { muted = true }) == "stopped"
+      && Slots.stateWord ((withState 0 "playing" 2) { skipping = true }) == "sitting out"
+      && Slots.stateWord ((withState 0 "playing" 2) { oneShot = true }) == "ready"
+      && Slots.stateWord ((withState 0 "playing" 2) { oneShot = true, firing = true })
+           == "firing")
+
+  assert "and the phases keep the daemon's meaning in shorter words"
+    (Slots.stateWord (withState 0 "recordingFirst" 1) == "recording"
+      && Slots.stateWord (withState 0 "overdubbing" 2) == "overdub"
+      && Slots.stateWord (withState 0 "multiplying" 2) == "multiply"
+      && Slots.stateWord (withState 0 "playing" 2) == "playing")
+
   -- **The one guard on `phaseOf`'s catch-all.**
   --
   -- Unknown words become `Idle`, mirroring `state_name`'s own `_ => "idle"` in
@@ -1102,7 +1138,26 @@ main = do
   assert "numeric verbs carry their argument with no separator"
     (LoopVerb.render (LoopVerb.Rate 0.5) == "sp0.5"
       && LoopVerb.render (LoopVerb.Place 64) == "pan64"
-      && LoopVerb.render (LoopVerb.Spread 2) == "s2")
+      && LoopVerb.render (LoopVerb.Spread 2) == "s2"
+      && LoopVerb.render (LoopVerb.Fade 50.0) == "xf50.0"
+      && LoopVerb.render (LoopVerb.Decay 3.0) == "dec3.0"
+      && LoopVerb.render (LoopVerb.Chance 0.25) == "ch0.25")
+
+  -- **`sp` has to be matched before `s`, and that is the daemon's problem, not
+  -- ours — but it is why these two are asserted side by side.** `s` prefix-
+  -- matches, so `sp0.5` once read as "sparse, cannot parse the count, use 2"
+  -- and quietly did a multiply. Nothing acked it and it did something else
+  -- entirely. If either spelling ever changes, this is where to look.
+  assert "the two s-verbs stay distinguishable"
+    (LoopVerb.render (LoopVerb.Rate 0.5) /= LoopVerb.render (LoopVerb.Spread 2))
+
+  -- The three bare verbs the board reaches only through `Machine.act`, pinned
+  -- here too so their spelling is checked directly rather than incidentally.
+  assert "capture, save and click spell as the daemon expects"
+    (LoopVerb.render LoopVerb.ClaimPast == "t"
+      && LoopVerb.render (LoopVerb.SaveTake "") == "w"
+      && LoopVerb.render (LoopVerb.SaveTake "riff") == "wriff"
+      && LoopVerb.render LoopVerb.ClickToggle == "k")
 
   -- A loop prefix on every board command, because the daemon's own selection is
   -- a mode a footswitch could fall out of step with.

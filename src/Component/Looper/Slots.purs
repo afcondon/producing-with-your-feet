@@ -73,7 +73,12 @@
 -- | *backwards* across the whole track. So the transition is suppressed for the
 -- | first fraction of a cycle, which is computable from the snapshot alone and
 -- | costs a jump nobody can see at the one moment a jump is correct.
-module Component.Looper.Slots (render, waveEdge, stateClass) where
+-- | `stateClass` and `stateWord` are exported for the tests and for no other
+-- | reason. They are the two places where a fault is invisible from inside the
+-- | program — a wrong colour and a wrong word are still a rendered slot — so
+-- | they are the two that most need enumerating, and a function nothing can
+-- | reach is a function nothing can check.
+module Component.Looper.Slots (render, waveEdge, stateClass, stateWord) where
 
 import Prelude
 
