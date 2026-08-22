@@ -159,7 +159,13 @@ onDuty rig slot = case _ of
   -- the daemon's dispatch, and inventing one for a gesture that is not
   -- sample-critical would be protocol for its own sake — these land within a
   -- millisecond of each other, and stopping is not a downbeat.
-  LB.StopAll -> map (\i -> Command (cmd i "h0")) (Array.range 0 (loopSwitches - 1))
+  -- **Only the loops that have something to stop.**
+  --
+  -- Muting an empty loop does nothing you can hear and leaves it silenced for
+  -- whatever is recorded into it next — so Stop All used to reach across the
+  -- whole set and disarm every slot the player had not touched yet. Skipping
+  -- the empties keeps the gesture meaning what it says.
+  LB.StopAll -> map (\i -> Command (cmd i "h0")) (sounding rig)
   LB.Undo -> [ Command (cmd rig.focus "u") ]
   LB.ClearLoop -> [ Command (cmd rig.focus "c") ]
   LB.SaveTake -> [ Command "w" ]
@@ -207,7 +213,7 @@ onDuty rig slot = case _ of
   -- output frames.
   LB.ClaimPast -> [ Command (cmd rig.focus "t") ]
   LB.Redo -> [ Command (cmd rig.focus "y") ]
-  LB.StartAll -> map (\i -> Command (cmd i "h1")) (Array.range 0 (loopSwitches - 1))
+  LB.StartAll -> map (\i -> Command (cmd i "h1")) (sounding rig)
   LB.ClearAll -> map (\i -> Command (cmd i "c")) (Array.range 0 (loopSwitches - 1))
 
   LB.Free -> [ Command (cmd rig.focus "g0") ]
@@ -278,6 +284,22 @@ onRecord i = case _ of
     -- locks out the other five.
     | st.armed -> [ Command (cmd i "r"), Handled ("loop " <> show (i + 1) <> " stopped listening") ]
 
+    -- **A muted loop is brought back before it is written to.**
+    --
+    -- Recording into something you cannot hear is the failure `onOverdub` has
+    -- always guarded against, and it reaches Record by a route nobody looked
+    -- at: Stop All mutes every loop *including the empty ones*, so a stop
+    -- anywhere in the set arms a trap in all six. The next take then records
+    -- perfectly and silently, and the only evidence is a waveform in a slot
+    -- drawn the colour of "stopped".
+    --
+    -- The daemon anticipated exactly this for `c` — "an empty loop that is
+    -- still silenced would refuse to record audibly for a reason nothing on
+    -- screen could explain" — and the same sentence is true of `r`. Pressing
+    -- Record means *I am working on this loop*, and working on something
+    -- inaudible is never what was meant.
+    | st.muted -> [ Command (cmd i "h1"), Command (cmd i "r") ]
+
     -- **Empty is a fact about layers, not about state.**
     --
     -- Undo removes a layer and deliberately keeps the loop's length — so the
@@ -328,6 +350,17 @@ onTransport i = case _ of
 
 notInSnapshot :: Int -> Action
 notInSnapshot i = Unavailable ("loop " <> show (i + 1) <> " is not in the snapshot")
+
+-- | Which loops have anything in them, for the gestures that act on all of
+-- | them at once.
+-- |
+-- | Read from the snapshot rather than assumed, like everything else here: a
+-- | loop is empty when the *engine* says it has no layers, not when this app
+-- | last thought so.
+sounding :: Rig -> Array Int
+sounding rig =
+  Array.filter (\i -> maybe false (\st -> st.layers > 0) (loopAt rig i))
+    (Array.range 0 (loopSwitches - 1))
 
 -- | The daemon's loop-prefixed command form: `3r` is "record on loop 3".
 cmd :: Int -> String -> String

@@ -1038,9 +1038,31 @@ main = do
       && not (LooperSock.isWriting (withState 0 "playing" 2))
       && not (LooperSock.isWriting (idle 0)))
 
-  assert "stop all reaches every loop"
-    (Machine.act (rigOf []) (LB.switchGesture LB.LoopBank 7 LB.Tap)
-      == map (\i -> Machine.Command (show i <> "h0")) (Array.range 0 5))
+  -- **Stop All reaches the loops that have something to stop, and no others.**
+  -- Muting an empty loop does nothing audible and leaves it silenced for
+  -- whatever is recorded into it next — so a stop anywhere in the set used to
+  -- arm a trap in all six, and the next take recorded perfectly and silently.
+  assert "stop all reaches every loop that has anything in it"
+    (Machine.act (rigOf [ withState 0 "playing" 1, idle 1, withState 2 "playing" 3 ])
+       (LB.switchGesture LB.LoopBank 7 LB.Tap)
+      == [ Machine.Command "0h0", Machine.Command "2h0" ])
+
+  assert "and reaches nothing at all when there is nothing to stop"
+    (Machine.act (rigOf [ idle 0, idle 1 ]) (LB.switchGesture LB.LoopBank 7 LB.Tap) == [])
+
+  -- The other half of the same trap: Record on a loop that was silenced brings
+  -- it back first, because working on something you cannot hear is never what
+  -- was meant.
+  assert "recording a muted loop unmutes it first"
+    (Machine.act (rigOf [ (idle 0) { muted = true } ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
+      == [ Machine.Command "0h1", Machine.Command "0r" ]
+      && Machine.act (rigOf [ (withState 0 "playing" 2) { muted = true } ])
+           (LB.switchGesture LB.LoopPage 0 LB.Tap)
+        == [ Machine.Command "0h1", Machine.Command "0r" ])
+
+  assert "but closing a take that is already audible does not touch the mute"
+    (Machine.act (rigOf [ withState 0 "recordingFirst" 0 ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
+      == [ Machine.Command "0r" ])
 
   -- Whatever the engine calls it, no layers means record.
   assert "any state with no layers records"
@@ -1089,9 +1111,9 @@ main = do
         == [ Machine.Command "3g1"
            , Machine.Handled "on the grid — bar counts need the frame-to-bar join" ])
 
-  assert "and stop-all reaches every loop, from any bank"
-    (Machine.act (rigOf []) (LB.switchGesture LB.QuantiseBank 7 LB.Tap)
-      == map (\i -> Machine.Command (show i <> "h0")) (Array.range 0 5))
+  assert "and stop-all works the same from any bank"
+    (Machine.act (rigOf [ withState 0 "playing" 1 ]) (LB.switchGesture LB.QuantiseBank 7 LB.Tap)
+      == [ Machine.Command "0h0" ])
 
   -- Direction is the sign of speed, not a second control, so the bottom row is
   -- one press that says both things rather than two in the right order.
