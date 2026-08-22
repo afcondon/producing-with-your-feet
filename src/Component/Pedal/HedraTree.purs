@@ -17,7 +17,7 @@ import Data.Midi (CC, unMidiValue, unsafeCC)
 import Data.Map as Map
 import Engine (PedalState)
 import Hylograph.HATS (Tree, elem, forEach, staticStr, staticNum, thunkedStr, thunkedNum, withBehaviors, onClick, onPointerDown, siblings, empty)
-import Hylograph.Internal.Element.Types (ElementType(..))
+import Hylograph.Element.Types (ElementType(..))
 
 -- ============================================================================
 -- MIDI CC constants

@@ -20,7 +20,7 @@ import Data.Pedal.Layout (ConfigControlType(..), ConfigDef, DipBankDef, Footswit
 import Effect (Effect)
 import Engine (PedalState)
 import Hylograph.HATS (Tree, elem, forEach, staticStr, staticNum, thunkedStr, thunkedNum, withBehaviors, onClick, onPointerDown, siblings, empty)
-import Hylograph.Internal.Element.Types (ElementType(..))
+import Hylograph.Element.Types (ElementType(..))
 
 -- | Callbacks for interactive elements
 type PedalCallbacks =
