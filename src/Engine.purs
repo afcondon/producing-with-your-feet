@@ -161,6 +161,11 @@ type AppState =
   -- | otherwise be and worse than the measurement it replaces.
   , looperDeferral :: { tapMs :: Number, holdMs :: Number }
   -- | The loop the config bank acts on — the last one a foot touched.
+  -- | How old the newest snapshot is, in milliseconds, rounded so that it does
+  -- | not re-render the page on every tick. Shown when it gets large, because a
+  -- | frozen picture under a "connected" banner is the failure this whole
+  -- | surface keeps meeting.
+  , looperSnapshotAge :: Number
   , looperFocus :: Int
   -- | What the last footswitch press did, in words. Every press produces one,
   -- | including the refusals: a press that leaves no trace anywhere is the
@@ -328,6 +333,7 @@ initAppState =
   -- that far apart read as two singles) and has never been pinned. A press log
   -- against a metronome would settle it in a minute.
   , looperDeferral: { tapMs: 250.0, holdMs: 700.0 }
+  , looperSnapshotAge: 0.0
   , looperFocus: 0
   , looperLastAction: Nothing
   , looperAckSeq: 0

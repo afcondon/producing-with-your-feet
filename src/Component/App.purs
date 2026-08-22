@@ -34,6 +34,7 @@ import Data.Foldable (any, for_, traverse_)
 import Data.Traversable (for)
 import Data.Map as Map
 import Data.Int as Int
+import Data.Number as Number
 import Data.Maybe (Maybe(..), fromMaybe, isJust, isNothing, maybe)
 import Data.Midi (CC, MidiValue, ProgramNumber, makeCC, makeChannel, makeMidiValue, makeProgramNumber, unCC, unChannel, unMidiValue, unProgramNumber, unsafeCC, unsafeMidiValue)
 import Data.Pedal (PedalDef, PedalId)
@@ -46,7 +47,9 @@ import Data.String.CodeUnits (contains)
 import Data.String.Pattern (Pattern(..))
 import Data.Tuple (Tuple(..))
 import Data.Twister (SideBtn(..), TwisterEncoder(..), TwisterMsg(..), parseTwisterMsg)
+import Control.Monad.Rec.Class (forever)
 import Effect.Aff (Milliseconds(..), delay)
+import Effect.Aff as Aff
 import Effect.Aff.Class (class MonadAff)
 import Effect.Class (liftEffect)
 import Effect.Console as Console
@@ -502,10 +505,24 @@ renderLooperView state =
         ]
     _ -> HH.text ""
 
+  -- **A picture of the past must never be presented as the present.**
+  --
+  -- "Connected" was true and useless: the socket was open, commands were
+  -- landing, and the loops on screen were minutes old. So the line reports the
+  -- age of the newest snapshot as well as the state of the socket — the daemon
+  -- pushes thirty times a second, so anything approaching a second is already
+  -- wrong and the player deserves to be told rather than to work it out from a
+  -- playhead that has stopped moving.
   connectionLine =
-    HH.p [ HP.class_ (H.ClassName ("looper-conn" <> if st.connected then " ok" else " down")) ]
+    let stale = state.looperSnapshotAge > 1000.0
+    in HH.p
+      [ HP.class_ (H.ClassName ("looper-conn" <>
+          if st.connected && not stale then " ok" else " down")) ]
       [ HH.text $
-          if st.connected then "Connected to the daemon."
+          if st.connected && stale then
+            "Connected, but the picture is "
+              <> show (Int.round (state.looperSnapshotAge / 100.0) / 10) <> " s old."
+          else if st.connected then "Connected to the daemon."
           else if st.everConnected then "Lost the daemon — retrying."
           else "No daemon. Start it with:  itajara loop --device AUDIO4c --ws"
       ]
@@ -971,7 +988,33 @@ handleAction = case _ of
         -- socket reconnects itself, so this is fire-and-forget. The poll loop
         -- is forked for the same reason MIDI is: it never returns.
         liftEffect $ LooperSocket.connect LooperSocket.defaultUrl
-        void $ H.fork looperPollLoop
+        -- **A subscription, not a forked loop — and the difference is not the
+        -- timer, it is what the loop calls.**
+        --
+        -- This was `H.fork looperPollLoop`: delay, `handleAction LooperPoll`,
+        -- recur. Because the loop *called the handler*, anything thrown under
+        -- one poll propagated into the loop and the recursive call never
+        -- happened. `HalogenM` has no `MonadError` instance, so there was
+        -- nowhere to catch it either. One throw, and the display was frozen for
+        -- the life of the page.
+        --
+        -- What that looks like is the whole problem: the picture stops at a
+        -- moment in the past while everything else keeps working. Footswitches
+        -- still act, because they arrive through their own handlers. The socket
+        -- is healthy, so the liveness watchdog is right to stay quiet. The
+        -- banner truthfully says "connected". Only the thing that redraws is
+        -- dead, and nothing on screen can say so, because saying so would also
+        -- need a redraw.
+        --
+        -- Here the loop only calls `emit`, which pushes into a subscription and
+        -- runs no user code. Halogen dispatches the handler in its own
+        -- machinery, so a throw there cannot reach back and stop the ticking.
+        -- The decoupling is the fix; an ordinary `Aff` loop is then safe.
+        void $ H.subscribe $ HS.makeEmitter \emit -> do
+          fiber <- Aff.launchAff $ forever do
+            delay (Milliseconds 100.0)
+            liftEffect (emit LooperPoll)
+          pure (Aff.launchAff_ (Aff.killFiber (Aff.error "looper poll stopped") fiber))
         -- Try to silently reconnect the folder-backup handle (IndexedDB). If
         -- the browser needs a fresh gesture, this surfaces Nothing and the
         -- user will see a "Reconnect" affordance in the Files view.
@@ -1978,10 +2021,15 @@ handleAction = case _ of
 
   LooperPoll -> do
     st' <- liftEffect LooperSocket.status
+    age <- liftEffect LooperSocket.snapshotAge
     snap <- liftEffect LooperSocket.latest
     cur <- H.get
-    when (cur.looper /= snap || cur.looperStatus /= st') do
-      H.modify_ _ { looper = snap, looperStatus = st' }
+    -- The age is rounded before comparing, or a number that changes every tick
+    -- would re-render the whole page ten times a second for ever — which is
+    -- how the Overview's footswitches died once already.
+    let age' = Number.floor (age / 500.0) * 500.0
+    when (cur.looper /= snap || cur.looperStatus /= st' || cur.looperSnapshotAge /= age') do
+      H.modify_ _ { looper = snap, looperStatus = st', looperSnapshotAge = age' }
       -- **What the daemon had to say, which nothing was reading.**
       --
       -- The engine refuses things the app cannot know about — one converter, so
@@ -2039,11 +2087,6 @@ handleAction = case _ of
 -- | Forked from Initialize, which is the same lesson as MIDI: anything that
 -- | never returns must not sit in the action queue, or every later click waits
 -- | behind it.
-looperPollLoop :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
-looperPollLoop = do
-  H.liftAff (delay (Milliseconds 100.0))
-  handleAction LooperPoll
-  looperPollLoop
 
 -- Grid output handler (shared by HandleGrid)
 handleGridOutput :: forall o m. MonadAff m => GridView.Output -> H.HalogenM AppState Action Slots o m Unit
