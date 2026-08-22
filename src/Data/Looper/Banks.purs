@@ -187,6 +187,7 @@ module Data.Looper.Banks
   , Face
   , Switch
   , face
+  , faceSlot
   , faceName
   , faceAux
   , faceLoopKey
@@ -488,6 +489,15 @@ newtype Face = Face (Maybe BankSlot)
 
 face :: Maybe BankSlot -> Face
 face = Face
+
+-- | Which bank the face is, when it is one of ours.
+-- |
+-- | The one way out of the newtype, and it is deliberately the *only* one: a
+-- | view that wants to draw the whole board needs the slot, and every other
+-- | question — the name, the aux switches, a loop's key — is already answered
+-- | here so that nothing has to open it up to ask.
+faceSlot :: Face -> Maybe BankSlot
+faceSlot (Face m) = m
 
 -- | What to call the bank on screen, including when there is not one.
 faceName :: Face -> String

@@ -14,6 +14,7 @@ import Data.Argonaut.Core (stringify)
 import Data.Argonaut.Parser (jsonParser)
 import Data.Looper as Looper
 import Data.Looper.Banks as LoopBanks
+import Component.Looper.Board (render) as BoardSim
 import Component.Looper.Slots as Slots
 import Data.Looper.Machine as Machine
 import Data.MC6.Backup as Backup
@@ -126,6 +127,13 @@ data Action
   | BackupSaveNowAction
   | BackupDisconnectAction
   | LooperPoll
+  -- | A press from the on-screen board, indistinguishable from a real one.
+  -- |
+  -- | Carries the switch rather than the bytes, because the *view* should not
+  -- | know the wire format; `SimulateSwitch` builds the message the MC6 would
+  -- | have sent and feeds it to the handler the port feeds. See
+  -- | `Component.Looper.Board`.
+  | SimulateSwitch LoopBanks.BankSlot Int LoopBanks.Gesture
   | LooperCommand String
 
 type Slots =
@@ -421,8 +429,13 @@ renderLooperView state =
     , audioLine
     , faceToggle
     , case state.looper of
-        Just lp | state.looperShowsSlots -> Slots.render lp (LoopBanks.face state.looperBankShown)
+        Just lp | state.looperShowsSlots -> Slots.render lp state.looperFocus (LoopBanks.face state.looperBankShown)
         _ -> HH.text ""
+    -- The board, on screen, with every switch live. Present always rather than
+    -- behind a debug flag: knowing what the pedal is showing is useful when
+    -- nothing is broken, and a panel you have to turn on is a panel that is off
+    -- when you need it.
+    , BoardSim.render SimulateSwitch (LoopBanks.face state.looperBankShown)
     -- What the last press did, in words. Present for refusals as much as for
     -- commands: the machine names every gap it meets rather than swallowing
     -- the press, and a footswitch that silently does nothing is the failure
@@ -1941,6 +1954,28 @@ handleAction = case _ of
   -- | gesture recogniser, because a tap became a tap by a window expiring and a
   -- | transducer only moves when it is fed. Nothing here waits on time any more
   -- | — the device does the waiting — so the tick went with the recogniser.
+  -- | **The same pipeline, not a similar one.**
+  -- |
+  -- | Synthesising the bytes and handing them to `MC6MidiReceived` means the
+  -- | click goes through `decodeSwitch`, `followBoard`, the meaning table and
+  -- | out to the daemon exactly as a footswitch does. A button that called
+  -- | `Machine.act` directly would be a second input path, and a second input
+  -- | path agrees with the first right up until the moment it matters.
+  -- |
+  -- | Only the wire is skipped — which is the thing being isolated. If a press
+  -- | works here and not underfoot, the fault is the wire or what the device was
+  -- | programmed with; if it fails here too, it is ours.
+  SimulateSwitch slot i g -> do
+    liftEffect $ Console.log $ "simulated press: "
+      <> LoopBanks.slotName slot <> " "
+      <> fromMaybe (show i) (LoopBanks.switchLetter i)
+      <> " " <> LoopBanks.gestureName g
+    handleAction $ MC6MidiReceived
+      [ 0xB0 + LoopBanks.switchChannel - 1
+      , LoopBanks.switchCC slot i
+      , LoopBanks.gestureValue g
+      ]
+
   LooperPoll -> do
     st' <- liftEffect LooperSocket.status
     snap <- liftEffect LooperSocket.latest

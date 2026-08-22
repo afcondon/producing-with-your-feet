@@ -1907,6 +1907,58 @@ body {
 .loop-slot.is-armed     { border-top-color: #c8922f; }
 .loop-slot.is-selected  { box-shadow: 0 0 0 2px rgba(58,125,108,0.22); }
 
+/* The board, on screen, with every switch live (Component.Looper.Board).
+   Laid out as the device is — near row under your toes at the BOTTOM — so it
+   can be read against the thing on the floor without translating. */
+.board-sim {
+  border: 1px solid #ded9d1; background: #fbfaf8;
+  padding: 12px 14px 14px; margin: 14px 0;
+}
+.board-sim-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; margin-bottom: 10px;
+}
+.board-sim-name {
+  font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase;
+  color: #3a3733; font-weight: 600;
+}
+.board-sim-hint { font-size: 11px; color: #9a948b; }
+/* `boardRows` is already far-row-first — D E F above A B C — because the device
+   numbers from the bottom. Rendering in array order is therefore the board's
+   own order, and no CSS may quietly re-sort what the feet have learned. */
+.board-sim-rows { display: flex; flex-direction: column; gap: 6px; }
+.board-sim-row {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+}
+/* The two FS3X units sit under the MC6's own six, with a little air between. */
+.board-sim-rows > .board-sim-row:nth-child(3) { margin-top: 8px; }
+.board-sim-key { display: flex; flex-direction: column; gap: 3px; }
+.board-sim-key.is-blank {
+  border: 1px dashed #e6e2db; background: transparent;
+  min-height: 44px; display: flex; align-items: center; justify-content: center;
+}
+.board-sim-key.is-blank .board-sim-letter { color: #cfc9c0; }
+.board-sim-tap {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  width: 100%; min-height: 44px; padding: 6px 8px; cursor: pointer;
+  border: 1px solid #ccc5ba; background: #fff; text-align: left;
+  font: inherit; color: #2e2b27;
+}
+.board-sim-tap:hover { border-color: #3a7d6c; background: #f4faf8; }
+.board-sim-tap:active { background: #e7f2ee; }
+.board-sim-tap:focus-visible { outline: 2px solid #3a7d6c; outline-offset: 1px; }
+.board-sim-letter {
+  font-size: 10px; letter-spacing: 0.08em; color: #9a948b; font-weight: 600;
+}
+.board-sim-label { font-size: 13px; line-height: 1.15; }
+.board-sim-more { display: flex; flex-wrap: wrap; gap: 3px; }
+.board-sim-extra {
+  font: inherit; font-size: 10px; line-height: 1.3; cursor: pointer;
+  padding: 1px 5px; border: 1px solid #e0dbd3; background: #f6f5f2;
+  color: #6d675f;
+}
+.board-sim-extra:hover { border-color: #b48a3c; background: #fbf5e9; color: #3a3733; }
+
 .loop-head { display: flex; align-items: baseline; gap: 8px; }
 .loop-letter {
   font-size: 20px; font-weight: 600; line-height: 1;

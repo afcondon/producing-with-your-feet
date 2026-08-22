@@ -96,16 +96,27 @@ import Halogen.HTML.Properties as HP
 -- | `shown` is the bank the MC6 is actually displaying, which the app learns
 -- | from the presses themselves — every switch says which bank it came from.
 -- | The legend has to follow it or it describes a board nobody is standing on.
-render :: forall w i. LooperState -> LB.Face -> HH.HTML w i
-render lp fc =
+-- | The six slots, the toolbar legend, and which loop the controls follow.
+-- |
+-- | **`focus` is passed in, and it must be the app's own.** It used to read the
+-- | daemon's `selected` — a field left over from when there was one loop, which
+-- | the six-loop surface never sets and which is therefore stuck on zero for
+-- | ever. So the screen said the controls followed loop 1 while every press was
+-- | going to loop 2, and there was no way to tell from the outside that the
+-- | *display* was the thing that was wrong rather than the routing.
+-- |
+-- | The app's `looperFocus` is what `Data.Looper.Machine` actually acts on, so
+-- | it is the only honest answer to "which loop does this bank talk about".
+render :: forall w i. LooperState -> Int -> LB.Face -> HH.HTML w i
+render lp focus fc =
   HH.div [ HP.class_ (HH.ClassName "loops") ]
     [ HH.div [ HP.class_ (HH.ClassName "loops-grid") ]
         (Array.mapMaybe cell (join LB.boardRows))
     , utilities fc
-    , legend lp
+    , legend lp focus
     ]
   where
-  cell i = slot lp fc i <$> Array.index lp.loops i
+  cell i = slot lp focus fc i <$> Array.index lp.loops i
 
 -- | What the six unmarked switches do, on the bank the board is showing.
 -- |
@@ -161,11 +172,11 @@ utilities fc =
       ]
 
 -- | One loop.
-slot :: forall w i. LooperState -> LB.Face -> Int -> LoopState -> HH.HTML w i
-slot top fc idx st =
+slot :: forall w i. LooperState -> Int -> LB.Face -> Int -> LoopState -> HH.HTML w i
+slot top focus fc idx st =
   HH.div
     [ HP.class_ (HH.ClassName ("loop-slot " <> stateClass st
-        <> (if top.selected == idx then " is-selected" else ""))) ]
+        <> (if focus == idx then " is-selected" else ""))) ]
     [ HH.div [ HP.class_ (HH.ClassName "loop-head") ]
         [ HH.span [ HP.class_ (HH.ClassName "loop-letter") ]
             [ HH.text (LB.faceLoopKey fc idx) ]
@@ -360,10 +371,10 @@ wrapGuard = 0.02
 -- | present, because "which loop does the pedal face drive" is otherwise
 -- | invisible, and because a Link tempo of zero is the difference between no
 -- | clock and a clock reading zero.
-legend :: forall w i. LooperState -> HH.HTML w i
-legend lp =
+legend :: forall w i. LooperState -> Int -> HH.HTML w i
+legend lp focus =
   HH.div [ HP.class_ (HH.ClassName "loops-legend") ]
-    [ HH.span_ [ HH.text ("controls follow " <> letter lp.selected) ]
+    [ HH.span_ [ HH.text ("controls follow " <> letter focus) ]
     , HH.span_
         [ HH.text $
             if lp.linkAnchors == 0 then "no clock"
