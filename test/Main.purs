@@ -30,6 +30,7 @@ import Foreign.LooperSocket (isWriting, phaseOf, phaseName, allPhases, LoopPhase
 import Data.Looper.Banks as LB
 import Data.MC6.Diagnostics as Diagnostics
 import Data.Looper.Machine as Machine
+import Data.Looper.Verb as LoopVerb
 import Data.Enum as Enum
 import Data.String as String
 import Data.String.CodeUnits as StringCU
@@ -1064,6 +1065,51 @@ main = do
   -- constructor leaking into the display.
   assert "an unrecognised word reads as idle, exactly as the daemon does it"
     (LooperSock.phaseOf (withState 0 "granulating" 0) == LooperSock.Idle)
+
+  log ""
+  log "The daemon's vocabulary (Data.Looper.Verb)..."
+
+  -- **Every verb, spelled out once, against `dispatch` in engine.rs.**
+  --
+  -- These are transcribed from the daemon's match arms, not from `render` — a
+  -- test that reads the implementation back to itself would have passed on the
+  -- day the two tables disagreed, which is the whole reason this type exists.
+  -- If one of these fails, check engine.rs before changing the expectation.
+  assert "bare verbs spell as the daemon's dispatch arms"
+    (LoopVerb.render LoopVerb.Record == "r"
+      && LoopVerb.render LoopVerb.Multiply == "x"
+      && LoopVerb.render LoopVerb.Rotate == "o"
+      && LoopVerb.render LoopVerb.Dense == "d"
+      && LoopVerb.render LoopVerb.Undo == "u"
+      && LoopVerb.render LoopVerb.Redo == "y"
+      && LoopVerb.render LoopVerb.ForgetLength == "z"
+      && LoopVerb.render LoopVerb.Clear == "c"
+      && LoopVerb.render LoopVerb.Fire == "f")
+
+  -- The digit is audibility, not hush — `h1` clears `muted`. Getting this
+  -- backwards is how Stop All came to arm a trap in every empty slot.
+  assert "flags always take the explicit form, and h1 means audible"
+    (LoopVerb.render (LoopVerb.Sounding true) == "h1"
+      && LoopVerb.render (LoopVerb.Sounding false) == "h0"
+      && LoopVerb.render (LoopVerb.OnGrid true) == "g1"
+      && LoopVerb.render (LoopVerb.Reversed false) == "rev0"
+      && LoopVerb.render (LoopVerb.Pendulum true) == "pend1"
+      && LoopVerb.render (LoopVerb.OneShot false) == "one0"
+      && LoopVerb.render (LoopVerb.LevelArm true) == "lev1"
+      && LoopVerb.render (LoopVerb.Click false) == "k0"
+      && LoopVerb.render (LoopVerb.Monitor true) == "m1")
+
+  assert "numeric verbs carry their argument with no separator"
+    (LoopVerb.render (LoopVerb.Rate 0.5) == "sp0.5"
+      && LoopVerb.render (LoopVerb.Place 64) == "pan64"
+      && LoopVerb.render (LoopVerb.Spread 2) == "s2")
+
+  -- A loop prefix on every board command, because the daemon's own selection is
+  -- a mode a footswitch could fall out of step with.
+  assert "a verb addressed to a loop leads with its index"
+    (LoopVerb.at 0 LoopVerb.Record == "0r"
+      && LoopVerb.at 3 (LoopVerb.Sounding false) == "3h0"
+      && LoopVerb.at 5 (LoopVerb.Rate 1.0) == "5sp1.0")
 
   -- **Stop All reaches the loops that have something to stop, and no others.**
   -- Muting an empty loop does nothing audible and leaves it silenced for

@@ -14,6 +14,7 @@ import Data.Argonaut.Core (stringify)
 import Data.Argonaut.Parser (jsonParser)
 import Data.Looper as Looper
 import Data.Looper.Banks as LoopBanks
+import Data.Looper.Verb as Verb
 import Component.Looper.Board (render) as BoardSim
 import Component.Looper.Slots as Slots
 import Data.Looper.Machine as Machine
@@ -137,7 +138,6 @@ data Action
   -- | have sent and feeds it to the handler the port feeds. See
   -- | `Component.Looper.Board`.
   | SimulateSwitch LoopBanks.BankSlot Int LoopBanks.Gesture
-  | LooperCommand String
 
 type Slots =
   ( header :: Header.Slot Unit
@@ -1181,11 +1181,12 @@ handleAction = case _ of
         Looper.NotYetImplemented what -> do
           liftEffect $ Console.log $ "looper: " <> what <> " is not in the engine yet"
           H.modify_ _ { midiTest = Just ("looper: " <> what <> " not implemented") }
-        Looper.Send cmd -> do
-          ok <- liftEffect $ LooperSocket.send cmd
+        Looper.Send verb -> do
+          let wire = Verb.render verb
+          ok <- liftEffect $ LooperSocket.send wire
           H.modify_ _ { midiTest = Just
-            ( if ok then "looper: sent " <> show cmd
-              else "looper: daemon not connected, dropped " <> show cmd ) }
+            ( if ok then "looper: sent " <> wire
+              else "looper: daemon not connected, dropped " <> wire ) }
       else case st.connections.pedalOutput of
         Nothing ->
           H.modify_ _ { midiTest = Just "CC not sent: no Pedal MIDI output selected" }
@@ -2072,15 +2073,6 @@ handleAction = case _ of
               Looper.itajaraId
               s.engine
           }
-
-  -- | One command to the daemon, from a button or a footswitch alike.
-  -- |
-  -- | The daemon has no MIDI of its own by design, so this app is the only
-  -- | process talking to the MC6 and the only one deciding what a press means.
-  LooperCommand cmd -> do
-    ok <- liftEffect $ LooperSocket.send cmd
-    unless ok $
-      liftEffect $ Console.log $ "looper: not connected, dropped " <> show cmd
 
 
 -- | Read the socket ten times a second, forever.

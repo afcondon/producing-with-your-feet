@@ -27,6 +27,7 @@ module Data.Looper
 import Prelude
 
 import Data.Array as Array
+import Data.Looper.Verb as Verb
 import Data.MC6.Message as MC6Msg
 import Data.MC6.Types (MC6Action(..))
 import Data.MC6.ControlBank (ControlBank, ControlBankSwitch, ccMomentaryMessages, ccToggleMessages)
@@ -46,8 +47,14 @@ isItajara pid = pid == itajaraId
 
 -- | What a CC change should do.
 data Dispatch
-  -- | Send this string to the daemon.
-  = Send String
+  -- | Send this to the daemon.
+  -- |
+  -- | A `Verb` rather than the text of one: this table and the board's in
+  -- | `Data.Looper.Machine` are two independent maps onto the same vocabulary,
+  -- | and while both spelled it out longhand neither could be checked against
+  -- | the other or against `dispatch`. `Data.Looper.Verb.render` is now the one
+  -- | place a command becomes a string.
+  = Send Verb.Verb
   -- | In the surface, not yet in the engine. Carries its own name so the log
   -- | says which feature is missing rather than just refusing.
   | NotYetImplemented String
@@ -65,12 +72,12 @@ derive instance Eq Dispatch
 command :: CC -> MidiValue -> Dispatch
 command theCC val = case unCC theCC of
   -- Transport
-  1 -> onPress (Send "r")
-  2 -> onPress (Send "x")
-  3 -> onPress (Send "u")
+  1 -> onPress (Send Verb.Record)
+  2 -> onPress (Send Verb.Multiply)
+  3 -> onPress (Send Verb.Undo)
   4 -> onPress (NotYetImplemented "redo — undo currently wipes the layer rather than unlinking it")
-  5 -> onPress (Send "t")
-  6 -> onPress (Send "c")
+  5 -> onPress (Send Verb.ClaimPast)
+  6 -> onPress (Send Verb.Clear)
   7 -> NotYetImplemented "play/stop"
   8 -> NotYetImplemented "global reverse"
   9 -> NotYetImplemented "global half speed"
@@ -79,14 +86,14 @@ command theCC val = case unCC theCC of
   -- repeating, these ask "how often?" and answer by leaving room: the layer
   -- keeps its length and the loop grows around it. Structural rather than
   -- recorded, so they cost no bars and `d` puts it back.
-  10 -> onPress (Send "s2")
-  11 -> onPress (Send "o")
-  12 -> onPress (Send "d")
+  10 -> onPress (Send (Verb.Spread 2))
+  11 -> onPress (Send Verb.Rotate)
+  12 -> onPress (Send Verb.Dense)
 
   -- Undo keeps the length on purpose, so there has to be a way to let go of it.
   -- Three erasures, deliberately separate: undo a layer, forget the length,
   -- clear both.
-  13 -> onPress (Send "z")
+  13 -> onPress (Send Verb.ForgetLength)
 
   -- Source and routing
   20 -> NotYetImplemented "record source select"
@@ -117,9 +124,9 @@ command theCC val = case unCC theCC of
   -- Global. The explicit `k1`/`k0` forms rather than the flipping `k`, so a
   -- dropped command cannot leave the app and the engine disagreeing forever.
   80 -> NotYetImplemented "loop level"
-  81 -> Send (if on then "k1" else "k0")
+  81 -> Send (Verb.Click on)
   82 -> NotYetImplemented "click level"
-  83 -> Send (if on then "m1" else "m0")
+  83 -> Send (Verb.Monitor on)
 
   n | n >= 40 && n <= 47 -> NotYetImplemented ("layer " <> show (n - 39) <> " mute")
     | n >= 48 && n <= 55 -> NotYetImplemented ("layer " <> show (n - 47) <> " level")
