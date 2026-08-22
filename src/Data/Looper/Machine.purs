@@ -169,19 +169,29 @@ onDuty rig slot = case _ of
   LB.StopAll -> map (\i -> Command (cmd i (Verb.Sounding false))) (sounding rig)
   LB.Undo -> [ Command (cmd rig.focus Verb.Undo) ]
   LB.ClearLoop -> [ Command (cmd rig.focus Verb.Clear) ]
-  -- **Both of these go unprefixed, and one of them should not.**
+  -- **Addressed to the focused loop, like everything else on this page.**
   --
-  -- Without a leading digit the daemon applies a command to *its* selected
-  -- loop. For the click that is right, because the metronome is global and the
-  -- selection is not consulted. For a take it is not: `w` saves whichever loop
-  -- the daemon thinks is selected, which is the field nothing on this surface
-  -- writes and which has read zero since the six-loop display was built. So
-  -- Save Take saves loop 1 whatever the board is focused on.
+  -- It used to go unprefixed. Without a leading digit the daemon applies a
+  -- command to *its* selection — `sh.sel()` — and that field is written by
+  -- nothing on the six-loop surface: the app tracks focus itself, in `Rig`, and
+  -- has never told the daemon about it. So the daemon's selection has read zero
+  -- since this page was built, and Save Take wrote loop 1's layers to disk
+  -- whatever the board was focused on. It reported success, because saving
+  -- loop 1 *is* a success.
   --
-  -- Left as it is here deliberately — changing what a switch does inside a
-  -- commit whose job is to give the vocabulary a type is how a refactor becomes
-  -- unreviewable. Written down so it is not lost.
-  LB.SaveTake -> [ Command (Verb.render (Verb.SaveTake "")) ]
+  -- The same family as the display bug that cost two sessions — a loop index
+  -- read from somewhere nothing updates — and the same fix: say which loop,
+  -- every time. The daemon puts it better than this comment can: "selection
+  -- that only some callers depend on is a mode, and a mode that a footswitch
+  -- could fall out of step with is the thing this design is trying not to
+  -- have."
+  LB.SaveTake -> [ Command (cmd rig.focus (Verb.SaveTake "")) ]
+  -- **The one command that is right to leave unprefixed.** The metronome is
+  -- global — `sh.click`, not `lp.click` — so the daemon never consults its
+  -- selection for it and a loop index would be noise. Still the flipping form
+  -- rather than `Click`, because `Rig` carries the loops and the focus and not
+  -- the global flags, so there is nothing here to compute the opposite of. See
+  -- the note on `Verb.ClickToggle`.
   LB.ClickToggle -> [ Command (Verb.render Verb.ClickToggle) ]
 
   -- **Set, never flip.** All four of these read the current value out of the

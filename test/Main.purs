@@ -1111,6 +1111,28 @@ main = do
       && LoopVerb.at 3 (LoopVerb.Sounding false) == "3h0"
       && LoopVerb.at 5 (LoopVerb.Rate 1.0) == "5sp1.0")
 
+  -- **Save Take used to write the wrong loop and report success.**
+  --
+  -- It sent a bare `w`, which the daemon applies to *its* selection — a field
+  -- nothing on this surface has ever written, and which has therefore read zero
+  -- since the six-loop page was built. So it saved loop 1's layers whatever the
+  -- board was focused on, and said so cheerfully, because saving loop 1 is a
+  -- perfectly good save.
+  --
+  -- Tested at focus 3 specifically: at focus 0 the correct and the broken
+  -- output are the same string, which is exactly why nobody saw it.
+  assert "Save Take writes the focused loop, not the daemon's idea of selected"
+    (Machine.act ((rigOf [ idle 0, idle 1, idle 2, idle 3 ]) { focus = 3 })
+       (LB.switchGesture LB.ConfigBank 10 LB.Double)
+      == [ Machine.Command "3w" ])
+
+  -- The metronome is global — `sh.click`, not `lp.click` — so this one is right
+  -- to stay bare, and a loop index on it would be noise.
+  assert "and the click stays unprefixed, because it is not a per-loop thing"
+    (Machine.act ((rigOf [ idle 0, idle 1 ]) { focus = 1 })
+       (LB.switchGesture LB.ConfigBank 11 LB.Tap)
+      == [ Machine.Command "k" ])
+
   -- **Stop All reaches the loops that have something to stop, and no others.**
   -- Muting an empty loop does nothing audible and leaves it silenced for
   -- whatever is recorded into it next — so a stop anywhere in the set used to
@@ -1229,8 +1251,12 @@ main = do
     (map LB.dutyLabel (Array.catMaybes [ LB.dutyAt LB.LoopBank 10 ]) == [ "Capture" ]
       && Machine.act (rigOf []) (LB.switchGesture LB.PanBank 10 LB.Tap)
         == [ Machine.Command "0t" ]
+      -- `0w`, not `w`. It was the bare form until the prefix bug was fixed, and
+      -- at focus 0 the two are indistinguishable — which is why this assertion
+      -- was happy with the broken one. See the Save Take test above, which
+      -- checks at focus 3 for exactly that reason.
       && Machine.act (rigOf []) (LB.switchGesture LB.PanBank 10 LB.Double)
-        == [ Machine.Command "w" ])
+        == [ Machine.Command "0w" ])
 
   assert "and only the way out differs, because only its destination does"
     (map (\slot -> map _.what (Array.take 1 (LB.auxLegend slot))) LB.allSlots
