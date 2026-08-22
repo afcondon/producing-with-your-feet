@@ -7,7 +7,7 @@
 // device with no session open is a no-op — whereas missing it leaves an editor
 // session held on hardware we can no longer reach.
 
-export const onBeforeUnload = (effect) => () => {
+export const onBeforeUnloadImpl = (effect) => () => {
   const handler = () => {
     // Never let a failure here block the unload. There is nothing useful to do
     // about it and the page is leaving regardless.

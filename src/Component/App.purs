@@ -2726,7 +2726,7 @@ exhaustBanks open sweepsLeft
       let allBanks = Array.range 0 (Survey.bankCount - 1)
           missing = Array.filter (\b -> not (Map.member b st0.mc6BankSwitches)) allBanks
           before = Map.size st0.mc6BankSwitches
-      if Array.null missing then pure unit else do
+      unless (Array.null missing) do
         traverse_ (requestOneBank open) missing
         st1 <- H.get
         if Map.size st1.mc6BankSwitches == before

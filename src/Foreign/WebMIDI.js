@@ -133,6 +133,6 @@ export const onStateChangeImpl = function (access) {
   };
 };
 
-export const randomUUID = function () {
+export const randomUUIDImpl = function () {
   return crypto.randomUUID();
 };

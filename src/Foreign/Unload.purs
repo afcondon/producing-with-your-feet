@@ -24,4 +24,7 @@ import Effect (Effect)
 -- | handler is only correct while a session is actually held, and one left
 -- | installed after release would send a disconnect for a session that is
 -- | already closed.
-foreign import onBeforeUnload :: Effect Unit -> Effect (Effect Unit)
+foreign import onBeforeUnloadImpl :: Effect Unit -> Effect (Effect Unit)
+
+onBeforeUnload :: Effect Unit -> Effect (Effect Unit)
+onBeforeUnload = onBeforeUnloadImpl

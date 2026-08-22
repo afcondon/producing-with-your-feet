@@ -72,7 +72,15 @@ foreign import openInputImpl
 foreign import sendImpl :: MIDIOutput -> Array Int -> Effect Unit
 foreign import onMessageImpl :: MIDIInput -> (Array Int -> Effect Unit) -> Effect (Effect Unit)
 foreign import onStateChangeImpl :: MIDIAccess -> (PortChange -> Effect Unit) -> Effect (Effect Unit)
-foreign import randomUUID :: Effect String
+foreign import randomUUIDImpl :: Effect String
+
+-- | A fresh identifier from the platform's own generator.
+-- |
+-- | Not MIDI, and here only because this is the module that already owns a
+-- | `.js` file; `crypto.randomUUID` has no PureScript wrapper in the packages
+-- | this app depends on.
+randomUUID :: Effect String
+randomUUID = randomUUIDImpl
 
 requestMIDIAccess :: Aff MIDIAccess
 requestMIDIAccess = makeAff \cb -> do
