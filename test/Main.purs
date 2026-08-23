@@ -33,6 +33,7 @@ import Data.MC6.Diagnostics as Diagnostics
 import Data.Looper.Machine as Machine
 import Data.Looper.Verb as LoopVerb
 import Data.Enum as Enum
+import Data.Foldable (for_)
 import Data.String as String
 import Data.String.CodeUnits as StringCU
 import Data.MC6.Read as Read
@@ -98,6 +99,10 @@ frameWith f1 f2 f3 =
 
 assert :: String -> Boolean -> Effect Unit
 assert label ok = log $ (if ok then "PASS" else "FAIL") <> " - " <> label
+
+-- Right-align a bank number in two columns, so the map reads as a table.
+pad :: String -> String
+pad s = if String.length s >= 2 then s else " " <> s
 
 
 main :: Effect Unit
@@ -2069,13 +2074,13 @@ main = do
   let
     defaultNumbers =
       { board: 1
-      , probe: 20
-      , looperTransport: 21
-      , loopMachineBase: 22
-      , diagnostics: 30
+      , probe: 10
+      , looperTransport: 9
+      , loopMachineBase: 2
+      , diagnostics: 11
       }
-    defaultCollisions =
-      Reserved.collisions (Reserved.allClaims defaultNumbers [ ControlBank.exampleControlBank ])
+    defaultClaims = Reserved.allClaims defaultNumbers [ ControlBank.exampleControlBank ]
+    defaultCollisions = Reserved.collisions defaultClaims
   assert
     ( "no MC6 bank is claimed twice"
         <> maybe "" (\d -> "\n       " <> d) (Reserved.describeCollisions defaultCollisions)
@@ -2088,8 +2093,38 @@ main = do
     (Array.length
       (Reserved.collisions
         (Reserved.allClaims defaultNumbers
-          [ ControlBank.exampleControlBank { id = "clash", mc6BankNumber = 22 } ]))
+          [ ControlBank.exampleControlBank { id = "clash", mc6BankNumber = 2 } ]))
       == 1)
+
+  -- The line through the table: machinery below 15, pedal pages at 15 and
+  -- above. A convention nothing checks is a convention that lasts until the
+  -- next time somebody needs a bank in a hurry.
+  let defaultMisplaced = Reserved.misplaced defaultClaims
+  assert
+    ( "every bank is on its own side of the machinery/pedal line"
+        <> maybe "" (\d -> "\n       " <> d) (Reserved.describeMisplaced defaultMisplaced)
+    )
+    (Array.null defaultMisplaced)
+
+  assert "the line is checked in both directions"
+    (Array.length
+      (Reserved.misplaced
+        (Reserved.allClaims (defaultNumbers { probe = 25 })
+          [ ControlBank.exampleControlBank { mc6BankNumber = 3 } ]))
+      == 2)
+
+  -- Ableton Controls sits at 29 and is nobody's business but the board's.
+  assert "an external bank is exempt from the line"
+    (Array.null (Reserved.misplaced (Reserved.external)))
+
+  -- Printed, not just asserted about. The map is the thing a person needs when
+  -- deciding where to put the next bank, and a test that only says "no
+  -- collisions" makes them go and read five fields to find out what there was
+  -- no collision between.
+  log ""
+  log "  MC6 bank map (wire numbers; the editor shows each one higher):"
+  for_ (Array.sortWith _.bank defaultClaims) \c ->
+    log $ "    " <> pad (show c.bank) <> "  " <> Reserved.claimantLabel c.claimant
 
   log ""
   log "Done."

@@ -23,18 +23,32 @@
 -- | truth and the pedal is a projection of it. A projection that overwrites
 -- | itself is not a projection.
 -- |
--- | The map as it stands, in wire numbers (the editor shows each one higher):
+-- | ## The map, and the line through the middle of it
+-- |
+-- | Andrew's rule, 2026-08-23: **the machinery consolidates at the low end, and
+-- | fifteen upwards belongs to individual pedal controls and to pedal and bank
+-- | presets.** So the table has two halves and a boundary, rather than an
+-- | accumulation of numbers each chosen for a local reason — which is how the
+-- | probe came to be wedged between the looper and a bank it did not know was
+-- | occupied.
+-- |
+-- | In wire numbers (the editor shows each one higher):
 -- |
 -- | ```
--- |    1  board mirror
--- |  2-19  free — the user's control banks live here
--- |   20  probe
--- |   21  looper transport (the legacy one, driven by hand)
--- | 22-28  the loop machine, one bank per BankSlot, base + slotIndex
--- |   29  Ableton Controls — NOT ours, and the reason the probe could not
--- |       simply move up when the loop machine grew from six banks to seven
--- |   30  diagnostics
+-- |    1   board mirror              — what the board boots into
+-- |  2-8   the loop machine          — one bank per BankSlot, base + slotIndex
+-- |    9   looper transport          — the legacy one, driven by hand
+-- |   10   probe
+-- |   11   diagnostics
+-- | 12-14  spare, for this app
+-- | ─────  pedalRangeFrom
+-- | 15-30  pedal controls, pedal presets, bank presets — the user's own,
+-- |        including Ableton Controls at 29
 -- | ```
+-- |
+-- | The boundary is checked, not just documented (`misplaced`): a machinery
+-- | bank at 15 or above, or a control bank below it, is a failing test rather
+-- | than a convention someone remembers.
 module Data.MC6.Reserved
   ( Claimant(..)
   , BankClaim
@@ -45,6 +59,12 @@ module Data.MC6.Reserved
   , allClaims
   , collisions
   , describeCollisions
+  , pedalRangeFrom
+  , external
+  , Misplacement(..)
+  , Misplaced
+  , misplaced
+  , describeMisplaced
   ) where
 
 import Prelude
@@ -150,6 +170,51 @@ collisions cs =
     in if Array.length claimants > 1
          then Just { bank: (NEA.head grp).bank, claimants }
          else Nothing
+
+-- | Where the machinery stops and the pedals begin. One number, because the
+-- | boundary is a decision and not a fact about any one bank.
+pedalRangeFrom :: Int
+pedalRangeFrom = 15
+
+data Misplacement
+  -- | Machinery that has drifted up into pedal territory.
+  = MachineryTooHigh
+  -- | A control bank sitting among the machinery, where the next thing added
+  -- | to this app will land on top of it.
+  | ControlTooLow
+
+derive instance Eq Misplacement
+
+type Misplaced = { bank :: Int, claimant :: Claimant, why :: Misplacement }
+
+-- | Claims on the wrong side of `pedalRangeFrom`.
+-- |
+-- | `External` is exempt: those are facts about the pedalboard, not decisions
+-- | this app gets to make, and a rule that fails on one of them would be
+-- | telling the user their own board is wrong.
+misplaced :: Array BankClaim -> Array Misplaced
+misplaced = Array.mapMaybe check
+  where
+  check c = case c.claimant of
+    External _ -> Nothing
+    Control _
+      | c.bank < pedalRangeFrom -> Just { bank: c.bank, claimant: c.claimant, why: ControlTooLow }
+      | otherwise -> Nothing
+    _
+      | c.bank >= pedalRangeFrom -> Just { bank: c.bank, claimant: c.claimant, why: MachineryTooHigh }
+      | otherwise -> Nothing
+
+describeMisplaced :: Array Misplaced -> Maybe String
+describeMisplaced [] = Nothing
+describeMisplaced ms = Just $ intercalate "\n" (map line ms)
+  where
+  line m = case m.why of
+    MachineryTooHigh ->
+      "bank " <> show m.bank <> " holds " <> claimantLabel m.claimant
+        <> ", which is machinery and belongs below " <> show pedalRangeFrom <> "."
+    ControlTooLow ->
+      "bank " <> show m.bank <> " holds " <> claimantLabel m.claimant
+        <> ", which belongs at " <> show pedalRangeFrom <> " or above."
 
 -- | The collisions as something to put in front of a person. `Nothing` when
 -- | there are none — so a caller cannot render "0 collisions" as a warning.

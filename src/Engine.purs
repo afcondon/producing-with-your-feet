@@ -325,12 +325,12 @@ initAppState =
   , activeControlBankIdx: Just 0
   , looper: Nothing
   , looperStatus: { connected: false, everConnected: false, lastError: "", url: "" }
-  , mc6LooperBankNum: 21
+  , mc6LooperBankNum: 9
   -- 22-28 (seven slots, not the six this comment used to claim), just above the
   -- legacy transport bank. Wire numbers; the editor shows each one higher.
   -- `Data.MC6.Reserved` derives the seven from this base rather than restating
   -- them, so the range cannot be written down wrongly a second time.
-  , mc6LoopBankBase: 22
+  , mc6LoopBankBase: 2
   -- **Seven hundred, because that is what the device does.** Set in
   -- Morningstar's editor and confirmed against `03 21` offset 3, which moved
   -- from 2 to 4 when the setting went from 750 ms to 700 — so the byte is the
@@ -346,7 +346,7 @@ initAppState =
   , looperFocus: 0
   , looperLastAction: Nothing
   , looperAckSeq: 0
-  , mc6ProbeBankNum: 20
+  , mc6ProbeBankNum: 10
   , looperShowsSlots: true
   , looperBankShown: Just LooperBanks.LoopBank
   , looperProgramStatus: Nothing
@@ -365,7 +365,7 @@ initAppState =
   , baselineStatus: Nothing
   , testCh: 3
   , testCC: 1
-  , mc6DiagBankNum: 30
+  , mc6DiagBankNum: 11
   , backupFolderName: Nothing
   , backupLastSaveAt: Nothing
   , backupLastError: Nothing
