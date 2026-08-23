@@ -37,10 +37,29 @@ import Data.MC6.Types (MC6NativeBank)
 import Data.MC6.Verb (NavTarget(..), Verb(..), classify)
 import Data.Map (Map)
 import Data.Map as Map
+import Data.String as String
 import Data.Maybe (Maybe(..), fromMaybe, isJust)
 import Data.Set (Set)
 import Data.Set as Set
 import Data.Tuple (Tuple(..), snd)
+
+-- | The device's word for an unset switch, and ours, made the same word.
+-- |
+-- | **The MC6 reports an empty switch as the literal string `EMPTY`; this app
+-- | authors it as `""`.** Comparing them raw makes every blank switch a
+-- | disagreement — which stayed invisible while only a handful of authored
+-- | pages were surveyed, and became the whole screen the moment the survey was
+-- | given all thirty banks and a sweep that deliberately blanks most of them.
+-- | Every correctly-cleared bank reported "device disagrees" (2026-08-23).
+-- |
+-- | Trimmed and case-folded as well, because a name the device pads or shouts
+-- | is the same name. The cost is that a switch a person deliberately called
+-- | "Empty" compares equal to a blank one, which is a trade worth making
+-- | against a surface that otherwise cries wolf on every card.
+emptiness :: String -> String
+emptiness s =
+  let t = String.toUpper (String.trim s)
+  in if t == "EMPTY" then "" else t
 
 -- | How the MC6 MKII numbers its banks, taken from the device's own backup
 -- | file, where `bankArray` runs 0 to 29.
@@ -126,7 +145,8 @@ survey registry boardRecallChannel controlBanks nativeBanks dumpedBanks readName
         -- a clean bill we cannot justify.
         agrees = case authored, Array.null observed of
           Just cb, false ->
-            Just (map _.label cb.switches == Array.take (Array.length cb.switches) observed)
+            Just (map (emptiness <<< _.label) cb.switches
+                    == map emptiness (Array.take (Array.length cb.switches) observed))
           _, _ -> Nothing
     in { bankNumber: n, name, provenance, slots, observedNames: observed, agrees }
 

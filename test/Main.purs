@@ -2166,6 +2166,28 @@ main = do
   assert "every generated bank is in the write set"
     (Array.all (\n -> Array.elem n plan.write) ownedNums)
 
+  -- A cleared bank must READ as agreeing. The device says "EMPTY" where this
+  -- app authors "", so the raw comparison called every correctly-blanked bank a
+  -- disagreement — with the whole map surveyed, that was almost every card on
+  -- screen, and it is indistinguishable at a glance from a write that failed.
+  let blank12 = ControlBank.blankBank 7
+      deviceEmpty = Array.replicate 12 "EMPTY"
+      surveyOf authored observed =
+        Survey.survey reg Board.boardRecallChannel authored [] []
+          (Map.singleton 7 "") (Map.singleton 7 observed)
+  assert "a bank we blanked agrees with a device reporting EMPTY"
+    ( case Array.find (\c -> c.bankNumber == 7) (surveyOf [ blank12 ] deviceEmpty) of
+        Just c -> c.agrees == Just true
+        Nothing -> false
+    )
+  -- And it must still be able to say no, or the fix is just a blindfold.
+  assert "a bank we blanked DISAGREES with a device reporting real switches"
+    ( case Array.find (\c -> c.bankNumber == 7)
+             (surveyOf [ blank12 ] (Array.replicate 12 "Ht Loop")) of
+        Just c -> c.agrees == Just false
+        Nothing -> false
+    )
+
   -- Printed, not just asserted about. The map is the thing a person needs when
   -- deciding where to put the next bank, and a test that only says "no
   -- collisions" makes them go and read five fields to find out what there was
