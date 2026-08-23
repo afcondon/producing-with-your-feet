@@ -22,6 +22,7 @@ import Data.MC6.ControlBank as ControlBank
 import Data.MC6.Message as MC6Msg
 import Data.MC6.Types (MC6Action(..), MC6MsgType(..), MC6TogglePosition(..), mc6ActionToInt)
 import Data.MC6.Model as Model
+import Data.MC6.Reserved as Reserved
 import Data.MC6.Settings as Settings
 import Test.MC6Capture as Capture
 import Data.Looper as Looper
@@ -372,15 +373,21 @@ main = do
   -- nothing whatever about the other twenty-nine. Painting those as empty
   -- would be a lie about most of the instrument.
   assert "only the authored bank is known" (Array.length (Survey.knownBanks cards) == 1)
+  -- Read from the bank rather than restated. These said `20` in four places,
+  -- which is the same defect the reserved-bank table exists to stop: a number
+  -- written down twice is a number that can disagree with itself, and when the
+  -- default moved off the probe's bank these failed for a reason that had
+  -- nothing to do with what they are testing.
+  let defaultBankNum = ControlBank.exampleControlBank.mc6BankNumber
   assert "unknown banks are Unknown, not empty"
     (Array.all (\c -> c.provenance == Survey.Unknown)
-      (Array.filter (\c -> c.bankNumber /= 20) cards))
+      (Array.filter (\c -> c.bankNumber /= defaultBankNum) cards))
 
-  -- The default bank lives at 20 and its nine switches pad out to twelve.
-  case Array.find (\c -> c.bankNumber == 20) cards of
-    Nothing -> assert "default control bank surveyed at bank 20" false
+  -- The default bank's nine switches pad out to twelve.
+  case Array.find (\c -> c.bankNumber == defaultBankNum) cards of
+    Nothing -> assert "the default control bank is surveyed" false
     Just c -> do
-      assert "default control bank surveyed at bank 20" (c.provenance == Survey.Authored)
+      assert "the default control bank is surveyed" (c.provenance == Survey.Authored)
       assert "its name survives the survey" (c.name == "Default Controls")
       assert "padding to 12 is Blank, not Raw"
         (Array.length (Array.filter (_ == Verb.Blank) c.slots) == 4)
@@ -2050,6 +2057,39 @@ main = do
             && Array.any (\m -> m.msgType == MsgBankJump) e.sw.messages)
         (Array.filter (\e -> e.cb.mc6BankNumber == cb.mc6BankNumber) familySwitches))
       family)
+
+  -- **A bank is physical storage on a pedal you are standing on.** Two things
+  -- claiming one does not fail, it uploads: the second write lands on top of
+  -- the first and the device holds whichever went last. The default control
+  -- bank and the probe bank both claimed 20 and nothing anywhere compared the
+  -- two lists (found 2026-08-23).
+  --
+  -- Checked against the app's OWN defaults rather than a fixture, because a
+  -- fixture would have been written to agree with itself.
+  let
+    defaultNumbers =
+      { board: 1
+      , probe: 20
+      , looperTransport: 21
+      , loopMachineBase: 22
+      , diagnostics: 30
+      }
+    defaultCollisions =
+      Reserved.collisions (Reserved.allClaims defaultNumbers [ ControlBank.exampleControlBank ])
+  assert
+    ( "no MC6 bank is claimed twice"
+        <> maybe "" (\d -> "\n       " <> d) (Reserved.describeCollisions defaultCollisions)
+    )
+    (Array.null defaultCollisions)
+
+  -- The check itself, put in front of a collision it is known to have. A green
+  -- check that has never been seen red is a decoration.
+  assert "the bank-collision check detects a collision when there is one"
+    (Array.length
+      (Reserved.collisions
+        (Reserved.allClaims defaultNumbers
+          [ ControlBank.exampleControlBank { id = "clash", mc6BankNumber = 22 } ]))
+      == 1)
 
   log ""
   log "Done."

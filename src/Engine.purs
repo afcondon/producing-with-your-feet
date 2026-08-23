@@ -185,9 +185,16 @@ type AppState =
   -- | nothing above 28 to move to — 29 is Ableton Controls and the device stops
   -- | there.
   -- |
-  -- | This is the second time a bank number has been claimed twice by two places
-  -- | that did not know about each other, and nothing but a read-back would have
-  -- | said so. One table of what is spoken for is still owed.
+  -- | That reasoning was right and the conclusion was wrong: twenty was NOT
+  -- | empty — the default control bank was already on it. Two places claimed
+  -- | one bank for the second time, and again nothing but a read-back could
+  -- | have said so.
+  -- |
+  -- | The table that was owed now exists: **`Data.MC6.Reserved`**, which
+  -- | enumerates every claim from these numbers and checks it against the
+  -- | user's control banks. `test/Main` runs it over these defaults, so a third
+  -- | occurrence is a failing test rather than a bank you find with your foot.
+  -- | Change a number here and read the map there.
   , mc6ProbeBankNum :: Int
   -- | Which face the Looper page is showing. The six-slot display is what the
   -- | board drives; the old transport is kept because it can drive the engine
@@ -319,8 +326,10 @@ initAppState =
   , looper: Nothing
   , looperStatus: { connected: false, everConnected: false, lastError: "", url: "" }
   , mc6LooperBankNum: 21
-  -- 22-27, just above the legacy transport bank and below the two the device
-  -- has left. Wire numbers; the editor shows each one higher.
+  -- 22-28 (seven slots, not the six this comment used to claim), just above the
+  -- legacy transport bank. Wire numbers; the editor shows each one higher.
+  -- `Data.MC6.Reserved` derives the seven from this base rather than restating
+  -- them, so the range cannot be written down wrongly a second time.
   , mc6LoopBankBase: 22
   -- **Seven hundred, because that is what the device does.** Set in
   -- Morningstar's editor and confirmed against `03 21` offset 3, which moved

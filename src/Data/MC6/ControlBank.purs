@@ -118,7 +118,13 @@ exampleControlBank =
   { id: "control-default"
   , name: "Default Controls"
   , description: "Habit loop, Brig infinite, MOOD freeze, Clean/Mercury7 swell, Lex speed, Brig tap"
-  , mc6BankNumber: 20
+  -- Two, not twenty. It sat on 20 and so did the probe bank — a collision that
+  -- does not fail but *uploads*, the second write landing on top of the first.
+  -- Nothing compared the two lists until `Data.MC6.Reserved` existed; see the
+  -- bank map there, which is now the only place that says what is spoken for.
+  -- Low, because 2-19 is the free range and this is a user page, where the
+  -- probe's own placement at 20 was reasoned about and is worth leaving alone.
+  , mc6BankNumber: 2
   , returnSwitchIndex: 6
   , switches:
       [ { label: "Ht Loop",  longName: "Habit Loop Toggle",     toToggle: true,  messages: ccToggleMessages 15 24 }
