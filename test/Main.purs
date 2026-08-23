@@ -2120,6 +2120,41 @@ main = do
   assert "an external bank is exempt from the line"
     (Array.null (Reserved.misplaced (Reserved.external)))
 
+  -- The whole-map sweep. `clear` is a list of banks about to be ERASED on
+  -- hardware, so it is checked here rather than discovered by pressing the
+  -- button — a set difference that is only ever exercised by clicking is a set
+  -- difference nobody has checked.
+  let
+    ownedNums =
+      map _.mc6BankNumber
+        ( LB.banks { base: 2, boardBank: 1 }
+            <> [ Looper.looperBank 9 1 ]
+            <> [ Diagnostics.gestureProbeBank 10 1 ]
+            <> Diagnostics.bypassBanks 11 1 reg
+            <> [ ControlBank.exampleControlBank ]
+        )
+    plan = Reserved.sweep defaultNumbers ownedNums
+
+  assert "the sweep's three sets cover every bank exactly once"
+    ( Array.sort (plan.write <> plan.clear <> plan.untouched)
+        == Array.range 1 Reserved.mc6BankCount
+    )
+
+  -- The two that must never be in `clear`, and the reason each is exempt.
+  assert "the sweep never clears the board mirror"
+    (not (Array.elem 1 plan.clear))
+  assert "the sweep never clears Ableton Controls"
+    (not (Array.elem 29 plan.clear))
+  assert "the sweep leaves exactly those two alone"
+    (plan.untouched == [ 1, 29 ])
+
+  -- Everything generated is written, and nothing generated is cleared. The
+  -- failure this rules out is the sweep erasing a bank a moment after writing it.
+  assert "no bank is both written and cleared"
+    (Array.null (Array.intersect plan.write plan.clear))
+  assert "every generated bank is in the write set"
+    (Array.all (\n -> Array.elem n plan.write) ownedNums)
+
   -- Printed, not just asserted about. The map is the thing a person needs when
   -- deciding where to put the next bank, and a test that only says "no
   -- collisions" makes them go and read five fields to find out what there was

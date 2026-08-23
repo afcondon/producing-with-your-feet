@@ -61,6 +61,9 @@ module Data.MC6.Reserved
   , collisions
   , describeCollisions
   , pedalRangeFrom
+  , mc6BankCount
+  , sweep
+  , isExternalClaim
   , external
   , Misplacement(..)
   , Misplaced
@@ -183,6 +186,42 @@ collisions cs =
 -- | boundary is a decision and not a fact about any one bank.
 pedalRangeFrom :: Int
 pedalRangeFrom = 15
+
+-- | How many banks the device has.
+mc6BankCount :: Int
+mc6BankCount = 30
+
+-- | What a whole-map write touches, given the banks that were actually
+-- | generated. Three disjoint sets covering `1 .. mc6BankCount`.
+-- |
+-- | Pure, and separated from the writing for one reason: **`clear` is a list of
+-- | banks about to be erased on hardware**, and a set-difference that is only
+-- | ever exercised by clicking the button is a set-difference nobody has
+-- | checked. Getting it wrong does not throw; it silently wipes a bank that was
+-- | not supposed to be in the sweep.
+-- |
+-- | `untouched` is the board mirror and everything `External`. The board mirror
+-- | because it is assigned rather than generated — blanking it discards the
+-- | assignment instead of rebuilding it — and externals because nothing here
+-- | can regenerate them, which makes clearing one the only step in the sweep
+-- | that running the sweep again would not repair.
+sweep
+  :: BankNumbers
+  -> Array Int
+  -> { write :: Array Int, clear :: Array Int, untouched :: Array Int }
+sweep n owned =
+  { write: Array.sort owned
+  , clear: Array.filter keepable (Array.range 1 mc6BankCount)
+  , untouched: Array.sort untouched
+  }
+  where
+  untouched = Array.cons n.board (map _.bank (Array.filter isExternalClaim (appClaims n)))
+  keepable b = not (Array.elem b owned) && not (Array.elem b untouched)
+
+isExternalClaim :: BankClaim -> Boolean
+isExternalClaim c = case c.claimant of
+  External _ -> true
+  _ -> false
 
 data Misplacement
   -- | Machinery that has drifted up into pedal territory.

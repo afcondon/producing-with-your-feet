@@ -4,6 +4,7 @@ module Data.MC6.ControlBank
   , switchCount
   , switchLetter
   , emptySwitch
+  , blankBank
   , padSwitches
   , exampleControlBank
   , ccToggleMessages
@@ -59,6 +60,27 @@ switchLetter i = case Array.index letters i of
 
 emptySwitch :: ControlBankSwitch
 emptySwitch = { label: "", longName: "", toToggle: false, messages: [] }
+
+-- | A bank with nothing in it — which is how this app CLEARS one.
+-- |
+-- | There is no erase command worth having: twelve empty presets and an empty
+-- | name is exactly what an empty bank is, and writing one travels the same
+-- | path as writing a real one. So clearing and programming are a single loop
+-- | over a single list, and the code that clears is the code that has been
+-- | exercised every time anything was ever written.
+-- |
+-- | A named alternative would be a second, rarer path that only runs on the day
+-- | you are wiping the board, which is the worst possible day for it to be the
+-- | least-tested thing in the file.
+blankBank :: Int -> ControlBank
+blankBank n =
+  { id: "blank-" <> show n
+  , name: ""
+  , description: "Cleared"
+  , mc6BankNumber: n
+  , returnSwitchIndex: 0
+  , switches: Array.replicate switchCount emptySwitch
+  }
 
 -- | Bring a bank up to the full twelve without disturbing what is there.
 -- |

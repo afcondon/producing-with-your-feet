@@ -25,6 +25,7 @@ import Data.MC6.Dump as Dump
 import Data.MC6.Global as Global
 import Data.MC6.Diagnostics as Diagnostics
 import Data.MC6.Message as MC6Msg
+import Data.MC6.Reserved as Reserved
 import Data.MC6.SysEx as SysEx
 import Data.MC6.Types (MC6Action(..), MC6NativeBank, MC6Preset)
 import Data.MC6.Board as Board
@@ -98,6 +99,7 @@ data Action
   | ReadMC6Banks
   | ProgramLooperBank
   | ProgramLoopBanks
+  | ProgramWholeMap
   | SetLooperFace Boolean
   | SetView View
   | SetValue PedalId CC MidiValue
@@ -779,6 +781,18 @@ renderConnectView state =
             , HE.onClick \_ -> ReadMC6Banks
             ]
             [ HH.text "Read MC6" ]
+        -- Says what it does to the banks it is not writing, because that is the
+        -- part you cannot undo by pressing it again. The two exceptions are in
+        -- the label rather than only in the result, so the warning arrives
+        -- before the click and not after it.
+        , HH.button
+            [ HP.class_ (H.ClassName "files-btn files-btn-danger")
+            , HE.onClick \_ -> ProgramWholeMap
+            ]
+            [ HH.text "Write whole map (clears every other bank)" ]
+        , HH.span [ HP.class_ (H.ClassName "midi-test-result") ]
+            [ HH.text ("Board bank and Ableton Controls are left alone. "
+                        <> "Everything else is written or blanked.") ]
         , HH.span [ HP.class_ (H.ClassName "midi-test-result") ]
             [ HH.text (case state.midiTest of
                 Nothing -> ""
@@ -1516,6 +1530,70 @@ handleAction = case _ of
           <> (if Array.null r.refused then ""
               else " The MC6 never confirmed moving to "
                      <> commaList r.refused <> ", so nothing was written there.")}
+
+  -- | Write the whole bank map in one pass: every bank this app owns, and a
+  -- | blank over every bank in the device's range that nothing claims.
+  -- |
+  -- | **Clearing and writing are the same loop.** A blank bank is twelve empty
+  -- | presets and an empty name (`ControlBank.blankBank`), so wiping the board
+  -- | travels the path that every ordinary write has already exercised. There
+  -- | is no separate erase to be wrong on the one day it matters.
+  -- |
+  -- | Two banks are left alone, and neither is an oversight:
+  -- |
+  -- |   * **the board mirror**, because it is not generated — board presets are
+  -- |     assigned to its switches, and blanking it would throw away the
+  -- |     assignment rather than rebuild it;
+  -- |   * **anything `Data.MC6.Reserved` marks `External`** — Ableton Controls.
+  -- |     Nothing here can regenerate it, so clearing it is the one action in
+  -- |     this sweep that could not be undone by running the sweep again.
+  ProgramWholeMap -> do
+    st <- H.get
+    case st.connections.mc6Output of
+      Nothing ->
+        H.modify_ _ { looperProgramStatus = Just "No MC6 SysEx output selected — pick one on the Connect page." }
+      Just output -> do
+        let
+          numbers = bankNumbersOf st
+          -- Content comes from the producers, which know what goes in a bank;
+          -- the map comes from `Reserved`, which is the authority on where. The
+          -- two are compared below rather than one being derived from the
+          -- other, because a disagreement between them is exactly the bug the
+          -- table exists to surface — and silently trusting either would hide it.
+          owned =
+            LoopBanks.banks { base: st.mc6LoopBankBase, boardBank: st.mc6BoardBankNum }
+              <> [ Looper.looperBank st.mc6LooperBankNum st.mc6BoardBankNum ]
+              <> [ Diagnostics.gestureProbeBank st.mc6ProbeBankNum st.mc6BoardBankNum ]
+              <> Diagnostics.bypassBanks st.mc6DiagBankNum st.mc6BoardBankNum st.registry
+              <> st.controlBanks
+          ownedNums = map _.mc6BankNumber owned
+          -- Every bank the table says this app claims, less the board mirror
+          -- (assigned, not generated). If a producer and the table disagree,
+          -- these two sets differ and we say so instead of writing.
+          claimedNums = Array.filter (_ /= st.mc6BoardBankNum)
+            (map _.bank (Array.filter (not <<< Reserved.isExternalClaim) (Reserved.appClaims numbers)))
+          missing = Array.difference claimedNums ownedNums
+          surprise = Array.difference ownedNums (claimedNums <> map _.mc6BankNumber st.controlBanks)
+          plan = Reserved.sweep numbers ownedNums
+          everything = owned <> map ControlBank.blankBank plan.clear
+        if not (Array.null missing) || not (Array.null surprise) then
+          H.modify_ _ { looperProgramStatus = Just $
+            "Refusing to write: the generated banks and the reserved-bank table disagree."
+              <> (if Array.null missing then ""
+                  else " Claimed but not generated: " <> commaList missing <> ".")
+              <> (if Array.null surprise then ""
+                  else " Generated but unclaimed: " <> commaList surprise <> ".") }
+        else do
+          r <- uploadBanks "wholemap" output everything \n ->
+            H.modify_ _ { looperProgramStatus = Just ("Writing bank " <> show n <> "…") }
+          invalidateObservation r.written
+          H.modify_ _ { looperProgramStatus = Just $
+            "Wrote " <> show (Array.length owned) <> " bank(s) and cleared "
+              <> show (Array.length plan.clear) <> "."
+              <> (if Array.null r.refused then ""
+                  else " The MC6 never confirmed moving to " <> commaList r.refused
+                         <> ", so nothing was written there — run it again.")
+              <> " Left alone: " <> commaList plan.untouched <> "." }
 
   SelectTwisterInput portId -> do
     st <- H.get
@@ -2659,7 +2737,22 @@ uploadBanks label output cbs note = do
     H.modify_ _ { mc6CurrentBank = Nothing }
     Wire.send open (SysEx.sysexEditorBankChange cb.mc6BankNumber)
     moved <- awaitState 30 (\s -> s.mc6CurrentBank == Just cb.mc6BankNumber)
-    when moved $
+    when moved do
+      -- The bank's NAME, which nothing has ever sent. `sysexBankData` has been
+      -- byte-matched against an editor capture since it was written and called
+      -- from nowhere, so every generated bank on the device has carried
+      -- whatever name happened to be there before — "Bypass test 2" written
+      -- into a bank still displaying something from a year ago.
+      --
+      -- Outside the upload bracket because it is a `Frame Session`; the types
+      -- carry that, so it cannot be put in the wrong place.
+      --
+      -- The empty message array is deliberate and it is what makes CLEARING
+      -- work: bank-level messages are not modelled by this app, so writing none
+      -- removes any that were there rather than leaving them to fire under a
+      -- bank whose switches now mean something else entirely.
+      Wire.send open $ SysEx.sysexBankData cb.mc6BankNumber cb.name []
+      H.liftAff (delay (Milliseconds 100.0))
       Wire.withUpload open \up ->
         for_ (ControlBank.controlBankToPresets cb) \pr -> do
           Wire.sendUpload up $ SysEx.labelled label $
@@ -2671,6 +2764,20 @@ uploadBanks label output cbs note = do
     { written: map _.bank (Array.filter _.ok results)
     , refused: map _.bank (Array.filter (\r -> not r.ok) results)
     }
+
+-- | The app's bank numbers, in the shape `Data.MC6.Reserved` wants them.
+-- |
+-- | One place that reads them off the state, so a new claimant is a compile
+-- | error here rather than a row the table silently never hears about.
+bankNumbersOf :: AppState -> Reserved.BankNumbers
+bankNumbersOf st =
+  { board: st.mc6BoardBankNum
+  , probe: st.mc6ProbeBankNum
+  , looperTransport: st.mc6LooperBankNum
+  , loopMachineBase: st.mc6LoopBankBase
+  , diagnostics: st.mc6DiagBankNum
+  , diagnosticsCount: Diagnostics.bypassBankCount st.registry
+  }
 
 -- | Wait for the device to say something, rather than assuming it did.
 -- |
