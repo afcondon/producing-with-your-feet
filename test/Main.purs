@@ -2078,6 +2078,9 @@ main = do
       , looperTransport: 9
       , loopMachineBase: 2
       , diagnostics: 11
+      -- From the registry, not a guess. Thirteen pedals at eight to a bank is
+      -- two banks — the number this table originally assumed was one.
+      , diagnosticsCount: Diagnostics.bypassBankCount reg
       }
     defaultClaims = Reserved.allClaims defaultNumbers [ ControlBank.exampleControlBank ]
     defaultCollisions = Reserved.collisions defaultClaims

@@ -140,18 +140,26 @@ covers far more:
 |---|---|---|
 | Preset: 12 switches, names, messages | yes | **yes** |
 | Per-message name (`mi`) | yes (backup) | no — no TLV for it |
-| Bank name | yes | no |
+| Bank name | yes | **yes** — `sysexBankData`, matched against an editor capture |
 | `bankClearToggle` | yes | no |
-| Bank-level messages (`bankMsgArray`) | yes | no |
+| Bank-level messages (`bankMsgArray`) | yes | **yes** — same frame as the bank name |
 | Expression presets (`expPresetArray`) | yes | no |
 | `omniports` | yes | no |
 | `midi_channels` (13 named) | yes | no |
-| `general_configurations` | yes | no |
+| `general_configurations` | yes | **yes** — `04 00`/`04 02`/`04 01`, verified for the 32-byte `03 21` payload only |
 | `waveform_engines`, `sequencer_engines` | yes | no |
 | `scroll_counters`, `resistor_ladder_aux` | yes | no |
 | `midi_events`, `bank_arrangement` | yes | no |
 
-### Therefore: a factory reset is not reversible by this app
+> **Updated 2026-08-23.** Three rows above moved to writable — bank names,
+> bank-level messages, and the general-configuration section. The conclusion
+> below is UNCHANGED, because the row it rests on has not moved: `omniports` is
+> `03 23` with an 82-byte payload, and the only proven settings write is `03 21`
+> at 32 bytes. Sending an omniports payload through `04 02` would be exactly the
+> guess this document forbids — unknown reads are free, unknown writes go into
+> flash.
+
+### Therefore: a factory reset is still not reversible by this app
 
 Most acutely **`omniports`**. Both ports are `type: 8` with fixed switch
 assignments (41/42/43 and 38/39/40) — that setting is *what makes the FS3X

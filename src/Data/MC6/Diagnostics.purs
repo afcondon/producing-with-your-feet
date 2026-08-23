@@ -11,6 +11,7 @@
 -- | stays silent is where the fault is.
 module Data.MC6.Diagnostics
   ( bypassBanks
+  , bypassBankCount
   , switchesPerBank
   , gestureProbeBank
   , gestureProbeChannel
@@ -46,6 +47,16 @@ pedalsPerBank = returnIndex
 -- | Every switch is a toggle: press to bypass, press again to re-engage. That
 -- | is the useful shape for a sweep, because you can walk the row and leave
 -- | the board as you found it.
+-- | How many consecutive banks `bypassBanks` will occupy for this registry.
+-- |
+-- | Exported because it is not one. Thirteen pedals at eight to a bank is two
+-- | banks, and the reserved-bank table claimed a single number for
+-- | "diagnostics" — so bank 12 was spoken for and simultaneously listed as
+-- | spare. Derived from the same chunking the banks themselves use, so the two
+-- | cannot disagree.
+bypassBankCount :: PedalRegistry -> Int
+bypassBankCount = Array.length <<< chunk pedalsPerBank <<< registryPedals
+
 bypassBanks :: Int -> Int -> PedalRegistry -> Array ControlBank
 bypassBanks firstBank returnBankNum reg =
   Array.mapWithIndex toBank (chunk pedalsPerBank (registryPedals reg))

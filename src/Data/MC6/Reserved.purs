@@ -39,8 +39,9 @@
 -- |  2-8   the loop machine          — one bank per BankSlot, base + slotIndex
 -- |    9   looper transport          — the legacy one, driven by hand
 -- |   10   probe
--- |   11   diagnostics
--- | 12-14  spare, for this app
+-- | 11-12  diagnostics — a RANGE, one page per eight pedals, so it grows
+-- |        with the registry (`Diagnostics.bypassBankCount`)
+-- | 13-14  spare, for this app
 -- | ─────  pedalRangeFrom
 -- | 15-30  pedal controls, pedal presets, bank presets — the user's own,
 -- |        including Ableton Controls at 29
@@ -85,6 +86,12 @@ type BankNumbers =
   , looperTransport :: Int
   , loopMachineBase :: Int
   , diagnostics :: Int
+  -- | How many consecutive banks the diagnostics pages take. NOT one:
+  -- | `Diagnostics.bypassBankCount` chunks the registry eight pedals to a bank,
+  -- | so thirteen pedals is two banks. Passed in rather than assumed, because
+  -- | this module has no business knowing how many pedals there are — and
+  -- | assuming it was how bank 12 came to be both spoken for and listed spare.
+  , diagnosticsCount :: Int
   }
 
 -- | What is claiming a bank. An ADT and not a string, because the set is closed
@@ -95,7 +102,7 @@ data Claimant
   | Probe
   | LooperTransport
   | LoopMachine BankSlot
-  | Diagnostics
+  | Diagnostics Int
   -- | One of the user's own pages, by id — the only claimant this module cannot
   -- | enumerate for itself.
   | Control String
@@ -114,7 +121,7 @@ claimantLabel = case _ of
   Probe -> "the probe bank"
   LooperTransport -> "the looper transport"
   LoopMachine slot -> "the loop machine's " <> slotName slot <> " page"
-  Diagnostics -> "the diagnostics bank"
+  Diagnostics i -> "diagnostics page " <> show (i + 1)
   Control cbId -> "control bank `" <> cbId <> "`"
   External what -> what <> " (not this app's, but on the device)"
 
@@ -133,8 +140,9 @@ appClaims n =
   [ { bank: n.board, claimant: Board }
   , { bank: n.probe, claimant: Probe }
   , { bank: n.looperTransport, claimant: LooperTransport }
-  , { bank: n.diagnostics, claimant: Diagnostics }
   ]
+    <> map (\i -> { bank: n.diagnostics + i, claimant: Diagnostics i })
+         (Array.range 0 (max 1 n.diagnosticsCount - 1))
     <> map (\slot -> { bank: n.loopMachineBase + slotIndex slot, claimant: LoopMachine slot }) allSlots
     <> external
 
