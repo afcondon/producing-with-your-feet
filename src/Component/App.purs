@@ -224,6 +224,14 @@ render state = case state.configError of
         ControlsView ->
           HH.slot (Proxy :: _ "controls") unit ControlsView.component
             { controlBanks: state.controlBanks
+            -- What the device is SUPPOSED to hold, all thirty banks of it —
+            -- separate from `controlBanks`, which is the handful you can edit.
+            -- The survey compared intent against observation and was only ever
+            -- given the editable handful, so after a whole-map write it could
+            -- speak for one bank out of thirty and stayed silent about the
+            -- twenty-nine that had just been overwritten. Silence read as
+            -- "nothing to say"; it meant "nothing to compare".
+            , intendedBanks: intendedMap state
             , activeControlBankIdx: state.activeControlBankIdx
             , registry: state.registry
             , mc6BoardBankNum: state.mc6BoardBankNum
@@ -1560,12 +1568,7 @@ handleAction = case _ of
           -- two are compared below rather than one being derived from the
           -- other, because a disagreement between them is exactly the bug the
           -- table exists to surface — and silently trusting either would hide it.
-          owned =
-            LoopBanks.banks { base: st.mc6LoopBankBase, boardBank: st.mc6BoardBankNum }
-              <> [ Looper.looperBank st.mc6LooperBankNum st.mc6BoardBankNum ]
-              <> [ Diagnostics.gestureProbeBank st.mc6ProbeBankNum st.mc6BoardBankNum ]
-              <> Diagnostics.bypassBanks st.mc6DiagBankNum st.mc6BoardBankNum st.registry
-              <> st.controlBanks
+          owned = generatedBanks st
           ownedNums = map _.mc6BankNumber owned
           -- Every bank the table says this app claims, less the board mirror
           -- (assigned, not generated). If a producer and the table disagree,
@@ -1575,7 +1578,8 @@ handleAction = case _ of
           missing = Array.difference claimedNums ownedNums
           surprise = Array.difference ownedNums (claimedNums <> map _.mc6BankNumber st.controlBanks)
           plan = Reserved.sweep numbers ownedNums
-          everything = owned <> map ControlBank.blankBank plan.clear
+          -- The same list the survey checks against, from the same function.
+          everything = intendedMap st
         if not (Array.null missing) || not (Array.null surprise) then
           H.modify_ _ { looperProgramStatus = Just $
             "Refusing to write: the generated banks and the reserved-bank table disagree."
@@ -2778,6 +2782,29 @@ bankNumbersOf st =
   , diagnostics: st.mc6DiagBankNum
   , diagnosticsCount: Diagnostics.bypassBankCount st.registry
   }
+
+-- | Every bank this app intends the device to hold: the ones it generates, and
+-- | a blank for every unclaimed bank the sweep would clear.
+-- |
+-- | One function, used by the write and by the survey. They were separate lists
+-- | for as long as there was only one of them, and the moment a whole-map write
+-- | existed that became a way for the check to be looking at something other
+-- | than what was sent — which is the failure mode of every verification that
+-- | builds its own idea of the expected answer.
+intendedMap :: AppState -> Array ControlBank
+intendedMap st = generated <> map ControlBank.blankBank plan.clear
+  where
+  generated = generatedBanks st
+  plan = Reserved.sweep (bankNumbersOf st) (map _.mc6BankNumber generated)
+
+-- | The banks this app produces content for, as distinct from the blanks.
+generatedBanks :: AppState -> Array ControlBank
+generatedBanks st =
+  LoopBanks.banks { base: st.mc6LoopBankBase, boardBank: st.mc6BoardBankNum }
+    <> [ Looper.looperBank st.mc6LooperBankNum st.mc6BoardBankNum ]
+    <> [ Diagnostics.gestureProbeBank st.mc6ProbeBankNum st.mc6BoardBankNum ]
+    <> Diagnostics.bypassBanks st.mc6DiagBankNum st.mc6BoardBankNum st.registry
+    <> st.controlBanks
 
 -- | Wait for the device to say something, rather than assuming it did.
 -- |

@@ -38,6 +38,13 @@ import Halogen.HTML.Properties as HP
 
 type Input =
   { controlBanks :: Array ControlBank
+  -- | Every bank the app intends the device to hold — generated pages and the
+  -- | blanks a whole-map write would clear — as opposed to `controlBanks`,
+  -- | which is the editable handful. The survey compares intent against
+  -- | observation, and it was being handed the handful, so it could speak for
+  -- | one bank in thirty and said nothing about the rest. `agrees = Nothing`
+  -- | reads as "no disagreement" at a glance and means "nothing to compare".
+  , intendedBanks :: Array ControlBank
   , activeControlBankIdx :: Maybe Int
   , registry :: PedalRegistry
   , mc6BoardBankNum :: Int
@@ -455,7 +462,7 @@ surveyCards state =
   MC6Survey.survey
     state.input.registry
     Board.boardRecallChannel
-    (map (Global.applyGlobals state.input.globalSwitches) state.input.controlBanks)
+    (map (Global.applyGlobals state.input.globalSwitches) state.input.intendedBanks)
     state.input.mc6NativeBanks
     state.input.mc6DumpedBanks
     state.input.mc6BankNames
