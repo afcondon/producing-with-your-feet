@@ -62,6 +62,7 @@ module Data.MC6.Reserved
   , describeCollisions
   , pedalRangeFrom
   , mc6BankCount
+  , allBanks
   , sweep
   , isExternalClaim
   , external
@@ -187,9 +188,20 @@ collisions cs =
 pedalRangeFrom :: Int
 pedalRangeFrom = 15
 
--- | How many banks the device has.
+-- | How many banks the device has, numbered **0 to 29 on the wire**.
+-- |
+-- | The zero matters and was got wrong here first time: `sweep` ranged 1 to 30,
+-- | so wire bank 0 was never cleared and a bank 30 that does not exist was
+-- | written to. Every other number in this app is a wire number — the editor
+-- | displays each one higher — and the sweep was the one place that quietly
+-- | wasn't (2026-08-23, spotted from the device behaving oddly, not from the
+-- | test, which asserted the same off-by-one it was checking).
 mc6BankCount :: Int
 mc6BankCount = 30
+
+-- | Every bank on the device, in wire numbering.
+allBanks :: Array Int
+allBanks = Array.range 0 (mc6BankCount - 1)
 
 -- | What a whole-map write touches, given the banks that were actually
 -- | generated. Three disjoint sets covering `1 .. mc6BankCount`.
@@ -211,7 +223,7 @@ sweep
   -> { write :: Array Int, clear :: Array Int, untouched :: Array Int }
 sweep n owned =
   { write: Array.sort owned
-  , clear: Array.filter keepable (Array.range 1 mc6BankCount)
+  , clear: Array.filter keepable allBanks
   , untouched: Array.sort untouched
   }
   where

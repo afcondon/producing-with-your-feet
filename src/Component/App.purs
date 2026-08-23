@@ -1397,8 +1397,19 @@ handleAction = case _ of
           -- session is live once the bank names it volunteers arrive, not when
           -- connect has been written to the port.
           _ <- awaitState 40 (\s -> not (Map.isEmpty s.mc6BankNames))
+          H.modify_ _ { mc6ReadStatus = Just "Asking for every bank's switch names at once\x2026" }
           Wire.send open SysEx.sysexRequestAllPresetNames
           _ <- awaitState 20 (\s -> Map.size s.mc6BankSwitches >= Survey.bankCount)
+          -- Say what the BULK request achieved before the per-bank sweep starts
+          -- talking. Without this the first thing on screen is "Asking for bank
+          -- 15…", which reads as a read that began in the wrong place — the
+          -- sweep only ever names the banks the bulk request did NOT answer, so
+          -- where it starts is a measurement of the device, not a bug.
+          stBulk <- H.get
+          H.modify_ _ { mc6ReadStatus = Just
+            ( "All-banks request answered " <> show (Map.size stBulk.mc6BankSwitches)
+                <> " of " <> show Survey.bankCount
+                <> " banks; asking for the rest one at a time\x2026" ) }
           exhaustBanks open 4
           H.modify_ _ { mc6ReadStatus = Just "Asking for every preset\x2026" }
           Wire.send open SysEx.sysexRequestFullDump

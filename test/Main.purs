@@ -2135,9 +2135,20 @@ main = do
         )
     plan = Reserved.sweep defaultNumbers ownedNums
 
+  -- Against `Survey.bankCount`, NOT `Reserved.mc6BankCount`. The first is
+  -- documented as coming from the device's own backup file, where `bankArray`
+  -- runs 0 to 29; the second is the constant the sweep uses. Checking the sweep
+  -- against its own constant is what let a 1-to-30 range pass — the test and
+  -- the bug were written together and agreed with each other, while the device
+  -- has no bank 30 and its bank 0 was never being cleared.
+  assert "the sweep is in WIRE numbering, 0-based, like the rest of the app"
+    (Array.head plan.clear == Just 0 || Array.elem 0 (plan.write <> plan.untouched))
+  assert "the sweep never mentions a bank the device does not have"
+    (Array.all (\b -> b >= 0 && b < Survey.bankCount)
+      (plan.write <> plan.clear <> plan.untouched))
   assert "the sweep's three sets cover every bank exactly once"
     ( Array.sort (plan.write <> plan.clear <> plan.untouched)
-        == Array.range 1 Reserved.mc6BankCount
+        == Array.range 0 (Survey.bankCount - 1)
     )
 
   -- The two that must never be in `clear`, and the reason each is exempt.
