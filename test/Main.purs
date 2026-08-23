@@ -2116,9 +2116,12 @@ main = do
           [ ControlBank.exampleControlBank { mc6BankNumber = 3 } ]))
       == 2)
 
-  -- Ableton Controls sits at 29 and is nobody's business but the board's.
-  assert "an external bank is exempt from the line"
-    (Array.null (Reserved.misplaced (Reserved.external)))
+  -- The exemption itself, exercised against a SYNTHETIC external claim rather
+  -- than the live list — which is now empty, so testing it directly would pass
+  -- while checking nothing at all.
+  assert "an external bank is exempt from the machinery/pedal line"
+    (Array.null
+      (Reserved.misplaced [ { bank: 3, claimant: Reserved.External "somebody else's" } ]))
 
   -- The whole-map sweep. `clear` is a list of banks about to be ERASED on
   -- hardware, so it is checked here rather than discovered by pressing the
@@ -2151,13 +2154,14 @@ main = do
         == Array.range 0 (Survey.bankCount - 1)
     )
 
-  -- The two that must never be in `clear`, and the reason each is exempt.
+  -- The board mirror is the only exemption left. Ableton Controls was the
+  -- other, at bank 29 — and the device turned out to hold it at 19, so the
+  -- exemption was guarding an empty bank while the real one sat in the
+  -- clearable range, spared only because that write happened to be refused.
   assert "the sweep never clears the board mirror"
     (not (Array.elem 1 plan.clear))
-  assert "the sweep never clears Ableton Controls"
-    (not (Array.elem 29 plan.clear))
-  assert "the sweep leaves exactly those two alone"
-    (plan.untouched == [ 1, 29 ])
+  assert "the board mirror is the only bank left alone"
+    (plan.untouched == [ 1 ])
 
   -- Everything generated is written, and nothing generated is cleared. The
   -- failure this rules out is the sweep erasing a bank a moment after writing it.

@@ -43,8 +43,7 @@
 -- |        with the registry (`Diagnostics.bypassBankCount`)
 -- | 13-14  spare, for this app
 -- | ─────  pedalRangeFrom
--- | 15-30  pedal controls, pedal presets, bank presets — the user's own,
--- |        including Ableton Controls at 29
+-- | 15-29  pedal controls, pedal presets, bank presets — the user's own
 -- | ```
 -- |
 -- | The boundary is checked, not just documented (`misplaced`): a machinery
@@ -154,8 +153,23 @@ appClaims n =
 -- | because they are facts about the pedalboard rather than settings — and a
 -- | fact nobody can consult is how the probe came to be moved onto an occupied
 -- | bank in the first place.
+-- | **Empty, and deliberately still here.** It held Ableton Controls at bank 29
+-- | until the device was read back and the bank turned out to be 19 — so the
+-- | exemption was protecting a bank that had nothing on it while the real one
+-- | sat in the clearable range. It was spared only because that write happened
+-- | to be refused.
+-- |
+-- | Andrew, 2026-08-23: everything on the MC6 is up for grabs. So nothing is
+-- | exempt except the board mirror, and the list is empty rather than wrong —
+-- | an exemption nobody has verified against the device is worse than none,
+-- | because it reads as protection and isn't.
+-- |
+-- | The constructor stays because the concept will return: the plan is for this
+-- | app to drive Ableton itself, and until it does, anything the board holds
+-- | that we do not generate belongs here — WITH the bank number read off the
+-- | device rather than remembered.
 external :: Array BankClaim
-external = [ { bank: 29, claimant: External "Ableton Controls" } ]
+external = []
 
 -- | The app's claims and the user's, together — which is the only list worth
 -- | checking. Either half is internally consistent on its own; the collision

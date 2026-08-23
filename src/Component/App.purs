@@ -1605,9 +1605,14 @@ handleAction = case _ of
           H.modify_ _ { looperProgramStatus = Just $
             "Wrote " <> show (Array.length owned) <> " bank(s) and cleared "
               <> show (Array.length plan.clear) <> "."
+              -- A bank the first pass missed and a retry rescued is worth
+              -- saying: it is the difference between a device that is reliable
+              -- and one that only looks it once the retries are hidden.
+              <> (if Array.null r.retried then ""
+                  else " " <> commaList r.retried <> " needed a second attempt.")
               <> (if Array.null r.refused then ""
                   else " The MC6 never confirmed moving to " <> commaList r.refused
-                         <> ", so nothing was written there — run it again.")
+                         <> " after three tries, so nothing was written there.")
               <> " Left alone: " <> commaList plan.untouched <> "." }
 
   SelectTwisterInput portId -> do
@@ -2737,14 +2742,60 @@ runAction late a = do
 commaList :: Array Int -> String
 commaList = Array.intercalate ", " <<< map show
 
+-- | Write the banks, then write again the ones the device never confirmed
+-- | moving to.
+-- |
+-- | **A refused bank is not a failed bank, it is an unattempted one**, and the
+-- | first pass refuses a run of them at the start every time: banks 2-6 of a
+-- | whole-map write came back carrying their factory names while 7 and 8, from
+-- | the same array, landed perfectly (2026-08-23). Whatever the device is doing
+-- | in those first seconds — not yet announcing bank changes, or announcing one
+-- | we cleared before asking — the fix that does not depend on knowing is to
+-- | ask again.
+-- |
+-- | Reporting them and moving on was the old behaviour, and it put the burden
+-- | on somebody reading a status line that is replaced a second later. Three
+-- | passes, because a bank that will not answer three sessions running is not
+-- | going to answer on the fourth, and the caller still gets the ones that
+-- | never came good.
 uploadBanks
   :: forall o m. MonadAff m
   => String
   -> MIDI.MIDIOutput
   -> Array ControlBank
   -> (Int -> H.HalogenM AppState Action Slots o m Unit)
-  -> H.HalogenM AppState Action Slots o m { written :: Array Int, refused :: Array Int }
+  -> H.HalogenM AppState Action Slots o m
+       { written :: Array Int, refused :: Array Int, retried :: Array Int }
 uploadBanks label output cbs note = do
+  first <- uploadPass label output cbs note
+  retryRefused 2 first
+  where
+  retryRefused passesLeft acc
+    | passesLeft <= 0 || Array.null acc.refused = pure acc
+    | otherwise = do
+        let again = Array.filter (\cb -> Array.elem cb.mc6BankNumber acc.refused) cbs
+        -- Said out loud. A silent retry that works is a device that looks
+        -- reliable, and the next person to hit this deserves the evidence that
+        -- the first pass routinely misses the opening banks.
+        liftEffect $ Console.log $
+          "MC6 write: retrying " <> show (Array.length again)
+            <> " bank(s) the device never confirmed moving to: " <> show acc.refused
+        r <- uploadPass label output again note
+        retryRefused (passesLeft - 1)
+          { written: acc.written <> r.written
+          , refused: r.refused
+          , retried: acc.retried <> r.written
+          }
+
+uploadPass
+  :: forall o m. MonadAff m
+  => String
+  -> MIDI.MIDIOutput
+  -> Array ControlBank
+  -> (Int -> H.HalogenM AppState Action Slots o m Unit)
+  -> H.HalogenM AppState Action Slots o m
+       { written :: Array Int, refused :: Array Int, retried :: Array Int }
+uploadPass label output cbs note = do
   results <- for cbs \cb -> inFreshSession output \open -> do
     note cb.mc6BankNumber
     -- Cleared first, or `awaitState` would be satisfied by the answer to the
@@ -2778,6 +2829,7 @@ uploadBanks label output cbs note = do
   pure
     { written: map _.bank (Array.filter _.ok results)
     , refused: map _.bank (Array.filter (\r -> not r.ok) results)
+    , retried: []
     }
 
 -- | The app's bank numbers, in the shape `Data.MC6.Reserved` wants them.
