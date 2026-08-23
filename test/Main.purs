@@ -2192,6 +2192,36 @@ main = do
         Nothing -> false
     )
 
+  -- **A cleared bank must not be a trap.** The whole-map sweep blanks most of
+  -- the device, and a blank bank with no bank-jump on it is one you can walk
+  -- into with a foot and not walk out of. Globals are what put the way home on
+  -- every page, and the sweep wrote its banks without them — every bank it
+  -- touched lost switch G while reading as a successful write (2026-08-23).
+  let backGlobal =
+        { id: "global-G"
+        , slot: 6
+        , label: "< Back"
+        , longName: "Back to board bank"
+        , toToggle: false
+        , messages: [ MC6Msg.bankJumpMessage 1 ActionPress ]
+        }
+      clearedWithGlobals = Global.applyGlobals [ backGlobal ] (ControlBank.blankBank 13)
+  assert "a cleared bank still carries the globals, so it has a way out"
+    (Array.any (\sw -> Array.any (\m -> m.msgType == MsgBankJump) sw.messages)
+      clearedWithGlobals.switches)
+
+  -- And the survey must agree with a device holding exactly that. This is the
+  -- pairing that failed: written without globals, checked with them, so the two
+  -- differed at one switch and every card went red.
+  assert "a cleared bank agrees with a device holding the global at its slot"
+    ( case Array.find (\c -> c.bankNumber == 7)
+             (surveyOf [ Global.applyGlobals [ backGlobal ] (ControlBank.blankBank 7) ]
+                (Array.mapWithIndex (\i _ -> if i == 6 then "< Back" else "EMPTY")
+                   (Array.replicate 12 unit))) of
+        Just c -> c.agrees == Just true
+        Nothing -> false
+    )
+
   -- Printed, not just asserted about. The map is the thing a person needs when
   -- deciding where to put the next bank, and a test that only says "no
   -- collisions" makes them go and read five fields to find out what there was

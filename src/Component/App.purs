@@ -2854,8 +2854,25 @@ bankNumbersOf st =
 -- | existed that became a way for the check to be looking at something other
 -- | than what was sent — which is the failure mode of every verification that
 -- | builds its own idea of the expected answer.
+-- | **Globals are applied here, once**, so the list that is written and the list
+-- | that is checked are the same list including its furniture.
+-- |
+-- | They were not, and it cost a whole-map write: every other path to the
+-- | device applies globals on the way out, `ProgramWholeMap` did not, and the
+-- | survey applied them before comparing. So every bank the sweep wrote was
+-- | missing switch G — its way home — and every one of them reported "device
+-- | disagrees" at exactly that switch while looking otherwise perfect. Two
+-- | banks agreed, and they were the two that happen to author `< Back` at slot
+-- | 6 themselves (2026-08-23).
+-- |
+-- | A blank bank takes the globals too. `applyGlobals` is documented
+-- | unconditional — every page takes every global, because that is what a
+-- | global is — and a cleared bank you cannot walk out of is worse than a
+-- | cleared bank.
 intendedMap :: AppState -> Array ControlBank
-intendedMap st = generated <> map ControlBank.blankBank plan.clear
+intendedMap st =
+  map (Global.applyGlobals st.globalSwitches)
+    (generated <> map ControlBank.blankBank plan.clear)
   where
   generated = generatedBanks st
   plan = Reserved.sweep (bankNumbersOf st) (map _.mc6BankNumber generated)

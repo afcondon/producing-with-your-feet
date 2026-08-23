@@ -462,7 +462,11 @@ surveyCards state =
   MC6Survey.survey
     state.input.registry
     Board.boardRecallChannel
-    (map (Global.applyGlobals state.input.globalSwitches) state.input.intendedBanks)
+    -- NOT re-applied here. `intendedBanks` arrives with globals already in it,
+    -- because the list that is written and the list that is checked have to be
+    -- the same list — applying them on one side only is what made every bank
+    -- the sweep wrote disagree at switch G.
+    state.input.intendedBanks
     state.input.mc6NativeBanks
     state.input.mc6DumpedBanks
     state.input.mc6BankNames
