@@ -135,46 +135,78 @@ the end of this document; everything else follows from what exists today.
 wire     block            size   what
 ────────────────────────────────────────────────────────────────────────
   0      gateway            1    one switch per usage model
-  1- 2   live control       2    whole-pedal bypasses, then per-channel + tap
-  3-10   looper             8 ?  the loop machine's pages + transport
- 11-13   board presets      3    36 slots for the 24 wanted, a page of headroom
- 14-21   pedal presets      8    recall pages and step-through pages, curated
- 22-27   spare              6    unclaimed, cleared by every sweep
+  1- 4   control pages      4    one per functional group: its bypasses and its controls
+  5-12   looper             8 ?  the loop machine's pages + transport
+ 13-15   board presets      3    36 slots for the 24 wanted, a page of headroom
+ 16-23   pedal presets      8    recall, step-through, and deep single-pedal pages
+ 24-27   spare              4    unclaimed, cleared by every sweep
  28-29   machinery          2    probe + diagnostics, resident
 ```
 
-### Why live control is two pages, not one
+**The bases are not fixed yet**, and should not be written into code until the
+looper's page count is settled — it is above almost everything and moves it all.
+Per B3 a block's base and size live in one place, so this is one edit when it
+comes, not thirty.
 
-The tidy "twelve pedals, twelve switches" reading is wrong, and the code already
-knew why: **four of the thirteen registry entries are `DualEngage`** — Flint,
-Lost+Found, MOOD and Onward each have two independently bypassable channels.
-Two of them (Flint, MOOD) declare a `both` CC that takes the whole pedal out in
-one message; two (Lost+Found, Onward) do not, and so cannot be reduced to a
-single switch at all.
+### Control pages are grouped by function, not by pedal
 
-Counting what actually needs a switch, with Iridium and Riverside left out as
-always-on and Itajara excluded as the looper:
+The first draft of this had a page of every bypass, on the assumption that
+twelve pedals fit twelve switches. That assumption is wrong twice over.
 
-| | switches |
+**It is wrong arithmetically.** Four of the thirteen registry entries are
+`DualEngage` — Flint, Lost+Found, MOOD and Onward each have two independently
+bypassable channels. Flint and MOOD declare a `both` CC that takes the whole
+pedal out in one message; Lost+Found and Onward do not, and so cannot be reduced
+to one switch at all without an app verb (B17).
+
+**And it is wrong as a way of thinking.** There is no such thing as a pedal
+that is always on — Iridium and Riverside are simply the *least likely to be
+changing*, and they still move for gain structure and tone. The useful division
+is by what a pedal is **for**:
+
+| group | pedals |
 |---|---|
-| single-engage pedals — Brig, Clean, Habit, Hedra, Lex, Mercury7 | 6 |
-| dual with `both` — Flint, MOOD | 2 |
-| dual without `both` — Lost+Found, Onward | 4 |
-| **whole-pedal control** | **12** |
-| per-channel for Flint and MOOD as well | +2 |
-| **per-channel control throughout** | **14** |
+| tone / gain structure | Clean, Riverside, Iridium |
+| ambient / evolving | MOOD, Onward, Lost+Found, Habit |
+| delay / reverb | Mercury7, Flint, Brig |
+| live FX | Lex, plus second-board pedals not under MIDI control |
+| *unplaced* | Hedra |
 
-So page one is a full twelve with nothing spare, and *anything else at all* —
-tap tempo, per-channel splits for Flint and MOOD, a bypass for a pedal currently
-assumed always-on — needs page two. Hence two.
+A wall of twelve bypasses is a list of things; a group page is a **thing you are
+currently doing**. So each control page carries its group's bypasses *and* the
+handful of controls that matter when you are working on that group — which is
+also what makes the leftover switches on each page worth having rather than a
+sign the page is half empty.
 
-**Worth chasing: the missing `both` CCs.** If Lost+Found and Onward turn out to
-have a true-bypass CC we have not transcribed, whole-pedal control drops from 12
-switches to 10 and page one gains room. The same two CCs also relieve the
-sixteen-message ceiling on board presets, where four dual pedals costing two
-bypasses apiece is what puts an all-twelve board over the limit
-(`Data/Pedal/Engage.purs`, DESIGN-v2 §5). It is one transcription job paying
-twice.
+Hedra is deliberately unplaced. It is a harmoniser rather than an effect — it
+generates new material — and it is the pedal that most obviously wants a page of
+its own rather than three switches on somebody else's.
+
+**Worth chasing: the missing `both` CCs.** If Lost+Found and Onward have a
+true-bypass CC we have not transcribed, each drops from two switches to one and
+the ambient page gains room. The same two CCs relieve the sixteen-message
+ceiling on board presets, where four dual pedals costing two bypasses apiece is
+what puts an all-twelve board over the limit (`Data/Pedal/Engage.purs`,
+DESIGN-v2 §5). One transcription job paying twice.
+
+### Pedals are not equally deep, and pages should not pretend otherwise
+
+The single most useful thing to know about this block: **the amount of control a
+pedal wants varies enormously, and not with how good it is.**
+
+- **Hedra** has had elaborate multi-bank treatments in the past, because it is
+  genuinely that complex. It warrants a page, possibly more.
+- **Brig** has never needed more than three switches in its entire life: tap
+  tempo, infinite repeat on hold, and a preset scroller.
+
+So "a page per pedal" is the wrong unit. The right one is **a page per pedal
+that needs one, and a shared page for the pedals that do not** — Brig's three
+switches sitting alongside two or three other shallow pedals' three, which is a
+better page than either would make alone.
+
+This is why the pedal block is described as recall, step-through *and* deep
+single-pedal pages: they are three shapes drawn from one pool of banks, assigned
+by what each pedal actually needs rather than by a uniform rule.
 
 ### Why the pedal-preset block holds two different kinds of page
 
@@ -228,6 +260,68 @@ space is a dead end; `Survey.stranded` and `Survey.deadEnds` exist to find both
 and should be surfaced, not just computed. Softer than it sounds, since the
 device's own bank up/down still works — the accusation is "no programmed way
 out", not "trapped".
+
+### Gestures
+
+The MC6 recognises gestures itself, and what it does was **measured on the
+device** (2026-08-21, `Diagnostics.gestureProbeBank`) rather than taken from
+documentation:
+
+```
+single tap    Press and Release arrive 1 ms apart, at the DECISION
+double tap    DoubleTapRelease alone — Press and Release both suppressed
+long press    Press, then LongPress ~600 ms later, and NO Release
+```
+
+So `Release` / `DoubleTapRelease` / `LongPress` is a **clean, mutually exclusive
+triple**. One switch carries three meanings with nothing to disambiguate by
+hand — which is what makes the following convention possible at all.
+
+**B14. Three gestures, one meaning each, the same everywhere.** For a
+two-channel pedal:
+
+| gesture | means |
+|---|---|
+| release (tap) | toggle the whole pedal |
+| double-tap release | toggle the first channel |
+| long press | toggle the second channel |
+
+The particular assignment matters less than its being identical on every page.
+A foot that has to remember which pedal reversed them has learnt nothing.
+
+**B15. A switch that binds no double-tap must still answer one.** The device
+suppresses `Release` on a double *whether or not anything is bound to it*, so a
+switch with only one meaning answers a fumbled double with **silence** — the
+worst possible response, because nothing tells you it happened. Bind the tap's
+own value to `DoubleTapRelease` and two taps too close together come out as one
+tap. `Looper.Banks.bindings` already does this; it is a rule, not a local trick.
+
+**B16. Nothing rhythmic carries a double-tap.** The device withholds the single
+press until it knows the gesture, so any switch that *might* be double-tapped
+answers a few hundred milliseconds late. That is tolerable for a bypass and
+fatal for tap tempo, which is both immediate and repeated. The double-tap window
+is currently a guess bounded at 414 ms and is the one number still worth
+measuring.
+
+*(For the looper this cost is already bought back: gestures are dated from the
+press and the pre-roll ring un-does the delay, so a double-tap costs response
+but never the recording. Nothing else has a ring, so nothing else gets that
+refund.)*
+
+**B17. A switch speaks either to a pedal or to the app, and says which.** A
+direct message is stateless and works whether or not anything is running. An
+**app verb** — one CC on the recall channel, which the app expands — is how
+anything *conditional* has to work, because the device cannot ask a question.
+
+"Toggle the whole pedal" on Lost+Found or Onward is exactly such a case: with no
+`both` CC, toggling both channels means sending two messages, and if the
+channels are currently in different states there is no single right pair to
+send. The app knows the state; the device does not. So that gesture is an app
+verb.
+
+The price is that an app verb does nothing with the app closed — acceptable
+precisely because this is a recording board with the app on screen, and a good
+example of that framing paying for itself.
 
 ### Globals
 
@@ -301,21 +395,32 @@ re-litigated:
   Eight banks.
 - **Machinery stays resident.** The probe and diagnostics keep two banks; there
   is enough space and no reason to make them ephemeral.
-- **Live control is two pages**, because whole-pedal bypasses fill the first
-  exactly.
+- **Control pages are grouped by function**, four of them, each carrying its
+  group's bypasses and the controls that matter while working on that group.
+  "Always on" is retired as a concept — Iridium and Riverside are merely the
+  least likely to change, and they still move for gain and tone.
+- **Ableton is deleted for now.** The existing page at bank 19 goes; when it
+  comes back it will most likely be session-record control rather than a second
+  looper, and it can come out of spare. Nothing in this map reserves it.
+- **Gesture conventions are settled** (B14–B17): tap / double-tap / long press
+  as whole pedal / first channel / second channel, identically everywhere.
 
 ## Open questions
 
 1. **Are the looper's eight pages settled?** Seven loop-machine pages plus the
-   legacy hand-driven transport. If the transport is dead, that is a bank back
-   and everything below it shifts.
-2. **Does Ableton get a block?** There is a working page at bank 19 today and a
-   stated want to drive Ableton from the looper UI later. It is currently
-   nowhere in this map.
-3. **What else belongs on the gateway?** Twelve switches; the list so far names
-   five — looper, board presets, pedal presets, live control, machinery.
-4. **Do Lost+Found and Onward have a true-bypass CC?** A transcription question,
-   not a design one, but it buys two switches on the live-control page and
-   relief on the board-preset message ceiling.
-5. **Which pedals are genuinely always-on?** Iridium and Riverside are assumed
-   so here, and that assumption is load-bearing for the twelve-switch count.
+   legacy hand-driven transport. It sits above almost everything, so this is the
+   question blocking the bases being written into code.
+2. **Where does Hedra go?** It is a harmoniser rather than an effect and wants a
+   page of its own; whether that page lives in the control block or the pedal
+   block decides how the groups are counted.
+3. **Which pedals share a shallow page?** Brig needs three switches; presumably
+   others do too. The pairing is a judgement about how you work, not something
+   the registry can answer.
+4. **Do Lost+Found and Onward have a true-bypass CC?** A transcription question
+   against the pedals' MIDI implementation, not a design one — but it buys a
+   switch each and relieves the board-preset message ceiling.
+5. **What is the real double-tap window?** Bounded at 414 ms by measurement and
+   still a guess inside that. It sets how late every double-tappable switch
+   answers, so B14 rests on it.
+6. **What else belongs on the gateway?** Twelve switches; the list so far names
+   five — looper, board presets, pedal presets, control pages, machinery.
