@@ -277,17 +277,31 @@ So `Release` / `DoubleTapRelease` / `LongPress` is a **clean, mutually exclusive
 triple**. One switch carries three meanings with nothing to disambiguate by
 hand — which is what makes the following convention possible at all.
 
-**B14. Three gestures, one meaning each, the same everywhere.** For a
-two-channel pedal:
+**B14. Discrete actions fire on foot-up, and the release family is the
+vocabulary.** For a two-channel pedal:
 
-| gesture | means |
-|---|---|
-| release (tap) | toggle the whole pedal |
-| double-tap release | toggle the first channel |
-| long press | toggle the second channel |
+| gesture | action | means |
+|---|---|---|
+| tap | `Release` (2) | toggle the whole pedal |
+| double tap | `DoubleTapRelease` (6) | toggle the first channel |
+| long press | `LongPressRelease` (4) | toggle the second channel |
 
-The particular assignment matters less than its being identical on every page.
-A foot that has to remember which pedal reversed them has learnt nothing.
+`LongPressRelease` rather than `LongPress` so that **all three fire at the same
+moment relative to the foot** — when it comes up. Mixing them would mean one of
+a switch's three meanings happening mid-press and the other two after, which is
+the sort of inconsistency a foot notices without being able to say why.
+
+The particular assignment of channel to gesture matters less than its being
+identical on every page. A foot that has to remember which pedal reversed them
+has learnt nothing.
+
+*Not yet measured:* the probe covered `Release`, `DoubleTapRelease` and
+`LongPress`. `LongPressRelease` is in the model (`MC6Action` 4) and in
+Morningstar's action list, but this rig has not confirmed how it interacts with
+`LongPress` — whether binding only the release suppresses the threshold event,
+and whether the ~600 ms threshold still gates it. That is a probe run, and B14
+rests on the answer. There is a fourth release-family action
+(`LongDoubleTapRelease`, 8) which we are deliberately not spending.
 
 **B15. A switch that binds no double-tap must still answer one.** The device
 suppresses `Release` on a double *whether or not anything is bound to it*, so a
@@ -307,6 +321,20 @@ measuring.
 press and the pre-roll ring un-does the delay, so a double-tap costs response
 but never the recording. Nothing else has a ring, so nothing else gets that
 refund.)*
+
+**B18. A momentary control is a `Press`/`Release` pair and carries nothing
+else.** Some controls are active only while the foot is down — MOOD's right-hand
+micro-looper, Brig's Infinite, Lex's Brake. These cannot use the release family,
+because the entire point is that something happens on the way *down*: the switch
+sends on `Press` and undoes it on `Release`.
+
+Such a switch must carry **no double-tap and no long press**, and the reason is
+the same measurement as B16 seen from the other side. The device withholds
+`Press` until it knows the gesture, so a momentary engage on a double-tappable
+switch arrives a few hundred milliseconds after the foot did — and on an actual
+double it never arrives at all, because `Press` is suppressed outright. A
+momentary switch is a one-gesture switch, and that is a property of the pedal's
+control rather than a choice about the page.
 
 **B17. A switch speaks either to a pedal or to the app, and says which.** A
 direct message is stateless and works whether or not anything is running. An
@@ -419,8 +447,11 @@ re-litigated:
 4. **Do Lost+Found and Onward have a true-bypass CC?** A transcription question
    against the pedals' MIDI implementation, not a design one — but it buys a
    switch each and relieves the board-preset message ceiling.
-5. **What is the real double-tap window?** Bounded at 414 ms by measurement and
+5. **How does `LongPressRelease` actually behave?** B14 uses it so that all
+   three gestures fire on foot-up, but the probe never covered it. One run of
+   the gesture bank answers it.
+6. **What is the real double-tap window?** Bounded at 414 ms by measurement and
    still a guess inside that. It sets how late every double-tappable switch
-   answers, so B14 rests on it.
-6. **What else belongs on the gateway?** Twelve switches; the list so far names
+   answers, so B14 and B18 both rest on it.
+7. **What else belongs on the gateway?** Twelve switches; the list so far names
    five — looper, board presets, pedal presets, control pages, machinery.
