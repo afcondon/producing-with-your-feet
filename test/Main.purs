@@ -2304,6 +2304,38 @@ main = do
   assert "switches marked for another bank disagree with the bank holding them"
     (agreesAt 3 (surveyMarked [ marked7 ] (labels (Stamp.mark 7 (ControlBank.blankBank 4)))) == Just false)
 
+  -- ── Back means back to the block you are in ───────────────────────────────
+  --
+  -- Coming out of the looper's Speed page you want the Loops grid you came
+  -- from, not the instrument's front door. The slot stays the same everywhere,
+  -- there is still one definition to edit, and the target comes from the map —
+  -- so this is not the per-page override that B7 closed.
+  log ""
+  log "  MC6 block-scoped way home:"
+
+  let loopHome b = if b > 2 && b < 9 then Just 2 else Nothing
+      jumpTargets cb = do
+        sw <- cb.switches
+        m <- sw.messages
+        if m.msgType == MsgBankJump then [ m.data1 ] else []
+
+  assert "a page inside the block goes back to the block's entry"
+    (jumpTargets (Global.applyGlobalsTo loopHome [ backGlobal ] (ControlBank.blankBank 5)) == [ 2 ])
+  assert "the entry page itself keeps the global's own target"
+    (jumpTargets (Global.applyGlobalsTo loopHome [ backGlobal ] (ControlBank.blankBank 2)) == [ 1 ])
+  assert "a page outside the block keeps the global's own target"
+    (jumpTargets (Global.applyGlobalsTo loopHome [ backGlobal ] (ControlBank.blankBank 20)) == [ 1 ])
+  -- The plain form must keep behaving as it always did, since most pages use it.
+  assert "applyGlobals is applyGlobalsTo with nothing re-aimed"
+    (jumpTargets (Global.applyGlobals [ backGlobal ] (ControlBank.blankBank 5)) == [ 1 ])
+  -- Re-aiming must touch the jump and nothing else.
+  let ccGlobal = backGlobal { messages = [ MC6Msg.ccMessage 3 105 127 ActionPress ] }
+  assert "a global carrying a CC is not re-aimed"
+    ( case Array.index (Global.applyGlobalsTo loopHome [ ccGlobal ] (ControlBank.blankBank 5)).switches 6 of
+        Just sw -> map _.data1 sw.messages == [ 105 ]
+        Nothing -> false
+    )
+
   -- ── Assignments are a source the sweep must compile (B11) ─────────────────
   --
   -- An assignment binds a board to a switch, and until 2026-08-24 the whole-map

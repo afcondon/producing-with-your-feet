@@ -40,6 +40,8 @@ module Data.MC6.Global
   , globalAt
   , toSwitch
   , applyGlobals
+  , applyGlobalsTo
+  , HomeFor
   , displacedByGlobals
   , promote
   , discard
@@ -57,7 +59,7 @@ import Data.Foldable (foldl, maximumBy)
 import Data.Map as Map
 import Data.MC6.ControlBank (ControlBank, ControlBankSwitch, switchLetter)
 import Data.MC6.Message as MC6Msg
-import Data.MC6.Types (MC6Action(..), MC6Message, MC6NativeBank)
+import Data.MC6.Types (MC6Action(..), MC6Message, MC6MsgType(..), MC6NativeBank)
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Tuple (Tuple(..), fst, snd)
 
@@ -121,11 +123,45 @@ displacedByGlobals globals nb =
 -- | in one place. Unconditional: every page takes every global, because that is
 -- | what a global is.
 applyGlobals :: Array GlobalSwitch -> ControlBank -> ControlBank
-applyGlobals globals cb = cb { switches = Array.mapWithIndex fill cb.switches }
+applyGlobals = applyGlobalsTo (const Nothing)
+
+-- | Where a page's way back should point, when the block it belongs to answers
+-- | differently from the instrument as a whole. `Nothing` leaves the global
+-- | pointing wherever it was defined to point.
+type HomeFor = Int -> Maybe Int
+
+-- | `applyGlobals`, with the way home aimed by the map rather than fixed.
+-- |
+-- | **This is the one thing about a global that may vary from page to page, and
+-- | it is not an exception to B7.** Inside a block — the looper's seven pages,
+-- | say — "back" sensibly means *back to the entry of this block*, not back to
+-- | the instrument's front door. Coming out of the Speed page you want the
+-- | Loops page; going home from there is a second press you would always make.
+-- |
+-- | What survives is everything B7 was defending. The slot is the same on every
+-- | page, so your foot still knows where it is. There is still exactly one
+-- | definition to edit, and editing it still changes every page. What varies is
+-- | a **target computed from the map**, and the map is not something a page can
+-- | disagree with — so the three-state problem that killed per-page overrides
+-- | (local / global / global-but-not-here, and no way to tell which you were
+-- | standing in) does not come back. You cannot override this from a page; you
+-- | can only move a block.
+-- |
+-- | Only bank-jump messages are re-aimed. A global carrying a CC keeps it.
+applyGlobalsTo :: HomeFor -> Array GlobalSwitch -> ControlBank -> ControlBank
+applyGlobalsTo homeFor globals cb =
+  cb { switches = Array.mapWithIndex fill cb.switches }
   where
   fill idx sw = case globalAt globals idx of
-    Just g -> toSwitch g
+    Just g -> retarget (toSwitch g)
     Nothing -> sw
+
+  retarget sw = case homeFor cb.mc6BankNumber of
+    Nothing -> sw
+    Just target -> sw { messages = map (aimAt target) sw.messages }
+
+  aimAt target m =
+    if m.msgType == MsgBankJump then m { data1 = target } else m
 
 -- | Make a local switch global. Replaces whatever held that slot before.
 promote :: Int -> ControlBankSwitch -> Array GlobalSwitch -> Array GlobalSwitch

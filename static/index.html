@@ -1885,9 +1885,12 @@ body {
 .face-tab:last-child { border-right-width: 1px; }
 .face-tab.on { background: #3a7d6c; border-color: #3a7d6c; color: #fff; }
 
+/* Cells align at the TOP, not stretched to a common height. A loop with four
+   layers is a taller object than a loop with one, and saying so is the whole
+   point of drawing layers as rows. */
 .loops-grid {
   display: grid; grid-template-columns: repeat(3, 1fr);
-  gap: 14px; margin-bottom: 12px;
+  gap: 14px; margin-bottom: 12px; align-items: start;
 }
 
 .loop-slot {
@@ -1971,13 +1974,20 @@ body {
 .loop-slot.is-armed .loop-state { color: #c8922f; }
 .loop-layers { margin-left: auto; font-size: 11px; color: #8b857d; }
 
-/* One cycle, top to bottom one row per layer. Fixed height so a slot does not
-   change size as layers arrive — the grid must not move under your feet. */
+/* One cycle, top to bottom one row per layer.
+   **A layer is a fixed height and the stack grows downwards.** This used to be
+   a fixed 56px with the layers flexing to share it, so overdubbing squeezed
+   every layer thinner — two layers each got half the picture, four got a
+   quarter, and the loop you had worked hardest on was the one drawn smallest.
+   The reasoning was that the grid must not move under your feet, which is worth
+   something on a stage and nothing at a desk with the screen in front of you.
+   What it cost was the ability to read a layer at all. */
 .loop-track {
-  position: relative; height: 56px; background: #efece7;
+  --layer-h: 54px;
+  position: relative; min-height: var(--layer-h); background: #efece7;
   display: flex; flex-direction: column; gap: 1px; padding: 1px; overflow: hidden;
 }
-.loop-layer { display: flex; flex: 1 1 0; min-height: 3px; gap: 1px; }
+.loop-layer { display: flex; flex: 0 0 var(--layer-h); height: var(--layer-h); gap: 1px; }
 .loop-block { height: 100%; position: relative; overflow: hidden; }
 /* The envelope sits inside the block rather than replacing it: the block says
    where in the cycle this layer sounds, which is what a waveform cannot show.

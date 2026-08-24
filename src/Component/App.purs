@@ -1475,7 +1475,7 @@ handleAction = case _ of
       Nothing ->
         H.modify_ _ { midiTest = Just "no MC6 SysEx output selected" }
       Just output -> do
-        let banks = map (Global.applyGlobals st.globalSwitches)
+        let banks = map (Global.applyGlobalsTo (homeForBank st) st.globalSwitches)
               (Diagnostics.bypassBanks st.mc6DiagBankNum st.mc6BoardBankNum st.registry)
         r <- uploadBanks "diag" output banks \n ->
           H.modify_ _ { midiTest = Just ("writing bank " <> show n <> "...") }
@@ -2940,13 +2940,36 @@ intendedMap :: AppState -> Array ControlBank
 intendedMap st =
   map
     ( Stamp.mark st.sweepRun
-        <<< Global.applyGlobals st.globalSwitches
+        <<< Global.applyGlobalsTo (homeForBank st) st.globalSwitches
         <<< Assign.applyAssignments (assignEnv st)
     )
     (generated <> map ControlBank.blankBank plan.clear)
   where
   generated = generatedBanks st
   plan = Reserved.sweep (bankNumbersOf st) (map _.mc6BankNumber generated)
+
+-- | Where "back" goes from a given bank.
+-- |
+-- | Inside the looper's block, back means **back to the Loops page**, not back
+-- | to the instrument's front door: coming out of Speed or Quantise you want
+-- | the grid you came from, and going home from there is a second press you
+-- | would always make anyway. Everywhere else the global keeps its own target.
+-- |
+-- | The entry page itself returns `Nothing`, or its way out would be a jump to
+-- | where it already is — which is not a way out, it is a switch that appears
+-- | to be broken.
+-- |
+-- | This is the one thing about a global that varies by page, and it varies by
+-- | *block* rather than by page: see `Global.applyGlobalsTo` for why that does
+-- | not reopen the per-page override that B7 closed.
+homeForBank :: AppState -> Global.HomeFor
+homeForBank st bank =
+  if bank > entry && bank < base + Array.length LoopBanks.allSlots
+    then Just entry
+    else Nothing
+  where
+  base = st.mc6LoopBankBase
+  entry = base + LoopBanks.slotIndex LoopBanks.LoopBank
 
 -- | What the assignment layer needs, gathered from state in one place.
 -- |
@@ -3077,7 +3100,7 @@ syncAllBanksToMC6 = do
       inUpload output \up ->
         for_ banks \cb -> do
           let presets = ControlBank.controlBankToPresets
-                          (Global.applyGlobals st.globalSwitches cb)
+                          (Global.applyGlobalsTo (homeForBank st) st.globalSwitches cb)
           for_ presets \p -> do
             Wire.sendUpload up $ SysEx.labelled "all" $
               SysEx.sysexPresetData cb.mc6BankNumber p.switchIndex
@@ -3167,7 +3190,7 @@ syncControlBankToMC6 cb = do
     Nothing -> pure unit
     Just output -> do
       let presets = ControlBank.controlBankToPresets
-                      (Global.applyGlobals st.globalSwitches cb)
+                      (Global.applyGlobalsTo (homeForBank st) st.globalSwitches cb)
       liftEffect $ Console.log $ "MC6 SysEx: syncing control bank '" <> cb.name <> "' to MC6 bank " <> show cb.mc6BankNumber
       inUpload output \up ->
         for_ presets \p -> do

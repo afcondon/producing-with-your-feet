@@ -358,6 +358,22 @@ per-page exception. The escape hatch is `dissolve`, which turns it into an
 ordinary local copy everywhere and forgets the link — the exception bought once,
 deliberately, rather than thirty times.
 
+**B7a. A global's *target* may be a function of the block, never of the page.**
+Inside the looper's pages, "back" means back to the Loops grid you came from,
+not the instrument's front door — going home from there is a second press you
+would always make anyway. So the way home is re-aimed per block
+(`Global.applyGlobalsTo`).
+
+This is not the per-page override B7 closed, and the difference is worth being
+precise about. The slot is unchanged on every page, so your foot still knows
+where it is. There is still exactly one definition to edit, and editing it still
+changes everywhere. What varies is a target **computed from the map**, and a
+page cannot disagree with the map — so the three states that killed overrides
+(local / global / global-but-not-here, with no way to tell which you were
+standing in) do not come back. You cannot override this from a page; you can
+only move a block. The block's own entry page keeps the global's original
+target, or its way out would be a jump to where it already is.
+
 **B8. A global costs one switch on all thirty pages.** With twelve switches that
 is an expensive commitment, so the number of globals is a budget: currently one
 (`< Back` on `G`). Adding a second should feel like a decision.
