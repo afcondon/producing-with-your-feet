@@ -1683,12 +1683,19 @@ handleAction = case _ of
         switches = case mDumped of
           Just nb -> Array.mapWithIndex (fromDumped nb) blanks
           Nothing -> Array.mapWithIndex
-            (\i sw -> sw { label = fromMaybe "" (Array.index names i) }) blanks
+            (\i sw -> sw { label = MC6Survey.blankIfEmpty (fromMaybe "" (Array.index names i)) }) blanks
         blanks = Array.replicate switchCount emptySwitch
+        -- `EMPTY` is the DEVICE's word for an unset switch, and taking it
+        -- literally makes a page that authors twelve switches actually called
+        -- "EMPTY". Four of the copies in the store did exactly that, which also
+        -- meant nothing downstream could tell those switches were free: the
+        -- sweep's marks skip a switch that has a label, so a page full of
+        -- `EMPTY` looked full (2026-08-24). Folded through the same rule the
+        -- survey compares with, so a copy of a blank switch is blank to us too.
         fromDumped nb i sw = case Array.find (\p -> p.presetNum == i) nb.presets of
           Just p ->
-            { label: p.shortName
-            , longName: p.longName
+            { label: MC6Survey.blankIfEmpty p.shortName
+            , longName: MC6Survey.blankIfEmpty p.longName
             , toToggle: p.toToggle
             , messages: p.messages
             }

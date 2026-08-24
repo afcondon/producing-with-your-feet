@@ -16,6 +16,8 @@ module Data.MC6.Survey
   ( Provenance(..)
   , BankCard
   , bankCount
+  , emptiness
+  , blankIfEmpty
   , survey
   , knownBanks
   , navigationEdges
@@ -60,6 +62,16 @@ emptiness :: String -> String
 emptiness s =
   let t = String.toUpper (String.trim s)
   in if t == "EMPTY" then "" else t
+
+-- | The device's `EMPTY` as our `""`, and everything else left exactly alone.
+-- |
+-- | `emptiness` folds case and whitespace because it exists to *compare*, and a
+-- | name the device pads or shouts is the same name. That makes it the wrong
+-- | tool for anything that KEEPS the result: running a copied switch through it
+-- | would store `Ht Loop` as `HT LOOP` and quietly rename a page on its way in.
+-- | So the sentinel test is shared and the folding is not.
+blankIfEmpty :: String -> String
+blankIfEmpty s = if emptiness s == "" then "" else s
 
 -- | How the MC6 MKII numbers its banks, taken from the device's own backup
 -- | file, where `bankArray` runs 0 to 29.

@@ -2303,6 +2303,21 @@ main = do
   assert "switches marked for another bank disagree with the bank holding them"
     (agreesAt 3 (surveyMarked [ marked7 ] (labels (Stamp.mark 7 (ControlBank.blankBank 4)))) == Just false)
 
+  -- Taking a copy off the device must not take its sentinel with it. `EMPTY` is
+  -- the device's word for an unset switch; storing it literally made pages that
+  -- author twelve switches actually called "EMPTY", which then looked occupied
+  -- to everything downstream — the sweep's marks skip a switch that has a label.
+  assert "the device's EMPTY is not a switch name"
+    (Survey.blankIfEmpty "EMPTY" == "" && Survey.blankIfEmpty " empty " == "")
+  -- And a real name is kept EXACTLY, case and all. The comparison helper folds
+  -- case on purpose, which makes it the wrong tool for anything that keeps its
+  -- answer: copying a switch through it would store `Ht Loop` as `HT LOOP` and
+  -- rename the page on its way in.
+  assert "a real name is copied in unchanged"
+    (Survey.blankIfEmpty "Ht Loop" == "Ht Loop")
+  assert "while the comparison helper still folds case, which is why they differ"
+    (Survey.emptiness "Ht Loop" == "HT LOOP")
+
   -- ── Two pages on one bank ─────────────────────────────────────────────────
   --
   -- The write takes both and the device keeps the last; the survey looked the
