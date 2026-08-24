@@ -5,6 +5,7 @@ module Data.MC6.ControlBank
   , switchLetter
   , emptySwitch
   , blankBank
+  , doubleClaims
   , padSwitches
   , exampleControlBank
   , ccToggleMessages
@@ -81,6 +82,33 @@ blankBank n =
   , returnSwitchIndex: 0
   , switches: Array.replicate switchCount emptySwitch
   }
+
+-- | Banks that more than one page claims, with the pages that claim them.
+-- |
+-- | **A list with two pages on one bank number cannot be checked.** The write
+-- | takes both and the device keeps whichever went last; the survey looks the
+-- | bank up and takes whichever comes first. So the page that was written and
+-- | the page that is compared are different pages, and the card reports
+-- | "device disagrees" about a write that was in fact perfect — while the page
+-- | the person was actually looking at silently never reached the hardware.
+-- |
+-- | This is not hypothetical and it was not rare. Ten pages taken off the
+-- | device with *Take a copy of this bank* sat on banks 0-6, 17, 19 and 21;
+-- | five of them landed on top of the loop machine's own pages, and the result
+-- | was five red cards that survived a day of hunting for a fault in the MC6
+-- | (2026-08-24). The device had done exactly as it was told, twice.
+-- |
+-- | The old guard could not see it: it compared the *set* of generated bank
+-- | numbers against the reserved table and then explicitly forgave control
+-- | banks anywhere, which is precisely the permission that let one land on a
+-- | claimed bank. Sets have no multiplicity, and multiplicity was the bug.
+doubleClaims :: Array ControlBank -> Array { bank :: Int, pages :: Array String }
+doubleClaims banks =
+  Array.filter (\c -> Array.length c.pages > 1)
+    (map (\n -> { bank: n, pages: pagesOn n }) numbers)
+  where
+  numbers = Array.nub (Array.sort (map _.mc6BankNumber banks))
+  pagesOn n = map _.id (Array.filter (\cb -> cb.mc6BankNumber == n) banks)
 
 -- | Bring a bank up to the full twelve without disturbing what is there.
 -- |

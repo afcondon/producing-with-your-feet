@@ -343,11 +343,18 @@ renderCard props card =
         then HH.text ""
         else HH.div [ HP.class_ (H.ClassName "survey-card-jumps") ]
                [ HH.text ("\x2192 " <> String.joinWith " " (map show (Array.nub outgoing))) ]
-    , case card.agrees of
-        Just false ->
-          HH.div [ HP.class_ (H.ClassName "survey-card-disagree") ]
-            [ HH.text "device disagrees" ]
-        _ -> HH.text ""
+    -- A double claim outranks the verdict, because it *is* the reason there is
+    -- no verdict. Saying nothing here is what let five banks be quietly
+    -- compared against a page that had been overwritten by another page a
+    -- moment after it was sent.
+    , if Array.length card.claimants > 1
+        then HH.div [ HP.class_ (H.ClassName "survey-card-disagree") ]
+               [ HH.text (show (Array.length card.claimants) <> " pages claim this bank") ]
+        else case card.agrees of
+          Just false ->
+            HH.div [ HP.class_ (H.ClassName "survey-card-disagree") ]
+              [ HH.text "device disagrees" ]
+          _ -> HH.text ""
     ]
 
 -- | A switch the device named but whose messages we have never seen.

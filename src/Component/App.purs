@@ -1596,7 +1596,21 @@ handleAction = case _ of
           missing = Array.difference claimedNums ownedNums
           surprise = Array.difference ownedNums (claimedNums <> map _.mc6BankNumber st.controlBanks)
           plan = Reserved.sweep numbers ownedNums
-        if not (Array.null missing) || not (Array.null surprise) then
+          -- Two pages on one bank is the failure the set-based guard above
+          -- cannot see: both are written, the last one wins, and the survey
+          -- compares against the first. Checked on `owned` rather than on the
+          -- whole intended map because the blanks are generated one per
+          -- unclaimed bank and cannot collide with each other.
+          doubled = ControlBank.doubleClaims owned
+        if not (Array.null doubled) then
+          H.modify_ _ { looperProgramStatus = Just $
+            "Refusing to write: more than one page claims the same bank, so whatever "
+              <> "is written could not be checked afterwards. "
+              <> String.joinWith " "
+                   (map (\d -> "Bank " <> show d.bank <> ": "
+                                 <> String.joinWith " and " d.pages <> ".") doubled)
+              <> " Move or delete one of each pair on the Controls page." }
+        else if not (Array.null missing) || not (Array.null surprise) then
           H.modify_ _ { looperProgramStatus = Just $
             "Refusing to write: the generated banks and the reserved-bank table disagree."
               <> (if Array.null missing then ""

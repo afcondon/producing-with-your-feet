@@ -87,7 +87,19 @@ type BankCard =
   , observedNames :: Array String
   -- | `Nothing` where there is nothing to compare — the bank was never authored
   -- | here, or never read from there. Silence rather than a false clean bill.
+  -- | Also `Nothing` when more than one page claims the bank, because then
+  -- | there is no such thing as *the* page to compare against; see `claimants`.
   , agrees :: Maybe Boolean
+  -- | Every page that claims this bank, by id. One is the ordinary case and
+  -- | none means nobody authored it.
+  -- |
+  -- | **Two is a bug, and it used to be an invisible one.** The write takes
+  -- | every page in the list and the device keeps the last; the survey used to
+  -- | take the first and compare against that. So a bank with two claimants
+  -- | reported a disagreement that no amount of rewriting could fix, because
+  -- | the page being checked was never the page being sent. Carried per card so
+  -- | the surface can name both pages instead of accusing the hardware.
+  , claimants :: Array String
   }
 
 -- | Build a card for every bank the device has.
@@ -110,7 +122,12 @@ survey registry boardRecallChannel controlBanks nativeBanks dumpedBanks readName
   card n =
     let observedName = Map.lookup n readNames
         observed = fromMaybe [] (Map.lookup n readSwitches)
-        authored = Array.find (\cb -> cb.mc6BankNumber == n) controlBanks
+        -- Every claimant, not the first one. Taking the head is still what the
+        -- rest of the card uses — something has to be drawn — but the count is
+        -- kept so the card can say the answer is untrustworthy rather than
+        -- quietly picking a side.
+        claiming = Array.filter (\cb -> cb.mc6BankNumber == n) controlBanks
+        authored = Array.head claiming
         declared = Array.find (\nb -> nb.bankNumber == n) nativeBanks
         dumped = Array.find (\nb -> nb.bankNumber == n) dumpedBanks
 
@@ -143,12 +160,16 @@ survey registry boardRecallChannel controlBanks nativeBanks dumpedBanks readName
         -- Compare the labels we intended against the labels the device reports.
         -- Only meaningful when both exist; anything else is Nothing rather than
         -- a clean bill we cannot justify.
-        agrees = case authored, Array.null observed of
-          Just cb, false ->
+        -- Two claimants means there is no fact of the matter: the device holds
+        -- whichever was written last, and comparing it against either one would
+        -- be reporting a coin toss as a measurement.
+        agrees = case authored, Array.null observed, Array.length claiming of
+          Just cb, false, 1 ->
             Just (map (emptiness <<< _.label) cb.switches
                     == map emptiness (Array.take (Array.length cb.switches) observed))
-          _, _ -> Nothing
-    in { bankNumber: n, name, provenance, slots, observedNames: observed, agrees }
+          _, _, _ -> Nothing
+    in { bankNumber: n, name, provenance, slots, observedNames: observed, agrees
+       , claimants: map _.id claiming }
 
   -- Twelve slots per bank: six on the MC6 itself plus two FS3X's worth.
   pad vs = Array.take 12 (vs <> Array.replicate 12 Blank)

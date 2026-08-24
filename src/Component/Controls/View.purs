@@ -670,8 +670,20 @@ renderUnauthoredBank state mCard bankNum =
       deviceCarries nb i = case Array.find (\p -> p.presetNum == i) nb.presets of
         Just p -> not (Array.null p.messages)
         Nothing -> false
+      -- "No page" and "nothing ever written here" are different claims, and
+      -- saying the second when only the first is true is how a bank the sweep
+      -- rewrites on every run came to be described as untouched — while the
+      -- device beside it was plainly showing this app's own marks (2026-08-24).
+      -- The sweep writes a blank over every unclaimed bank, so the honest line
+      -- depends on whether the whole-map list has an entry for this one.
+      swept = Array.find (\cb -> cb.mc6BankNumber == bankNum) state.input.intendedBanks
+      openingLine = case swept of
+        Just cb ->
+          "No page holds this bank, so the whole-map sweep clears it and signs it \x2014 "
+            <> "the name it writes is \x201c" <> cb.name <> "\x201d."
+        Nothing -> "This app has never written this bank."
   in HH.div [ HP.class_ (H.ClassName "controls-bank-empty") ]
-    ( [ HH.p_ [ HH.text "This app has never written this bank." ] ]
+    ( [ HH.p_ [ HH.text openingLine ] ]
         <> (if not known then [] else
               [ HH.p [ HP.class_ (H.ClassName "controls-observed-names") ]
                   [ HH.text ("The device says: "

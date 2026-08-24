@@ -405,14 +405,14 @@ main = do
   let navCard =
         { bankNumber: 1, name: "Boards", provenance: Survey.Authored
         , slots: [ Verb.Navigation (Verb.ToBank 20), Verb.Blank ]
-        , observedNames: [], agrees: Nothing }
+        , observedNames: [], agrees: Nothing, claimants: [] }
   assert "a bank jump becomes a graph edge"
     (Survey.navigationEdges [ navCard ] == [ Tuple 1 20 ])
   assert "unknown banks contribute no edges"
     (Array.null (Survey.navigationEdges
       [ { bankNumber: 5, name: "", provenance: Survey.Unknown
         , slots: [ Verb.Navigation (Verb.ToBank 3) ]
-        , observedNames: [], agrees: Nothing } ]))
+        , observedNames: [], agrees: Nothing, claimants: [] } ]))
 
   log ""
   -- Reading the device outranks anything we merely believe.
@@ -694,7 +694,7 @@ main = do
   -- programmed but nothing points at it, and bank 2 has no way out.
   let card n slots =
         { bankNumber: n, name: "", provenance: Survey.Authored
-        , slots, observedNames: [], agrees: Nothing }
+        , slots, observedNames: [], agrees: Nothing, claimants: [] }
       jump n = Verb.Navigation (Verb.ToBank n)
       graph =
         [ card 0 [ jump 1, jump 2 ]
@@ -717,7 +717,7 @@ main = do
   assert "unknown banks are never accused of being stranded"
     (Array.null (Survey.stranded 0
       [ { bankNumber: 9, name: "", provenance: Survey.Unknown
-        , slots: [], observedNames: [], agrees: Nothing } ]))
+        , slots: [], observedNames: [], agrees: Nothing, claimants: [] } ]))
 
   log ""
   log "Running MC6 read-protocol tests..."
@@ -2286,7 +2286,7 @@ main = do
   let surveyMarked authored observed =
         Survey.survey reg Board.boardRecallChannel authored [] []
           (Map.singleton 3 "") (Map.singleton 3 observed)
-      agreesAt n cards = case Array.find (\c -> c.bankNumber == n) cards of
+      agreesAt n surveyed = case Array.find (\c -> c.bankNumber == n) surveyed of
         Just c -> c.agrees
         Nothing -> Nothing
 
@@ -2302,6 +2302,51 @@ main = do
   -- say "these switches think they live somewhere else".
   assert "switches marked for another bank disagree with the bank holding them"
     (agreesAt 3 (surveyMarked [ marked7 ] (labels (Stamp.mark 7 (ControlBank.blankBank 4)))) == Just false)
+
+  -- ── Two pages on one bank ─────────────────────────────────────────────────
+  --
+  -- The write takes both and the device keeps the last; the survey looked the
+  -- bank up and took the first. So the page that was sent and the page that was
+  -- checked were different pages, and five cards reported "device disagrees"
+  -- about writes that were in fact perfect. A whole day went looking for a
+  -- fault in the MC6 (2026-08-24).
+  log ""
+  log "  MC6 double-claimed banks:"
+
+  let loopsPage = (ControlBank.blankBank 2) { id = "itajara-loops", name = "Loops" }
+      copiedPage = (ControlBank.blankBank 2) { id = "bank-2", name = "Patch Two" }
+
+  assert "one page per bank is not a collision"
+    (Array.null (ControlBank.doubleClaims [ loopsPage, ControlBank.blankBank 3 ]))
+  assert "two pages on one bank are reported, with both names"
+    (ControlBank.doubleClaims [ loopsPage, copiedPage ]
+       == [ { bank: 2, pages: [ "itajara-loops", "bank-2" ] } ])
+  -- The set-based guard could not see this: as a set of bank numbers the two
+  -- lists are identical, which is why multiplicity had to be the thing checked.
+  assert "the collision is invisible to a set of bank numbers"
+    (Array.nub (map _.mc6BankNumber [ loopsPage, copiedPage ]) == [ 2 ])
+
+  -- And the survey must decline to answer rather than pick a side. Comparing
+  -- against either page is reporting a coin toss as a measurement.
+  let twoClaimants =
+        Survey.survey reg Board.boardRecallChannel [ loopsPage, copiedPage ] [] []
+          (Map.singleton 2 "Patch Two") (Map.singleton 2 (Array.replicate 12 "EMPTY"))
+  assert "a bank two pages claim reports no verdict"
+    (case Array.find (\c -> c.bankNumber == 2) twoClaimants of
+       Just c -> c.agrees == Nothing
+       Nothing -> false)
+  assert "and names both claimants instead of accusing the device"
+    (case Array.find (\c -> c.bankNumber == 2) twoClaimants of
+       Just c -> c.claimants == [ "itajara-loops", "bank-2" ]
+       Nothing -> false)
+  -- With one claimant it must still answer, or this is a way to make every
+  -- disagreement disappear.
+  assert "a bank one page claims still gets a verdict"
+    (case Array.find (\c -> c.bankNumber == 2)
+            (Survey.survey reg Board.boardRecallChannel [ loopsPage ] [] []
+               (Map.singleton 2 "Loops") (Map.singleton 2 (Array.replicate 12 "EMPTY"))) of
+       Just c -> c.agrees == Just true
+       Nothing -> false)
 
   -- Printed, not just asserted about. The map is the thing a person needs when
   -- deciding where to put the next bank, and a test that only says "no
