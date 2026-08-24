@@ -27,6 +27,34 @@ one at a time by the device.
 So this is the rule set. It is written to be *checkable* — most of what follows
 should end up as a test or a refusal, not as a paragraph someone remembers.
 
+## What this instrument is
+
+Two facts about the *use* of the board, both of which change what counts as a
+good design and neither of which was written down before.
+
+**This is a home-recording pedalboard, not a live-performance rig.** The app is
+on a screen in front of you the whole time. Nothing has to survive being
+unreadable, and nothing has to be recoverable by foot alone — if the board ends
+up somewhere unhelpful you can look, or fix it from the app. That does not make
+navigation unimportant, but it does mean a stranded bank is an *annoyance*
+rather than a disaster, and it means the earlier rationale in this file about
+what "bites mid-take" was borrowed from a different instrument. Design pressure
+should come from convenience, not from the dark.
+
+**The app is where presets are authored; the board is where they are recalled.**
+Andrew's design intent, stated 2026-08-24: build individual pedal presets in the
+app, then compose most **full-board presets** from those. With pedals this
+complex and this many of them, that is an ergonomic necessity rather than a
+preference — nobody assembles a MOOD patch by foot.
+
+That has a consequence for the layout, and it is the reason board presets get a
+block of their own with headroom:
+
+> **The MC6 is primarily a recall surface for board presets.** Everything else
+> on it — pedal-preset pages, live control — is secondary to that, and the
+> pedal-preset pages exist mostly as a *staging area* for material that will end
+> up inside a board preset later.
+
 ## Vocabulary
 
 Words that were being used for more than one thing, pinned to exactly one each.
@@ -107,24 +135,61 @@ the end of this document; everything else follows from what exists today.
 wire     block            size   what
 ────────────────────────────────────────────────────────────────────────
   0      gateway            1    one switch per usage model
-  1      live control       1    a pedal bypass per switch, plus tap
-  2- 9   looper             8    the loop machine's pages + transport
- 10-11   board presets      2    24 full-board recalls, 12 to a page
- 12-23   pedal presets    12 ?   one page per pedal, 12 presets each
- 24-26   spare              3    unclaimed, cleared by every sweep
- 27-29   machinery          3 ?   probe + diagnostics
+  1- 2   live control       2    whole-pedal bypasses, then per-channel + tap
+  3-10   looper             8 ?  the loop machine's pages + transport
+ 11-13   board presets      3    36 slots for the 24 wanted, a page of headroom
+ 14-21   pedal presets      8    recall pages and step-through pages, curated
+ 22-27   spare              6    unclaimed, cleared by every sweep
+ 28-29   machinery          2    probe + diagnostics, resident
 ```
 
-Two observations that fall out of the arithmetic and are worth knowing before
-committing to it:
+### Why live control is two pages, not one
 
-- **Twelve pedals fit exactly on twelve switches.** The live-control page is one
-  bypass per switch with nothing left over — so tap tempo, if it is wanted, costs
-  a second page or a long-press.
-- **253 pedal presets exist and 144 slots do not hold them.** The pedal-preset
-  block is necessarily a *curated selection*, not a mirror of the store. Which
-  pedals get a page, and which of their presets, is a decision the app has to
-  make explicitly rather than by truncation.
+The tidy "twelve pedals, twelve switches" reading is wrong, and the code already
+knew why: **four of the thirteen registry entries are `DualEngage`** — Flint,
+Lost+Found, MOOD and Onward each have two independently bypassable channels.
+Two of them (Flint, MOOD) declare a `both` CC that takes the whole pedal out in
+one message; two (Lost+Found, Onward) do not, and so cannot be reduced to a
+single switch at all.
+
+Counting what actually needs a switch, with Iridium and Riverside left out as
+always-on and Itajara excluded as the looper:
+
+| | switches |
+|---|---|
+| single-engage pedals — Brig, Clean, Habit, Hedra, Lex, Mercury7 | 6 |
+| dual with `both` — Flint, MOOD | 2 |
+| dual without `both` — Lost+Found, Onward | 4 |
+| **whole-pedal control** | **12** |
+| per-channel for Flint and MOOD as well | +2 |
+| **per-channel control throughout** | **14** |
+
+So page one is a full twelve with nothing spare, and *anything else at all* —
+tap tempo, per-channel splits for Flint and MOOD, a bypass for a pedal currently
+assumed always-on — needs page two. Hence two.
+
+**Worth chasing: the missing `both` CCs.** If Lost+Found and Onward turn out to
+have a true-bypass CC we have not transcribed, whole-pedal control drops from 12
+switches to 10 and page one gains room. The same two CCs also relieve the
+sixteen-message ceiling on board presets, where four dual pedals costing two
+bypasses apiece is what puts an all-twelve board over the limit
+(`Data/Pedal/Engage.purs`, DESIGN-v2 §5). It is one transcription job paying
+twice.
+
+### Why the pedal-preset block holds two different kinds of page
+
+253 pedal presets exist and 96 slots do not hold them, so this block is a
+**curated, growing selection** rather than a mirror of the store — populated as
+Andrew finds settings worth keeping, with the expectation that many graduate
+into board presets and stop needing a slot of their own.
+
+Two page shapes share the block, and they are not the same tool:
+
+- **Recall pages** — one switch per preset, for material you know you want.
+- **Step-through pages** — a switch walks forward through one pedal's presets,
+  which is the shape that suits *seeking inspiration* rather than retrieving a
+  known sound. This is explicitly wanted and is the reason the block is eight
+  pages rather than the two or three that direct recall alone would justify.
 
 ## The rules
 
@@ -151,13 +216,18 @@ give.
 
 ### Navigation
 
-**B5. Every page has a way home**, and home is bank 0. A page you can walk into
-and not walk out of is the failure that bites mid-take, and it is the reason
-globals are applied to cleared banks too.
+**B5. Every page has a way home**, and home is bank 0. On a recording board this
+is convenience rather than rescue — the app can always put you back — but a page
+with no way out is still a page you have to stop and think about, and thinking
+about the pedalboard is the thing this app exists to prevent. It is also why
+globals are applied to cleared banks: a blank page with no exit is worse than a
+blank page.
 
 **B6. A bank jump must point at a bank something claims.** A jump into empty
 space is a dead end; `Survey.stranded` and `Survey.deadEnds` exist to find both
-and should be surfaced, not just computed.
+and should be surfaced, not just computed. Softer than it sounds, since the
+device's own bank up/down still works — the accusation is "no programmed way
+out", not "trapped".
 
 ### Globals
 
@@ -219,23 +289,33 @@ Standing, until the board is used in earnest (Andrew, 2026-08-19 and 2026-08-24)
   above. Not because of the banks, which we can rewrite, but because of
   `omniports`, which we cannot.
 
+## Settled, 2026-08-24
+
+Answers to the first round of open questions, recorded so they are not
+re-litigated:
+
+- **Board presets: 24 is the target**, given three banks so there is a page of
+  headroom. They are the primary surface (see *What this instrument is*).
+- **Pedal-preset pages are a growing curated selection**, added as settings are
+  discovered, with step-through pages alongside recall pages for inspiration.
+  Eight banks.
+- **Machinery stays resident.** The probe and diagnostics keep two banks; there
+  is enough space and no reason to make them ephemeral.
+- **Live control is two pages**, because whole-pedal bypasses fill the first
+  exactly.
+
 ## Open questions
 
-The map above is committed except where marked. These are the decisions that
-change it, and they are Andrew's:
-
-1. **How many pedals get a preset page?** Twelve pages is 40% of the device for
-   a feature that may only be wanted for the three or four pedals actually
-   swapped mid-set. This is the single biggest lever on the layout.
-2. **Are the looper's eight pages settled?** Seven loop-machine pages plus the
-   legacy hand-driven transport. If the transport is dead, that is a bank back.
-3. **Does Ableton get a block now?** There is a working page at bank 19 today
-   and a stated want to drive Ableton from the looper UI later.
-4. **Is live control one page or two?** Twelve pedals fill twelve switches
-   exactly, leaving nowhere for tap tempo.
-5. **Should the machinery pages be resident at all?** The probe and the two
-   diagnostics pages are debugging instruments, not usage models. They could be
-   written into a scratch bank on demand and cleared afterwards, returning three
-   banks and removing them from the gateway.
-6. **What else belongs on the gateway?** Twelve switches, and the list so far
-   names four or five.
+1. **Are the looper's eight pages settled?** Seven loop-machine pages plus the
+   legacy hand-driven transport. If the transport is dead, that is a bank back
+   and everything below it shifts.
+2. **Does Ableton get a block?** There is a working page at bank 19 today and a
+   stated want to drive Ableton from the looper UI later. It is currently
+   nowhere in this map.
+3. **What else belongs on the gateway?** Twelve switches; the list so far names
+   five — looper, board presets, pedal presets, live control, machinery.
+4. **Do Lost+Found and Onward have a true-bypass CC?** A transcription question,
+   not a design one, but it buys two switches on the live-control page and
+   relief on the board-preset message ceiling.
+5. **Which pedals are genuinely always-on?** Iridium and Riverside are assumed
+   so here, and that assumption is load-bearing for the twelve-switch count.
