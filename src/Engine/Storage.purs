@@ -16,6 +16,8 @@ module Engine.Storage
   , loadDeviceRead
   , saveDumpedBanks
   , loadDumpedBanks
+  , saveSweepRun
+  , loadSweepRun
   , dumpedBanksToJsonString
   , parseDumpedBanks
   , loadMC6AssignmentsParsed
@@ -80,6 +82,7 @@ data StorageKey
   | GlobalSwitchesKey
   | DeviceReadKey
   | DumpedBanksKey
+  | SweepRunKey
 
 keyString :: StorageKey -> String
 keyString = case _ of
@@ -95,6 +98,7 @@ keyString = case _ of
   GlobalSwitchesKey -> "pedal-explorer-shared-switches"
   DeviceReadKey -> "pedal-explorer-mc6-device-read"
   DumpedBanksKey -> "pedal-explorer-mc6-dumped-banks"
+  SweepRunKey -> "pedal-explorer-mc6-sweep-run"
 
 getStorage :: Effect Storage.Storage
 getStorage = window >>= localStorage
@@ -225,6 +229,24 @@ loadDumpedBanks :: Effect (Array MC6NativeBank)
 loadDumpedBanks = do
   mStr <- getItem DumpedBanksKey
   pure $ fromMaybe [] (mStr >>= parseDumpedBanks)
+
+-- | How many whole-map sweeps this browser has run.
+-- |
+-- | Kept because `Data.MC6.Stamp` writes the number onto the device, and the
+-- | survey compares what it wrote against what came back — so the two have to
+-- | agree about which run it was *across a page reload*. Holding it in
+-- | component state alone would mean a reload between writing and reading
+-- | turned every card red, which is precisely the class of false alarm this
+-- | whole surface has been losing days to.
+saveSweepRun :: Int -> Effect Unit
+saveSweepRun = setItem SweepRunKey <<< show
+
+-- | Zero when nothing has ever been swept, which is the honest answer: run 0
+-- | wrote nothing, so no mark on the device can claim to be from it.
+loadSweepRun :: Effect Int
+loadSweepRun = do
+  mStr <- getItem SweepRunKey
+  pure $ fromMaybe 0 (mStr >>= Int.fromString)
 
 -- | Split from the effectful pair so the round trip can be tested. A lossy save
 -- | here would be indistinguishable from a device that read badly.

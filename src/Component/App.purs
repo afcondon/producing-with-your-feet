@@ -31,6 +31,7 @@ import Data.MC6.Types (MC6Action(..), MC6NativeBank, MC6Preset)
 import Data.MC6.Board as Board
 import Data.MC6.Read as Read
 import Data.MC6.Settings as Settings
+import Data.MC6.Stamp as Stamp
 import Data.MC6.Survey as Survey
 import Data.Foldable (any, for_, traverse_)
 import Data.Traversable (for)
@@ -980,6 +981,12 @@ handleAction = case _ of
         -- is not a baseline, it is a chore.
         dumpedBanks <- liftEffect Storage.loadDumpedBanks
         H.modify_ _ { mc6DumpedBanks = dumpedBanks }
+        -- Which sweep last signed the device. Loaded before anything can be
+        -- compared, because the survey's idea of what a blank switch should say
+        -- depends on it — and a reload that forgot the number would report the
+        -- whole map as disagreeing when nothing had changed at all.
+        sweepRun <- liftEffect Storage.loadSweepRun
+        H.modify_ _ { sweepRun = sweepRun }
         mDeviceRead <- liftEffect Storage.loadDeviceRead
         for_ mDeviceRead \dr -> H.modify_ _
           { mc6BankNames = dr.names
@@ -1589,8 +1596,6 @@ handleAction = case _ of
           missing = Array.difference claimedNums ownedNums
           surprise = Array.difference ownedNums (claimedNums <> map _.mc6BankNumber st.controlBanks)
           plan = Reserved.sweep numbers ownedNums
-          -- The same list the survey checks against, from the same function.
-          everything = intendedMap st
         if not (Array.null missing) || not (Array.null surprise) then
           H.modify_ _ { looperProgramStatus = Just $
             "Refusing to write: the generated banks and the reserved-bank table disagree."
@@ -1599,12 +1604,31 @@ handleAction = case _ of
               <> (if Array.null surprise then ""
                   else " Generated but unclaimed: " <> commaList surprise <> ".") }
         else do
+          -- Take the next run number *before* building anything, and take it
+          -- from storage rather than from state: storage is what survives the
+          -- reload, and a run number the survey cannot still recognise
+          -- afterwards is worse than no run number at all.
+          run <- H.liftEffect do
+            n <- (_ + 1) <$> Storage.loadSweepRun
+            Storage.saveSweepRun n
+            pure n
+          H.modify_ _ { sweepRun = run }
+          -- Re-read, so the list that goes to the device is built with the run
+          -- number the survey will use when it checks. The same list, from the
+          -- same function, signed with the same number.
+          stamped <- H.get
+          let everything = intendedMap stamped
           r <- uploadBanks "wholemap" output everything \n ->
             H.modify_ _ { looperProgramStatus = Just ("Writing bank " <> show n <> "…") }
           invalidateObservation r.written
           H.modify_ _ { looperProgramStatus = Just $
-            "Wrote " <> show (Array.length owned) <> " bank(s) and cleared "
-              <> show (Array.length plan.clear) <> "."
+            "Sweep r" <> show run <> ": wrote " <> show (Array.length owned)
+              <> " bank(s) and cleared " <> show (Array.length plan.clear) <> "."
+              -- Said out loud because it is what to look for on the device: a
+              -- bank whose switches read `03A r7` was written by this sweep,
+              -- one reading `03A r6` was written by the last one and this one
+              -- missed it, and one still reading `Bank 3` was never ours.
+              <> " Blank switches now read like `03A r" <> show run <> "`."
               -- A bank the first pass missed and a retry rescued is worth
               -- saying: it is the difference between a device that is reliable
               -- and one that only looks it once the retries are hidden.
@@ -2869,9 +2893,21 @@ bankNumbersOf st =
 -- | unconditional — every page takes every global, because that is what a
 -- | global is — and a cleared bank you cannot walk out of is worse than a
 -- | cleared bank.
+-- | **Every bank is signed** (`Data.MC6.Stamp`), which is what makes a failed
+-- | write visible at all. A bank that still holds its factory contents and a
+-- | bank this app wrote are otherwise the same kind of thing — something is
+-- | there, and something is what you expected — so blank switches carry their
+-- | own bank number, slot letter and sweep number instead of carrying nothing.
+-- | Signing happens here for the same reason globals do: this is the one list,
+-- | and a mark applied on the way out but not on the way in would be a fifth
+-- | way for the survey to disagree with itself.
+-- |
+-- | After the globals, never before: a global owns its slot on every page and
+-- | brings its own label, so marking first would only write marks for the
+-- | globals to overwrite.
 intendedMap :: AppState -> Array ControlBank
 intendedMap st =
-  map (Global.applyGlobals st.globalSwitches)
+  map (Stamp.mark st.sweepRun <<< Global.applyGlobals st.globalSwitches)
     (generated <> map ControlBank.blankBank plan.clear)
   where
   generated = generatedBanks st

@@ -220,6 +220,14 @@ type AppState =
   -- | wire numbers, i.e. 0-based; the editor shows them one higher.
   , mc6BankNames :: Map Int String
   , mc6BankSwitches :: Map Int (Array String)
+  -- | Which whole-map sweep this is, counting from the first one this browser
+  -- | ever ran. `Data.MC6.Stamp` writes it onto every bank it touches, so a
+  -- | bank on the device can say which run put it there — the difference
+  -- | between "still good from last time" and "written just now", which no
+  -- | fixed marker could tell apart. Persisted (`Storage.loadSweepRun`),
+  -- | because a reload between writing and reading must not make the whole
+  -- | survey disagree.
+  , sweepRun :: Int
   -- | When the device last told us the above. Stored with the reading, because
   -- | a persisted observation is only as good as its date and the alternative is
   -- | a map that looks like fresh truth forever.
@@ -353,6 +361,7 @@ initAppState =
   , midiTest: Nothing
   , mc6BankNames: Map.empty
   , mc6BankSwitches: Map.empty
+  , sweepRun: 0
   , mc6ReadAt: Nothing
   , mc6DumpedBanks: []
   , mc6DumpedPresets: []

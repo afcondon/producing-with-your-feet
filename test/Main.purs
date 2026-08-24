@@ -40,6 +40,7 @@ import Data.MC6.Read as Read
 import Data.MC6.SysEx as SysEx
 import Data.MC6.Dump as Dump
 import Data.MC6.Global as Global
+import Data.MC6.Stamp as Stamp
 import Data.MC6.Survey as Survey
 import Data.MC6.Verb as Verb
 import Data.Tuple (Tuple(..))
@@ -2221,6 +2222,86 @@ main = do
         Just c -> c.agrees == Just true
         Nothing -> false
     )
+
+  -- ── Stamping: making a failed write visible ───────────────────────────────
+  --
+  -- The whole point is discrimination, so every assertion below is paired with
+  -- one that must FAIL to hold. A mark that agrees with everything would be a
+  -- blindfold with a serial number on it.
+  log ""
+  log "  MC6 sweep marks:"
+
+  let marked7 = Stamp.mark 7 (ControlBank.blankBank 3)
+      labels cb = map _.label cb.switches
+
+  assert "a cleared bank's blank switches carry bank, slot and run"
+    (labels marked7 == map (\l -> "03" <> l <> " r7")
+                          [ "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L" ])
+  assert "a cleared bank's name says which sweep cleared it"
+    (marked7.name == "CLEAR 03 r7")
+
+  -- The mark has to fit the field the device gives it, or the MC6 truncates it
+  -- silently and `03A r100` becomes a claim about a bank that is not there.
+  assert "no mark can overflow the MC6's eight-character short name"
+    ( Array.all (\n -> Array.all (\l -> String.length l <= 8) (labels (Stamp.mark n (ControlBank.blankBank 29))))
+        [ 0, 1, 7, 99, 999, 1000, 1007 ]
+    )
+  -- And the counter wraps rather than growing, so run 1000 is honestly run 0
+  -- instead of dishonestly `03A r100`.
+  assert "the run counter wraps at four digits instead of being cut short"
+    (labels (Stamp.mark 1007 (ControlBank.blankBank 3)) == labels (Stamp.mark 7 (ControlBank.blankBank 3)))
+
+  -- A switch that sends something is doing a job. Writing a diagnostic mark on
+  -- it would put a lie on the pedal: the player reads `03A r7` and the switch
+  -- freezes MOOD.
+  let silentButBusy =
+        { label: "", longName: "", toToggle: false
+        , messages: [ MC6Msg.ccMessage 3 105 127 ActionPress ] }
+  assert "a switch with messages but no label is left unmarked"
+    ((Stamp.slotMark 7 3 0 silentButBusy).label == "")
+  assert "a switch with a label of its own is left unmarked"
+    ((Stamp.slotMark 7 3 0 { label: "MD Freez", longName: "", toToggle: false, messages: [] }).label == "MD Freez")
+
+  -- Marking happens after the globals, so the way home keeps its own name.
+  let markedWithGlobal = Stamp.mark 7 (Global.applyGlobals [ backGlobal ] (ControlBank.blankBank 3))
+  assert "a global's slot keeps its label rather than taking a mark"
+    (Array.index (labels markedWithGlobal) 6 == Just "< Back")
+  assert "and the slots either side of it still take marks"
+    (Array.index (labels markedWithGlobal) 5 == Just "03F r7")
+
+  -- A generated bank keeps its name and gains the run, within the device's
+  -- twenty-four characters.
+  assert "a generated bank's name keeps its meaning and gains the run"
+    (Stamp.bankMark 7 3 "Loop Three" == "Loop Three r7")
+  assert "a long name is cut to make room rather than losing the run off the end"
+    ( let long = Stamp.bankMark 7 3 "A bank name far longer than the device will hold"
+      in String.length long <= 24 && String.contains (String.Pattern "r7") long
+    )
+
+  -- ── What the marks buy: the survey can now tell runs apart ────────────────
+  --
+  -- This is the assertion the whole module exists for. Before it, a bank the
+  -- sweep failed to write and a bank the sweep wrote correctly last time were
+  -- the same screen.
+  let surveyMarked authored observed =
+        Survey.survey reg Board.boardRecallChannel authored [] []
+          (Map.singleton 3 "") (Map.singleton 3 observed)
+      agreesAt n cards = case Array.find (\c -> c.bankNumber == n) cards of
+        Just c -> c.agrees
+        Nothing -> Nothing
+
+  assert "a bank echoing this run's marks agrees"
+    (agreesAt 3 (surveyMarked [ marked7 ] (labels marked7)) == Just true)
+  assert "a bank still holding the PREVIOUS run's marks disagrees"
+    (agreesAt 3 (surveyMarked [ marked7 ] (labels (Stamp.mark 6 (ControlBank.blankBank 3)))) == Just false)
+  -- The factory contents this device keeps handing back for banks 2-6.
+  assert "a bank the sweep never reached disagrees"
+    (agreesAt 3 (surveyMarked [ marked7 ] (Array.replicate 12 "EMPTY")) == Just false)
+  -- A frame that landed one bank over: the MC6 ignores the bank number in an
+  -- upload and writes wherever it is standing, so the marks must be able to
+  -- say "these switches think they live somewhere else".
+  assert "switches marked for another bank disagree with the bank holding them"
+    (agreesAt 3 (surveyMarked [ marked7 ] (labels (Stamp.mark 7 (ControlBank.blankBank 4)))) == Just false)
 
   -- Printed, not just asserted about. The map is the thing a person needs when
   -- deciding where to put the next bank, and a test that only says "no

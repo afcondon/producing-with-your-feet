@@ -465,7 +465,10 @@ surveyCards state =
     -- NOT re-applied here. `intendedBanks` arrives with globals already in it,
     -- because the list that is written and the list that is checked have to be
     -- the same list — applying them on one side only is what made every bank
-    -- the sweep wrote disagree at switch G.
+    -- the sweep wrote disagree at switch G. The sweep's marks
+    -- (`Data.MC6.Stamp`) ride in on the same list and for the same reason: a
+    -- card comparing against unmarked pages would call every correctly-marked
+    -- bank a disagreement.
     state.input.intendedBanks
     state.input.mc6NativeBanks
     state.input.mc6DumpedBanks
