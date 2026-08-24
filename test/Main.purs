@@ -2303,6 +2303,42 @@ main = do
   assert "switches marked for another bank disagree with the bank holding them"
     (agreesAt 3 (surveyMarked [ marked7 ] (labels (Stamp.mark 7 (ControlBank.blankBank 4)))) == Just false)
 
+  -- ── The globals warning must not fire on the globals ──────────────────────
+  --
+  -- Adopting a bank overwrites every slot a global owns, so real work there is
+  -- lost for good and deserves a warning. But almost every bank carries
+  -- `< Back` on G because THIS APP put it there, and warning about that accused
+  -- the surface of destroying work it had authored moments earlier — on every
+  -- cleared bank in the sweep. A warning that fires on the ordinary case is one
+  -- people learn to click past, which costs the rare case it exists for.
+  log ""
+  log "  MC6 globals displacement:"
+
+  let preset i msgs =
+        { presetNum: i, shortName: "", toggleName: "", longName: ""
+        , toToggle: false, toggleGroup: 0, messages: msgs }
+      nativeBank ps = { bankNumber: 3, bankName: "", bankClearToggle: false, presets: ps }
+      backMsgs = [ MC6Msg.bankJumpMessage 1 ActionPress ]
+      otherWork = [ MC6Msg.ccMessage 3 105 127 ActionPress ]
+
+  assert "a slot holding the global itself is not displaced work"
+    (Array.null (Global.displacedByGlobals [ backGlobal ]
+      (nativeBank (Array.mapWithIndex (\i _ -> preset i (if i == 6 then backMsgs else []))
+        (Array.replicate 12 unit)))))
+  -- The warning must still bite, or removing it was just deleting a safeguard.
+  assert "a slot doing something ELSE under a global is displaced work"
+    (Global.displacedByGlobals [ backGlobal ]
+      (nativeBank (Array.mapWithIndex (\i _ -> preset i (if i == 6 then otherWork else []))
+        (Array.replicate 12 unit))) == [ 6 ])
+  assert "an empty slot under a global loses nothing"
+    (Array.null (Global.displacedByGlobals [ backGlobal ]
+      (nativeBank (Array.mapWithIndex (\i _ -> preset i []) (Array.replicate 12 unit)))))
+  -- Work on a slot no global owns is not this warning's business.
+  assert "work outside every global's slot is not displaced"
+    (Array.null (Global.displacedByGlobals [ backGlobal ]
+      (nativeBank (Array.mapWithIndex (\i _ -> preset i (if i == 2 then otherWork else []))
+        (Array.replicate 12 unit)))))
+
   -- Taking a copy off the device must not take its sentinel with it. `EMPTY` is
   -- the device's word for an unset switch; storing it literally made pages that
   -- author twelve switches actually called "EMPTY", which then looked occupied

@@ -664,12 +664,7 @@ renderUnauthoredBank state mCard bankNum =
       -- one place the globals rule destroys evidence rather than merely
       -- overruling intent, so it gets counted before the copy rather than
       -- regretted after it.
-      displaced nb = Array.filter
-        (\i -> isJust (Global.globalAt globals i) && deviceCarries nb i)
-        (Array.range 0 (switchCount - 1))
-      deviceCarries nb i = case Array.find (\p -> p.presetNum == i) nb.presets of
-        Just p -> not (Array.null p.messages)
-        Nothing -> false
+      displaced = Global.displacedByGlobals globals
       -- "No page" and "nothing ever written here" are different claims, and
       -- saying the second when only the first is true is how a bank the sweep
       -- rewrites on every run came to be described as untouched — while the

@@ -40,6 +40,7 @@ module Data.MC6.Global
   , globalAt
   , toSwitch
   , applyGlobals
+  , displacedByGlobals
   , promote
   , discard
   , dissolve
@@ -56,7 +57,7 @@ import Data.Foldable (foldl, maximumBy)
 import Data.Map as Map
 import Data.MC6.ControlBank (ControlBank, ControlBankSwitch, switchLetter)
 import Data.MC6.Message as MC6Msg
-import Data.MC6.Types (MC6Action(..), MC6Message)
+import Data.MC6.Types (MC6Action(..), MC6Message, MC6NativeBank)
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Tuple (Tuple(..), fst, snd)
 
@@ -80,6 +81,38 @@ globalAt globals slot = Array.find (\g -> g.slot == slot) globals
 toSwitch :: GlobalSwitch -> ControlBankSwitch
 toSwitch g =
   { label: g.label, longName: g.longName, toToggle: g.toToggle, messages: g.messages }
+
+-- | Slots on a bank the device holds where a global would destroy real work.
+-- |
+-- | Adopting a bank means every slot a global owns is overwritten by that
+-- | global, so anything the device was doing there stops existing and there is
+-- | nothing left to read it back from. That is worth a warning — but only when
+-- | there is something to lose.
+-- |
+-- | **A slot holding the global itself is not a loss.** Almost every bank on
+-- | the instrument carries `< Back` on switch G, because this app put it there;
+-- | warning about it accused the surface of destroying work it had authored
+-- | moments earlier, on every cleared bank in the sweep (2026-08-24). A warning
+-- | that fires on the ordinary case is one people learn to click past, which
+-- | costs exactly the rare case it exists for.
+-- |
+-- | Compared on messages rather than labels, because the label is what a global
+-- | overwrites and would match by coincidence; and with `msgIndex` set aside,
+-- | since that is the device's own numbering of the list, not part of what the
+-- | switch does.
+displacedByGlobals :: Array GlobalSwitch -> MC6NativeBank -> Array Int
+displacedByGlobals globals nb =
+  Array.mapMaybe check (Array.range 0 (Array.length nb.presets - 1))
+  where
+  check i = do
+    g <- globalAt globals i
+    p <- Array.find (\pr -> pr.presetNum == i) nb.presets
+    if Array.null p.messages || sameWork p.messages g.messages
+      then Nothing
+      else Just i
+
+  sameWork as bs = map anonymise as == map anonymise bs
+  anonymise m = m { msgIndex = 0 }
 
 -- | Write the globals into a bank, ready for compilation.
 -- |
