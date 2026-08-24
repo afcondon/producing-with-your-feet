@@ -25,6 +25,7 @@ import Data.MC6.Dump as Dump
 import Data.MC6.Global as Global
 import Data.MC6.Diagnostics as Diagnostics
 import Data.MC6.Message as MC6Msg
+import Data.MC6.Assign as Assign
 import Data.MC6.Reserved as Reserved
 import Data.MC6.SysEx as SysEx
 import Data.MC6.Types (MC6Action(..), MC6NativeBank, MC6Preset)
@@ -1602,7 +1603,23 @@ handleAction = case _ of
           -- whole intended map because the blanks are generated one per
           -- unclaimed bank and cannot collide with each other.
           doubled = ControlBank.doubleClaims owned
-        if not (Array.null doubled) then
+          -- A board too big for an MC6 preset is refused, never truncated:
+          -- `sysexPresetData` pads with `Array.take 16`, so it would program
+          -- cleanly and arrive missing its last messages. The single-switch
+          -- sync has always refused; the sweep must refuse on the same grounds
+          -- or the slow path is safe and the fast one is not.
+          tooBig = Assign.overBudget (assignEnv st) (intendedMap st)
+        if not (Array.null tooBig) then
+          H.modify_ _ { looperProgramStatus = Just $
+            "Refusing to write: a board assigned to a switch does not fit an MC6 preset. "
+              <> String.joinWith " "
+                   (map (\b -> "Bank " <> show b.bank <> " switch "
+                                 <> ControlBank.switchLetter b.slot <> ": \""
+                                 <> b.board <> "\" needs " <> show b.messages
+                                 <> " messages and a preset holds "
+                                 <> show Board.messageLimit <> ".") tooBig)
+              <> " Set a pedal to \x2014\x2014 in that board to get under." }
+        else if not (Array.null doubled) then
           H.modify_ _ { looperProgramStatus = Just $
             "Refusing to write: more than one page claims the same bank, so whatever "
               <> "is written could not be checked afterwards. "
@@ -2921,11 +2938,32 @@ bankNumbersOf st =
 -- | globals to overwrite.
 intendedMap :: AppState -> Array ControlBank
 intendedMap st =
-  map (Stamp.mark st.sweepRun <<< Global.applyGlobals st.globalSwitches)
+  map
+    ( Stamp.mark st.sweepRun
+        <<< Global.applyGlobals st.globalSwitches
+        <<< Assign.applyAssignments (assignEnv st)
+    )
     (generated <> map ControlBank.blankBank plan.clear)
   where
   generated = generatedBanks st
   plan = Reserved.sweep (bankNumbersOf st) (map _.mc6BankNumber generated)
+
+-- | What the assignment layer needs, gathered from state in one place.
+-- |
+-- | `controlBank: Nothing` deliberately. The single-switch sync gives a board
+-- | switch a long-press jump back to whichever control page happened to be
+-- | active when it was written; a jump whose target depends on what was on
+-- | screen is undeclared, position-dependent behaviour of exactly the kind
+-- | `docs/DESIGN-BANKS.md` exists to end, and under B14 `LongPressRelease` now
+-- | means something else. The global way home does that job.
+assignEnv :: AppState -> Assign.Env
+assignEnv st =
+  { registry: st.registry
+  , presets: st.presets
+  , boards: st.boardPresets
+  , controlBank: Nothing
+  , assignments: st.mc6Assignments
+  }
 
 -- | The banks this app produces content for, as distinct from the blanks.
 generatedBanks :: AppState -> Array ControlBank

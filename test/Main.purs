@@ -17,6 +17,7 @@ import Config.Registry as CRegistry
 import Engine (initEngineFromPedals, pedalsOnChannel)
 import Engine.Storage as Storage
 import Engine.Storage (engineToJson, parseEngine, parseCardOrder, parsePresets, parseBoardPresets, parseEngageState)
+import Data.MC6.Assign as Assign
 import Data.MC6.Board as Board
 import Data.MC6.ControlBank as ControlBank
 import Data.MC6.Message as MC6Msg
@@ -2302,6 +2303,76 @@ main = do
   -- say "these switches think they live somewhere else".
   assert "switches marked for another bank disagree with the bank holding them"
     (agreesAt 3 (surveyMarked [ marked7 ] (labels (Stamp.mark 7 (ControlBank.blankBank 4)))) == Just false)
+
+  -- ── Assignments are a source the sweep must compile (B11) ─────────────────
+  --
+  -- An assignment binds a board to a switch, and until 2026-08-24 the whole-map
+  -- write had never heard of them: it wrote a blank over the switch while the
+  -- app went on believing a board was there. Silently, because a blank switch
+  -- is exactly what a successful clear looks like. It had already happened to
+  -- bank 21 switch A.
+  log ""
+  log "  MC6 assignments in the sweep:"
+
+  let smallBoard =
+        { id: "board-small", name: "Wash", description: "", notes: ""
+        , pedals: Map.singleton (PedalId "mood") { presetId: Nothing, engage: EngageOff }
+        , created: "", modified: ""
+        }
+      -- Every pedal off at once already fits (asserted above), so the board
+      -- that does NOT fit is every pedal recalling a preset AND being switched
+      -- off: a program change plus a bypass, two messages apiece.
+      pidText (PedalId t) = t
+      pedalPresets =
+        map (\p -> { id: "p-" <> pidText p.meta.id, pedalId: p.meta.id
+                  , name: "", description: "", notes: ""
+                  , values: Map.empty, info: Map.empty
+                  , savedSlot: makeProgramNumber 1
+                  , created: "", modified: "" }) Registry.pedals
+      hugeBoard = allOffBoard
+        { id = "board-huge", name = "Everything"
+        , pedals = Map.fromFoldable
+            (map (\p -> Tuple p.meta.id
+                    { presetId: Just ("p-" <> pidText p.meta.id), engage: EngageOff })
+              Registry.pedals)
+        }
+      assignEnvOf as bs =
+        { registry: reg, presets: pedalPresets, boards: bs, controlBank: Nothing, assignments: as }
+      onSlot n i bid = { bankNumber: n, switchIndex: i, boardPresetId: bid }
+      blank21 = ControlBank.blankBank 21
+
+  assert "a board assigned to a switch survives the page being blanked"
+    ( case Array.index (Assign.applyAssignments
+              (assignEnvOf [ onSlot 21 0 "board-small" ] [ smallBoard ]) blank21).switches 0 of
+        Just sw -> sw.label == "Wash" && not (Array.null sw.messages)
+        Nothing -> false
+    )
+  -- The failure this replaces: the switch came back blank and nothing said so.
+  assert "and the switch would otherwise have been blank"
+    (map _.label (Array.index blank21.switches 0) == Just "")
+  assert "a switch with no assignment is untouched"
+    ( map _.label (Array.index (Assign.applyAssignments
+        (assignEnvOf [ onSlot 21 0 "board-small" ] [ smallBoard ]) blank21).switches 1) == Just "" )
+  assert "an assignment for another bank does not reach this page"
+    ( map _.label (Array.index (Assign.applyAssignments
+        (assignEnvOf [ onSlot 20 0 "board-small" ] [ smallBoard ]) blank21).switches 0) == Just "" )
+  -- A stale row in the store must not become lost work on the device.
+  assert "an assignment naming a board that no longer exists changes nothing"
+    ( map _.label (Array.index (Assign.applyAssignments
+        (assignEnvOf [ onSlot 21 0 "board-gone" ] [ smallBoard ]) blank21).switches 0) == Just "" )
+
+  -- Refuse rather than truncate: `sysexPresetData` pads with `Array.take 16`,
+  -- so an over-budget board programs cleanly and arrives missing its last
+  -- messages — a switch that silently does most of what you asked.
+  assert "an over-budget board is reported rather than written short"
+    ( map _.bank (Assign.overBudget
+        (assignEnvOf [ onSlot 21 0 "board-huge" ] [ hugeBoard ]) [ blank21 ]) == [ 21 ] )
+  assert "and the switch is left alone rather than truncated"
+    ( map _.label (Array.index (Assign.applyAssignments
+        (assignEnvOf [ onSlot 21 0 "board-huge" ] [ hugeBoard ]) blank21).switches 0) == Just "" )
+  assert "a board that fits is not reported"
+    ( Array.null (Assign.overBudget
+        (assignEnvOf [ onSlot 21 0 "board-small" ] [ smallBoard ]) [ blank21 ]) )
 
   -- ── The globals warning must not fire on the globals ──────────────────────
   --
