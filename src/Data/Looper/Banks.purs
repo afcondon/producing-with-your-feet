@@ -835,6 +835,12 @@ data Duty
   | OnGrid Boolean
   | GridToggle
 
+  -- | Make this loop a tape, or stop being one. The flip, for a control with
+  -- | no value to send; `Revox` is the form with.
+  | RevoxToggle
+  | Revox Boolean
+  -- | What a Revox pass leaves of what was under it, in decibels.
+  | Feedback Number
   -- | How many layers should be live — the undo stack as a **position** rather
   -- | than as two buttons.
   -- |
@@ -932,6 +938,9 @@ dutyLabel = case _ of
   Monitor _ -> "Monitor"
   OnGrid _ -> "Grid"
   GridToggle -> "Grid"
+  RevoxToggle -> "Revox"
+  Revox _ -> "Revox"
+  Feedback _ -> "Feedback"
   Layers _ -> "Layers"
   ArmLevel _ -> "Listen at"
   Level _ -> "Level"
@@ -984,6 +993,9 @@ dutyName = case _ of
   Monitor on -> "Monitoring " <> onOff on
   OnGrid on -> if on then "Waits for the grid" else "Free length and launch"
   GridToggle -> "Wait for the grid, or not"
+  RevoxToggle -> "Tape mode, or layers"
+  Revox on -> if on then "A tape: undo is gone" else "Record in layers again"
+  Feedback db -> "A pass leaves " <> levelWord db
   Layers n -> "Keep " <> show n <> (if n == 1 then " layer" else " layers")
   ArmLevel db -> "Starts at " <> show (Int.round db) <> " dBFS"
   Level db -> "Plays at " <> levelWord db

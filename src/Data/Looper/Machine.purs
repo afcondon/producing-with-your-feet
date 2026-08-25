@@ -299,10 +299,22 @@ perform rig subject = case _ of
   -- input monitor.
   LB.ArmLevel db -> [ Command (Verb.render (Verb.ArmLevel db)) ]
 
+  -- The same set-never-flip pair as the click: the toggle reads the snapshot
+  -- and delegates to the value.
+  LB.RevoxToggle -> perform rig subject (LB.Revox (not (is _.revox)))
+  LB.Revox on -> [ Command (cmd i (Verb.Revox on)) ]
+  LB.Feedback db -> [ Command (cmd i (Verb.Feedback db)) ]
+
   -- **The undo stack as a position.** The difference between where the knob is
   -- and where the engine says it is, spent as that many steps in the right
   -- direction. Nothing is remembered here: `have` comes from the snapshot, so a
   -- layer removed by a footswitch moves the knob rather than confusing it.
+  -- **Nothing to scrub on a tape.** A Revox pass wrote over what was there, so
+  -- there is no layer to take back and no version of it kept anywhere. Refused
+  -- by name rather than silently doing nothing, which is the difference between
+  -- a mode and a broken knob.
+  LB.Layers _ | is _.revox ->
+    [ Unavailable ("loop " <> show (i + 1) <> " is a tape — undo went with the layers") ]
   LB.Layers want ->
     let have = maybe 0 _.layers (loopAt rig i)
         step = want - have

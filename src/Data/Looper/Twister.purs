@@ -195,7 +195,7 @@ derive instance Eq Light
 -- | The per-loop booleans an encoder can show. A closed set rather than a
 -- | function in the record, so `Control` stays a value that can be compared and
 -- | tested.
-data Flag = FReverse | FPendulum | FOneShot | FLevelArm | FGrid
+data Flag = FReverse | FPendulum | FOneShot | FLevelArm | FGrid | FRevox
 
 derive instance Eq Flag
 
@@ -206,6 +206,7 @@ flagName = case _ of
   FOneShot -> "one-shot"
   FLevelArm -> "listening"
   FGrid -> "on the grid"
+  FRevox -> "a tape"
 
 -- | One encoder: what it is about, what a press means, what a turn means, and
 -- | what it shows.
@@ -345,7 +346,11 @@ loopsBank i
       -- Named and refused rather than silently absent: the vocabulary has
       -- `NotYet` for exactly this, so a press answers with what it is waiting
       -- for instead of doing nothing.
-      11 -> verb (NotYet "Revox" "the engine has no destructive overdub yet") Violet
+      -- **Revox: the loop becomes a tape.** Beside the ordinary overdub because
+      -- that is the choice it is — the same gesture by a different mechanism —
+      -- and lit while it is on, because a mode that changes what undo means had
+      -- better be visible from across the room.
+      11 -> flagged RevoxToggle FRevox Violet
       -- Undo and Redo were two cells doing one job. The stack is an axis, and
       -- this device reports absolute positions, so it is a knob: turn down to
       -- undo, up to redo, ring shows how deep you are. Press still undoes one,
@@ -688,6 +693,7 @@ flagOn f st = case f of
   FOneShot -> st.oneShot
   FLevelArm -> st.levelArm
   FGrid -> st.quant
+  FRevox -> st.revox
 
 subjectIndex :: Rig -> Subject -> Int
 subjectIndex rig = case _ of
@@ -814,5 +820,6 @@ stub =
   , muted: false, reverse: false, pan: 64, speed: 1.0, pendulum: false
   , oneShot: false, levelArm: false, firing: false
   , chance: 1.0, skipping: false, fadeMs: 0.0, decayDb: 0.0, volDb: 0.0
+  , revox: false, fbDb: -3.0, recEnv: []
   , pendingAt: -1, shapes: []
   }

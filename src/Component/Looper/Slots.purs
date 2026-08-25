@@ -294,7 +294,41 @@ mark m =
 track :: forall w i. LooperState -> LoopState -> HH.HTML w i
 track top st =
   HH.div [ HP.class_ (HH.ClassName "loop-track") ]
-    (Array.mapWithIndex (layerRow st) st.shapes <> playhead top st)
+    (Array.mapWithIndex (layerRow st) st.shapes <> liveRow st <> playhead top st)
+
+-- | The take being recorded **right now**, drawn as it is played.
+-- |
+-- | **Nothing showed here at all until 2026-08-25**, and it read as broken
+-- | because it was: you pressed record, the slot went the colour of recording,
+-- | and nothing else happened until you closed the take. Everything the display
+-- | knew about a loop was a *committed* layer, so the one moment you most want
+-- | to see — is it hearing me, am I loud enough, how far round am I — was the
+-- | one moment it had nothing to say.
+-- |
+-- | It matters more with Revox than with anything else. A destructive pass has
+-- | no undo, so watching it happen is the only feedback there is, and a mode
+-- | that erases while showing you nothing is not a mode anybody should be asked
+-- | to use.
+-- |
+-- | Drawn as a row of its own beneath the layers rather than as one of them: it
+-- | is not a layer yet, it may never become one, and it is the row your eye
+-- | should go to.
+liveRow :: forall w i. LoopState -> Array (HH.HTML w i)
+liveRow st
+  -- The daemon sends this empty whenever nothing is recording, so there is one
+  -- test here rather than a second copy of "what counts as recording".
+  | Array.null st.recEnv = []
+  | otherwise =
+      [ HH.div
+          [ HP.class_ (HH.ClassName ("loop-layer loop-live"
+              <> (if st.revox then " is-tape" else ""))) ]
+          [ HH.div
+              [ HP.class_ (HH.ClassName "loop-block sounds has-wave")
+              , HP.style "width:100%"
+              ]
+              (wave st.recEnv)
+          ]
+      ]
 
 -- | One layer, as the blocks in which it sounds.
 layerRow :: forall w i. LoopState -> Int -> LayerShape -> HH.HTML w i
@@ -539,6 +573,10 @@ marks st = Array.catMaybes
   -- thing that had failed to, and the slot showed a perfectly ordinary loop
   -- making no sound. Shown as `Live` rather than `Set` because it is the loudest
   -- fact about a loop that is not doing what you expect.
+  -- **A tape, and it says so first.** It changes what every other control
+  -- means — an overdub writes over what is there and undo is gone — so it
+  -- outranks every other mark on the slot.
+  , if st.revox then Just (Foot ("tape " <> LB.levelWord st.fbDb)) else Nothing
   , if st.volDb >= 0.0 then Nothing else Just (Live (LB.levelWord st.volDb))
   -- Then the two that move on their own. A loop at 1 in 4 or losing 3 dB a pass
   -- is not where you left it, and nothing else on screen would say so.

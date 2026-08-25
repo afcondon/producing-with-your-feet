@@ -930,7 +930,8 @@ main = do
                , muted: false, reverse: false, pan: 64, speed: 1.0, pendulum: false
                , oneShot: false, levelArm: false, firing: false
                , chance: 1.0, skipping: false, fadeMs: 0.0, decayDb: 0.0
-               , volDb: 0.0, pendingAt: -1, shapes: [] }
+               , volDb: 0.0, revox: false, fbDb: -3.0, recEnv: []
+               , pendingAt: -1, shapes: [] }
       withState n s ls = (idle n) { state = s, layers = ls }
       rigOf ls = { loops: ls, focus: 0, click: false, monitor: false, armDb: -36.0 }
       isCommand = case _ of
@@ -2833,6 +2834,33 @@ main = do
                   else c.name == "")
         pg.cells)
       LoopTw.pages)
+
+  -- **Revox is a mode you opt into, and it takes undo with it.** Refused by
+  -- name rather than silently doing nothing: a knob that stops working is a
+  -- broken knob until something says otherwise.
+  assert "the layer scrub refuses on a tape, and says why"
+    (Machine.perform (rigOf [ (idle 0) { revox = true, layers = 3 } ])
+       LB.Focused (LB.Layers 1)
+      == [ Machine.Unavailable "loop 1 is a tape — undo went with the layers" ])
+
+  assert "and still scrubs when the loop is layers"
+    (Machine.perform (rigOf [ (idle 0) { revox = false, layers = 3 } ])
+       LB.Focused (LB.Layers 2)
+      == [ Machine.Command "0u", Machine.Handled "loop 1: 2 layers" ])
+
+  -- Set, never flip — the same rule as the click, and for the same reason.
+  assert "the Revox toggle sets from what the daemon reported"
+    (Machine.perform (rigOf [ (idle 0) { revox = false } ]) LB.Focused LB.RevoxToggle
+      == [ Machine.Command "0rvx1" ]
+      && Machine.perform (rigOf [ (idle 0) { revox = true } ]) LB.Focused LB.RevoxToggle
+        == [ Machine.Command "0rvx0" ])
+
+  -- `rvx`, not `rev`: reverse got there first, and a prefix collision on the
+  -- wire is a command that silently means something else.
+  assert "Revox and Reverse cannot be confused on the wire"
+    (LoopVerb.render (LoopVerb.Revox true) == "rvx1"
+      && LoopVerb.render (LoopVerb.Reversed true) == "rev1"
+      && LoopVerb.render (LoopVerb.Feedback (-6.0)) == "fb-6.0")
 
   -- **The pager is the same corner on every page**, because it is one control
   -- rather than one per page, and a hand finds a corner without looking.

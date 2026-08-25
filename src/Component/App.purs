@@ -117,6 +117,7 @@ data Action
   | ClearTwisterGuard Knob
   | ShowTwisterPage Int
   | SetArmThreshold String
+  | SetFeedback String
   | HandleHeader Header.Output
   | HandleDetail DetailView.Output
   | HandleGrid GridView.Output
@@ -575,6 +576,7 @@ renderLooperView state =
           ]
           [ HH.text (if lp.click then "Click off" else "Click on") ]
       , armThreshold lp
+      , revoxFeedback
       ]
 
   -- | How loud a sound has to be to start a level-armed loop.
@@ -603,6 +605,35 @@ renderLooperView state =
           ]
       , HH.span [ HP.class_ (H.ClassName "looper-arm-value") ]
           [ HH.text (show (Int.round lp.armDb) <> " dBFS") ]
+      ]
+
+  -- | What a Revox pass leaves of what was under it.
+  -- |
+  -- | **Here rather than on the Twister, and only because both pages are
+  -- | full.** It is a performance control — riding the feedback is how the mode
+  -- | is played — so it wants a knob, and it will get one on the trim-and-shift
+  -- | page when that exists. Until then a slider you can reach is better than a
+  -- | cell nothing else could spare.
+  -- The focused loop's, because Revox is a per-loop mode — unlike the arm
+  -- threshold above it, which is the rig's.
+  revoxFeedback = case state.looper >>= \l -> Array.index l.loops state.looperFocus of
+    Nothing -> HH.text ""
+    Just fl -> revoxSlider fl
+
+  revoxSlider fl =
+    HH.span [ HP.class_ (H.ClassName "looper-arm") ]
+      [ HH.label_ [ HH.text "Tape leaves" ]
+      , HH.input
+          [ HP.type_ HP.InputRange
+          , HP.min (-24.0)
+          , HP.max 0.0
+          , HP.step (HP.Step 0.5)
+          , HP.value (show fl.fbDb)
+          , HP.disabled (not st.connected)
+          , HE.onValueInput \v -> SetFeedback v
+          ]
+      , HH.span [ HP.class_ (H.ClassName "looper-arm-value") ]
+          [ HH.text (LoopBanks.levelWord fl.fbDb <> " a pass") ]
       ]
 
   gestureBtn cls disabled ccNum label =
@@ -1779,6 +1810,12 @@ handleAction = case _ of
       st <- H.get
       traverse_ (runAction 0.0)
         (Machine.perform (rigOf st) LoopBanks.Focused (LoopBanks.ArmLevel db))
+
+  SetFeedback raw ->
+    for_ (Number.fromString raw) \db -> do
+      st <- H.get
+      traverse_ (runAction 0.0)
+        (Machine.perform (rigOf st) LoopBanks.Focused (LoopBanks.Feedback db))
 
   FlushTwisterTurn knob -> do
     st <- H.get
