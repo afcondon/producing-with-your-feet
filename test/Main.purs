@@ -32,10 +32,13 @@ import Foreign.LooperSocket (isWriting, phaseOf, phaseName, allPhases, LoopPhase
 import Data.Looper.Banks as LB
 import Data.MC6.Diagnostics as Diagnostics
 import Data.Looper.Machine as Machine
+import Data.Looper.Twister as LoopTw
 import Data.Looper.Verb as LoopVerb
 import Data.Enum as Enum
 import Data.Foldable (for_)
 import Data.String as String
+import Data.String.Common (joinWith)
+import Data.Monoid (power)
 import Data.String.CodeUnits as StringCU
 import Data.MC6.Read as Read
 import Data.MC6.SysEx as SysEx
@@ -105,6 +108,13 @@ assert label ok = log $ (if ok then "PASS" else "FAIL") <> " - " <> label
 -- Right-align a bank number in two columns, so the map reads as a table.
 pad :: String -> String
 pad s = if String.length s >= 2 then s else " " <> s
+
+intAbs :: Int -> Int
+intAbs n = if n < 0 then negate n else n
+
+-- Left-align to a fixed width, so a four-by-four grid prints as a grid.
+padTo :: Int -> String -> String
+padTo n s = s <> power " " (max 0 (n - String.length s))
 
 
 main :: Effect Unit
@@ -920,9 +930,9 @@ main = do
                , muted: false, reverse: false, pan: 64, speed: 1.0, pendulum: false
                , oneShot: false, levelArm: false, firing: false
                , chance: 1.0, skipping: false, fadeMs: 0.0, decayDb: 0.0
-               , pendingAt: -1, shapes: [] }
+               , volDb: 0.0, pendingAt: -1, shapes: [] }
       withState n s ls = (idle n) { state = s, layers = ls }
-      rigOf ls = { loops: ls, focus: 0 }
+      rigOf ls = { loops: ls, focus: 0, click: false, monitor: false, armDb: -36.0 }
       isCommand = case _ of
         Machine.Command _ -> true
         _ -> false
@@ -932,10 +942,15 @@ main = do
   -- from what the daemon last reported, with nothing underfoot saying which was
   -- live. Now it selects the loop and the MC6 opens its page from the jump this
   -- table put on the switch. The verbs are on that page with their names printed.
+  --
+  -- Switch 0 is A, the near-left switch, and since the surfaces were harmonised
+  -- it selects **loop 5** — the bottom-left loop of the grid. The loop it is
+  -- pointed at is beside the point here; that it does nothing else is the
+  -- claim.
   assert "a loop switch selects and does nothing else, whatever the loop is doing"
     (Array.all
-      (\st -> Machine.act (rigOf [ st ]) (LB.switchGesture LB.LoopBank 0 LB.Tap)
-                == [ Machine.Focus 0, Machine.Handled "loop 1" ])
+      (\st -> Machine.act (rigOf (Array.replicate 5 st)) (LB.switchGesture LB.LoopBank 0 LB.Tap)
+                == [ Machine.Focus 4, Machine.Handled "loop 5" ])
       [ idle 0
       , withState 0 "recordingFirst" 0
       , withState 0 "playing" 3
@@ -1165,13 +1180,16 @@ main = do
   assert "the two s-verbs stay distinguishable"
     (LoopVerb.render (LoopVerb.Rate 0.5) /= LoopVerb.render (LoopVerb.Spread 2))
 
-  -- The three bare verbs the board reaches only through `Machine.act`, pinned
-  -- here too so their spelling is checked directly rather than incidentally.
-  assert "capture, save and click spell as the daemon expects"
+  -- The bare verbs the board reaches only through `Machine.act`, pinned here
+  -- too so their spelling is checked directly rather than incidentally.
+  --
+  -- `ClickToggle` used to be in this list, rendering `k`. It was the one
+  -- flipping form the app still sent, and it is gone — the machine sets the
+  -- click from what the daemon reported. See the note on `Verb.Click`.
+  assert "capture and save spell as the daemon expects"
     (LoopVerb.render LoopVerb.ClaimPast == "t"
       && LoopVerb.render (LoopVerb.SaveTake "") == "w"
-      && LoopVerb.render (LoopVerb.SaveTake "riff") == "wriff"
-      && LoopVerb.render LoopVerb.ClickToggle == "k")
+      && LoopVerb.render (LoopVerb.SaveTake "riff") == "wriff")
 
   -- A loop prefix on every board command, because the daemon's own selection is
   -- a mode a footswitch could fall out of step with.
@@ -1200,7 +1218,19 @@ main = do
   assert "and the click stays unprefixed, because it is not a per-loop thing"
     (Machine.act ((rigOf [ idle 0, idle 1 ]) { focus = 1 })
        (LB.switchGesture LB.ConfigBank 11 LB.Tap)
-      == [ Machine.Command "k" ])
+      == [ Machine.Command "k1" ])
+
+  -- **Set, both ways.** It sent the flipping `k` until `Rig` carried the global
+  -- flags; both directions are pinned here because a switch that sets is only
+  -- better than one that flips if it reads the current value, and a test that
+  -- only ever starts from off cannot tell the two apart.
+  assert "and it sets the click from what the daemon reported, in both directions"
+    (Machine.act ((rigOf [ idle 0 ]) { click = true })
+       (LB.switchGesture LB.ConfigBank 11 LB.Tap)
+      == [ Machine.Command "k0" ]
+      && Machine.act ((rigOf [ idle 0 ]) { click = false })
+           (LB.switchGesture LB.ConfigBank 11 LB.Tap)
+        == [ Machine.Command "k1" ])
 
   -- **Stop All reaches the loops that have something to stop, and no others.**
   -- Muting an empty loop does nothing audible and leaves it silenced for
@@ -1237,7 +1267,7 @@ main = do
   -- loops only works because of that, and it is the same arrangement the config
   -- family has always had.
   assert "the page acts on the focused loop, not on the switch pressed"
-    (Machine.act { loops: [ idle 0, idle 1, withState 2 "playing" 2 ], focus: 2 }
+    (Machine.act ((rigOf [ idle 0, idle 1, withState 2 "playing" 2 ]) { focus = 2 })
        (LB.switchGesture LB.LoopPage 2 LB.Tap)
       == [ Machine.Command "2h0" ])
 
@@ -1246,21 +1276,21 @@ main = do
       == [ Machine.Handled "showing config" ])
 
   assert "undo and clear act on the focused loop"
-    (Machine.act { loops: [ idle 0, idle 1, idle 2 ], focus: 2 } (LB.switchGesture LB.LoopBank 8 LB.Tap)
+    (Machine.act ((rigOf [ idle 0, idle 1, idle 2 ]) { focus = 2 }) (LB.switchGesture LB.LoopBank 8 LB.Tap)
       == [ Machine.Command "2u" ]
-      && Machine.act { loops: [ idle 0 ], focus: 1 } (LB.switchGesture LB.LoopBank 9 LB.Tap)
+      && Machine.act ((rigOf [ idle 0 ]) { focus = 1 }) (LB.switchGesture LB.LoopBank 9 LB.Tap)
         == [ Machine.Command "1c" ])
 
   -- The config family acts on the focused loop, which is what a hold sets. One
   -- config bank serving six loops only works because of that.
   assert "reverse and clear act on the focused loop, not the pressed switch"
-    (Machine.act { loops: [ idle 0, idle 1, idle 2 ], focus: 2 } (LB.switchGesture LB.ConfigBank 4 LB.Tap)
+    (Machine.act ((rigOf [ idle 0, idle 1, idle 2 ]) { focus = 2 }) (LB.switchGesture LB.ConfigBank 4 LB.Tap)
       == [ Machine.Command "2rev1" ]
-      && Machine.act { loops: [], focus: 1 } (LB.switchGesture LB.ConfigBank 9 LB.Tap)
+      && Machine.act ((rigOf []) { focus = 1 }) (LB.switchGesture LB.ConfigBank 9 LB.Tap)
         == [ Machine.Command "1c" ])
 
   assert "the pan bank places the focused loop across the field"
-    (map (\i -> Machine.act { loops: [], focus: 0 } (LB.switchGesture LB.PanBank i LB.Tap))
+    (map (\i -> Machine.act ((rigOf []) { focus = 0 }) (LB.switchGesture LB.PanBank i LB.Tap))
        [ 0, 2, 4 ]
       == [ [ Machine.Command "0pan0" ]
          , [ Machine.Command "0pan64" ]
@@ -1269,9 +1299,9 @@ main = do
   -- Free and Grid are real; the bar counts have nothing to select, because the
   -- engine's grid is the anchor loop's cycle and not a bar.
   assert "quantise sets the grid flag and is honest about bar counts"
-    (Machine.act { loops: [], focus: 3 } (LB.switchGesture LB.QuantiseBank 0 LB.Tap)
+    (Machine.act ((rigOf []) { focus = 3 }) (LB.switchGesture LB.QuantiseBank 0 LB.Tap)
       == [ Machine.Command "3g0" ]
-      && Machine.act { loops: [], focus: 3 } (LB.switchGesture LB.QuantiseBank 1 LB.Tap)
+      && Machine.act ((rigOf []) { focus = 3 }) (LB.switchGesture LB.QuantiseBank 1 LB.Tap)
         == [ Machine.Command "3g1"
            , Machine.Handled "on the grid — bar counts need the frame-to-bar join" ])
 
@@ -1335,7 +1365,7 @@ main = do
   -- The code has to say it too, or two tables agree until one of them does not.
   assert "and the meaning table answers the toolbar without consulting the bank"
     (Array.all
-      (\slot -> Machine.act { loops: [], focus: 2 } (LB.switchGesture slot 9 LB.Tap)
+      (\slot -> Machine.act ((rigOf []) { focus = 2 }) (LB.switchGesture slot 9 LB.Tap)
         == [ Machine.Command "2c" ])
       LB.allSlots)
 
@@ -1352,7 +1382,7 @@ main = do
       (\r ->
          let
            labelled = maybe false (\d -> LB.dutyLabel d /= "") (LB.dutyAt r.slot r.i)
-           acts = Machine.act { loops: [], focus: 0 } (LB.switchGesture r.slot r.i LB.Tap)
+           acts = Machine.act ((rigOf []) { focus = 0 }) (LB.switchGesture r.slot r.i LB.Tap)
            blank = Array.any (String.contains (String.Pattern "has nothing on"))
              (map Machine.describe acts)
          in labelled /= blank)
@@ -1376,7 +1406,7 @@ main = do
   -- No reverse row: direction is the sign of speed, so backwards at half speed
   -- is Reverse on the config bank and then a half here.
   assert "the speed bank sends a rate"
-    (map (\i -> Machine.act { loops: [], focus: 2 } (LB.switchGesture LB.SpeedBank i LB.Tap))
+    (map (\i -> Machine.act ((rigOf []) { focus = 2 }) (LB.switchGesture LB.SpeedBank i LB.Tap))
        [ 0, 2, 4 ]
       == [ [ Machine.Command "2sp0.25" ]
          , [ Machine.Command "2sp1.0" ]
@@ -1386,7 +1416,7 @@ main = do
   -- snapshot and send the explicit form, so a dropped command cannot leave the
   -- app and the engine disagreeing for ever about which way a loop is facing.
   assert "and pendulum is a config switch of its own, sent as a value"
-    (Machine.act { loops: [], focus: 4 } (LB.switchGesture LB.ConfigBank 5 LB.Tap)
+    (Machine.act ((rigOf []) { focus = 4 }) (LB.switchGesture LB.ConfigBank 5 LB.Tap)
       == [ Machine.Command "4pend1" ])
 
   -- **The mode changes what the switch means, and the switch keeps its name.**
@@ -1425,9 +1455,9 @@ main = do
   -- one-shot and level-arm are not exclusive — which is the thing a bank of
   -- five choices cannot say.
   assert "the modes bank sets its toggles from what the engine last reported"
-    (Machine.act { loops: [ (idle 0) { levelArm = true } ], focus: 0 }
+    (Machine.act ((rigOf [ (idle 0) { levelArm = true } ]) { focus = 0 })
        (LB.switchGesture LB.ModesBank 0 LB.Tap) == [ Machine.Command "0one1" ]
-      && Machine.act { loops: [ (idle 0) { levelArm = true } ], focus: 0 }
+      && Machine.act ((rigOf [ (idle 0) { levelArm = true } ]) { focus = 0 })
            (LB.switchGesture LB.ModesBank 1 LB.Tap) == [ Machine.Command "0lev0" ])
 
   -- Chance steps rather than flipping, and the step is computed from what the
@@ -1480,12 +1510,12 @@ main = do
         == [ "hard", "10 ms", "25 ms", "50 ms", "100 ms" ])
 
   assert "and a press sends the fade it stepped to"
-    (Machine.act { loops: [ (idle 0) { fadeMs = 25.0 } ], focus: 0 }
+    (Machine.act ((rigOf [ (idle 0) { fadeMs = 25.0 } ]) { focus = 0 })
        (LB.switchGesture LB.ModesBank 3 LB.Tap)
       == [ Machine.Command "0xf50.0", Machine.Handled "loop 1 wraps 50 ms" ])
 
   assert "and a press sends the rung it stepped to"
-    (Machine.act { loops: [ (idle 0) { chance = 0.5 } ], focus: 0 }
+    (Machine.act ((rigOf [ (idle 0) { chance = 0.5 } ]) { focus = 0 })
        (LB.switchGesture LB.ModesBank 2 LB.Tap)
       == [ Machine.Command "0ch0.25", Machine.Handled "loop 1 plays 1 in 4" ])
 
@@ -1508,10 +1538,10 @@ main = do
       == [ "pan switch 99 has nothing on it" ])
 
   -- The letters are only true where the board can reach the loops. With the
-  -- board on config, A is Quantise, so labelling the first loop "A" there
-  -- points a foot at the wrong thing.
+  -- board on config, A is Quantise, so labelling a loop "A" there points a foot
+  -- at the wrong thing. Loop 1 is switch D and loop 4 has no switch at all.
   assert "a loop is lettered only when the board is on the bank that reaches it"
-    (map (LB.faceLoopKey (LB.face (Just LB.LoopBank))) [ 0, 3 ] == [ "A", "D" ]
+    (map (LB.faceLoopKey (LB.face (Just LB.LoopBank))) [ 0, 3 ] == [ "D", "4" ]
       && map (LB.faceLoopKey (LB.face (Just LB.ConfigBank))) [ 0, 3 ] == [ "1", "4" ]
       && map (LB.faceLoopKey (LB.face Nothing)) [ 0, 3 ] == [ "1", "4" ])
 
@@ -2501,6 +2531,381 @@ main = do
                (Map.singleton 2 "Loops") (Map.singleton 2 (Array.replicate 12 "EMPTY"))) of
        Just c -> c.agrees == Just true
        Nothing -> false)
+
+  log ""
+  log "The Twister as a looper surface (Data.Looper.Twister)..."
+
+  let eight = map idle (Array.range 0 (LB.nLoops - 1))
+      rig8 = rigOf eight
+
+  -- **One grid on three surfaces.** Four across and two down, in plain order,
+  -- because that is the Twister's top half and the shape an MC8 would fill.
+  assert "the loops are one grid, four across and two down, in order"
+    (LB.loopRows == [ [ 0, 1, 2, 3 ], [ 4, 5, 6, 7 ] ]
+      && Array.length (Array.nub (join LB.loopRows)) == LB.nLoops)
+
+  -- **The pedal fits into the grid; the grid no longer fits the pedal.** A
+  -- switch selects the loop in its own physical place, and the MC6 numbers its
+  -- switches from the bottom — so A, the near-left switch, is loop 5.
+  assert "each MC6 switch selects the loop that sits where it sits"
+    (LB.switchLoops == [ 4, 5, 6, 0, 1, 2 ]
+      && LB.loopAtSwitch 0 == Just 4
+      && LB.loopAtSwitch 3 == Just 0
+      && LB.switchForLoop 0 == Just 3
+      && LB.switchForLoop 4 == Just 0)
+
+  -- The two the pedal cannot reach are the fourth column, not the last two
+  -- indices — which is what an MC8 would fill.
+  assert "loops 4 and 8 are the column the MC6 does not have"
+    (LB.switchForLoop 3 == Nothing
+      && LB.switchForLoop 7 == Nothing
+      && Array.length (Array.filter (\l -> isNothing (LB.switchForLoop l))
+           (Array.range 0 (LB.nLoops - 1))) == 2)
+
+  -- **The letter beside a loop is the letter under your foot.** These were the
+  -- same number until the surfaces were harmonised; printing it from the loop's
+  -- index would send the foot to the wrong corner and would still be right
+  -- about loop 5, which is the kind of half-right that survives testing.
+  assert "a loop prints the letter of the switch that selects it, or its number"
+    (LB.faceLoopKey (LB.face (Just LB.LoopBank)) 0 == "D"
+      && LB.faceLoopKey (LB.face (Just LB.LoopBank)) 4 == "A"
+      && LB.faceLoopKey (LB.face (Just LB.LoopBank)) 2 == "F"
+      && LB.faceLoopKey (LB.face (Just LB.LoopBank)) 3 == "4"
+      && LB.faceLoopKey (LB.face (Just LB.LoopBank)) 7 == "8")
+
+  -- And the bank the device is programmed with says the same thing, since both
+  -- come from `switchLoops`.
+  assert "the loop bank's switches are compiled in grid order"
+    (map (\i -> LB.dutyAt LB.LoopBank i) (Array.range 0 5)
+      == map (Just <<< LB.SelectLoop) [ 4, 5, 6, 0, 1, 2 ])
+
+  -- The MC6 reaches six of the eight and says so. These were one number until
+  -- the Twister arrived, and the whole point of separating them is that they
+  -- are now allowed to differ.
+  assert "the pedal reaches six of the eight, and the two facts are separate"
+    (LB.loopSwitches == 6 && LB.nLoops == 8 && LB.loopSwitches < LB.nLoops)
+
+  assert "each of the eight loop encoders selects its own loop"
+    (Array.all
+      (\i -> LoopTw.pressedAt { bank: 0, index: i }
+          == Just (Tuple (LB.OnLoop i) (LB.SelectLoop i)))
+      (Array.range 0 (LB.nLoops - 1)))
+
+  -- **The subject bug, as a class rather than an instance.** Every per-loop
+  -- verb from the old CC table went out unprefixed and landed on whatever the
+  -- daemon had selected; it was found on Save Take and fixed there alone. With
+  -- the subject an argument, a knob on loop 6 addresses loop 6 while the focus
+  -- is elsewhere, and there is no way to express the broken form.
+  assert "a turn addresses the knob's own loop, whatever is in focus"
+    (Machine.perform (rig8 { focus = 0 }) (LB.OnLoop 5) (LB.Place 100)
+      == [ Machine.Command "5pan100" ])
+
+  assert "and a duty with no loop of its own goes to the focused one"
+    (Machine.perform (rig8 { focus = 5 }) LB.Focused (LB.Place 100)
+      == [ Machine.Command "5pan100" ])
+
+  -- A ladder is a rendering of a parameter for a surface that can only press.
+  -- If these two ever produced different commands, a footswitch and a knob
+  -- would mean different things by the same word.
+  assert "a ladder step and a knob reach the socket by the same line"
+    (let r = rigOf [ (idle 0) { chance = 1.0 } ]
+     in Array.filter isCommand (Machine.perform r LB.Focused LB.StepChance)
+          == Machine.perform r LB.Focused (LB.Chance (LB.stepChance 1.0)))
+
+  assert "and the same is true of fade and decay"
+    (let r = rigOf [ (idle 0) { fadeMs = 25.0, decayDb = -3.0 } ]
+     in Array.filter isCommand (Machine.perform r LB.Focused LB.StepFade)
+          == Machine.perform r LB.Focused (LB.Fade (LB.stepFade 25.0))
+       && Array.filter isCommand (Machine.perform r LB.Focused LB.StepDecay)
+            == Machine.perform r LB.Focused (LB.Decay (LB.stepDecay (-3.0))))
+
+  -- **Every position of every knob must be a value the daemon accepts.** It
+  -- refuses out-of-range rather than clamping — which is right, and means a
+  -- knob whose ends fall outside the range has two dead positions that report
+  -- a refusal instead of moving. Checked at all 128 positions because the ends
+  -- are exactly where an off-by-one lands.
+  assert "every position of the speed knob is a speed the daemon accepts"
+    (Array.all
+      (\v -> case LoopTw.fromKnob LoopTw.PRate v of
+          LB.Rate r -> r >= 0.125 && r <= 4.0
+          _ -> false)
+      (Array.range 0 127))
+
+  assert "and of the decay, fade, chance and pan knobs"
+    (Array.all
+      (\v ->
+        (case LoopTw.fromKnob LoopTw.PDecay v of
+           LB.Decay db -> db <= 0.0 && db >= -60.0
+           _ -> false)
+        && (case LoopTw.fromKnob LoopTw.PFade v of
+              LB.Fade ms -> ms >= 0.0 && ms <= 500.0
+              _ -> false)
+        && (case LoopTw.fromKnob LoopTw.PChance v of
+              LB.Chance p -> p >= 0.0 && p <= 1.0
+              _ -> false)
+        && (case LoopTw.fromKnob LoopTw.PPlace v of
+              LB.Place n -> n >= 0 && n <= 127
+              _ -> false))
+      (Array.range 0 127))
+
+  -- Unity at the centre detent, on the two knobs that have a home worth
+  -- finding by feel, and the ends where the daemon's range ends.
+  assert "the speed knob sits at unity in the middle and stops where the daemon does"
+    (LoopTw.fromKnob LoopTw.PRate 64 == LB.Rate 1.0
+      && LoopTw.fromKnob LoopTw.PRate 0 == LB.Rate 0.125
+      && LoopTw.fromKnob LoopTw.PRate 127 == LB.Rate 4.0
+      && LoopTw.fromKnob LoopTw.PPlace 64 == LB.Place 64)
+
+  -- **The ring is told, never remembered.** This is the property that separates
+  -- an encoder from the MC6's scroll counters: what the device shows is the
+  -- engine's own value, so whoever moved it — the console, a footswitch, some
+  -- other client — the knob agrees within a frame.
+  assert "the ring shows the engine's value, at both ends and the middle"
+    (LoopTw.toKnob LoopTw.PRate ((idle 0) { speed = 1.0 }) == 64
+      && LoopTw.toKnob LoopTw.PRate ((idle 0) { speed = 0.125 }) == 0
+      && LoopTw.toKnob LoopTw.PRate ((idle 0) { speed = 4.0 }) == 127
+      && LoopTw.toKnob LoopTw.PPlace ((idle 0) { pan = 100 }) == 100
+      && LoopTw.toKnob LoopTw.PChance ((idle 0) { chance = 1.0 }) == 127)
+
+  -- A knob you cannot put back is a knob you will not turn.
+  assert "every knob has a press that puts it home"
+    (Array.all
+      (\i -> let c = LoopTw.controlAt { bank: 1, index: i }
+             in case c.turn of
+                  Nothing -> true
+                  Just _ -> isJust c.press)
+      (Array.range 0 15))
+
+  -- Two pages, and the other two deliberately empty rather than accidentally
+  -- half-wired. The per-layer surface is the tenant they are being kept for.
+  assert "banks three and four carry nothing at all"
+    (Array.all
+      (\i -> LoopTw.pressedAt { bank: 2, index: i } == Nothing
+          && LoopTw.pressedAt { bank: 3, index: i } == Nothing
+          && LoopTw.turnedAt { bank: 2, index: i } 64 == Nothing)
+      (Array.range 0 15))
+
+  -- **The round trip is the reason the taper is allowed to bend.**
+  --
+  -- The level and decay knobs were straight lines from full to the floor, on
+  -- the stated ground that a two-segment law is two chances to get the inverse
+  -- wrong. That was the wrong trade: a straight line put the whole useful range
+  -- in the top few degrees, and "it drops VERY quickly as you turn" is what
+  -- that feels like. So they bend, and this is the answer to the objection —
+  -- every position of both knobs goes out as a value and comes back as a
+  -- position within one step of where it started.
+  assert "every position of the level knob survives the round trip"
+    (Array.all
+      (\v -> case LoopTw.fromKnob LoopTw.PLevel v of
+          LB.Level db -> intAbs (LoopTw.toKnob LoopTw.PLevel ((idle 0) { volDb = db }) - v) <= 1
+          _ -> false)
+      (Array.range 0 127))
+
+  assert "and every position of the decay knob"
+    (Array.all
+      (\v -> case LoopTw.fromKnob LoopTw.PDecay v of
+          LB.Decay db -> intAbs (LoopTw.toKnob LoopTw.PDecay ((idle 0) { decayDb = db }) - v) <= 1
+          _ -> false)
+      (Array.range 0 127))
+
+  -- The bend is where a fader bends: half the travel on the first 12 dB.
+  assert "the level fader spends its top half on the first 12 dB"
+    (LoopTw.fromKnob LoopTw.PLevel 127 == LB.Level 0.0
+      && LoopTw.fromKnob LoopTw.PLevel 64 == LB.Level (-12.0)
+      && LoopTw.fromKnob LoopTw.PLevel 0 == LB.Level (-60.0))
+
+  -- **Decay counts down from hold**, the same way round as the level, and stops
+  -- at the ladder's own floor rather than the daemon's. Every value the MC6's
+  -- ladder can step to is reachable on the knob, which is the test that the two
+  -- surfaces are describing one parameter.
+  assert "decay holds at the top and reaches the ladder's floor at the bottom"
+    (LoopTw.fromKnob LoopTw.PDecay 127 == LB.Decay 0.0
+      && LoopTw.fromKnob LoopTw.PDecay 64 == LB.Decay (-3.0)
+      && LoopTw.fromKnob LoopTw.PDecay 0 == LB.Decay (-12.0))
+
+  assert "and a fresh loop's decay knob sits at the top, not the bottom"
+    (LoopTw.toKnob LoopTw.PDecay (idle 0) == 127)
+
+  -- **Centre sticks**, because the Midifighter's own detent is a setting in its
+  -- configuration utility and this app keeps no device configuration. Pan you
+  -- meant to centre is centred rather than one step off it.
+  assert "pan and speed snap to the middle, and nothing else does"
+    (LoopTw.fromKnob LoopTw.PPlace 63 == LB.Place 64
+      && LoopTw.fromKnob LoopTw.PPlace 66 == LB.Place 64
+      && LoopTw.fromKnob LoopTw.PPlace 60 == LB.Place 60
+      && LoopTw.fromKnob LoopTw.PRate 63 == LB.Rate 1.0
+      && LoopTw.fromKnob LoopTw.PChance 63 /= LoopTw.fromKnob LoopTw.PChance 64)
+
+  -- **The ring is the value, and on this device that is not a display
+  -- choice.** The ring and the encoder's own position are one number, so a
+  -- playhead drawn round a loop's ring was a playhead written into the value
+  -- its next touch would send — and a loop selected for recording went silent,
+  -- because the press nudged it and it said whatever the playhead had left
+  -- there. Pinned so nothing puts a second thing on a ring that carries a
+  -- value.
+  assert "a loop encoder's ring reads its level back, and follows the engine"
+    (map _.ring (Array.take 1 (LoopTw.leds (rigOf [ (idle 0) { volDb = 0.0, phase = 0.7 } ]) 0))
+      == [ 127 ]
+      && map _.ring (Array.take 1 (LoopTw.leds (rigOf [ (idle 0) { volDb = -60.0, phase = 0.7 } ]) 0))
+        == [ 0 ])
+
+  -- **The page is the app's, not the device's.** Reading an encoder against
+  -- the bank in its own CC left the only way between pages on a side button
+  -- nobody here can program or verify — and stuck on page 2 with no way home is
+  -- what that cost. So the same physical encoder means different things on
+  -- different pages, and which page is a fact this app holds.
+  assert "the same encoder is a different control on each page"
+    (LoopTw.pressedAt { bank: 0, index: 0 } == Just (Tuple (LB.OnLoop 0) (LB.SelectLoop 0))
+      && LoopTw.turnedAt { bank: 1, index: 0 } 127 == Just (Tuple LB.Focused (LB.Level 0.0)))
+
+  -- Both pages light sixteen encoders and neither knows which CC block they
+  -- land in — that is the caller's problem, because only the caller holds both
+  -- the page the app is on and the block the device is showing.
+  assert "a page lights sixteen encoders and names no bank"
+    (Array.length (LoopTw.leds (rigOf eight) 0) == 16
+      && Array.length (LoopTw.leds (rigOf eight) 1) == 16
+      && map _.index (LoopTw.leds (rigOf eight) 0) == Array.range 0 15)
+
+  -- **Level, not chance, under a loop's press** — and the reason is the
+  -- hardware: you cannot press one of these encoders without rotating it a
+  -- little on the way down, so whatever sits under the press is what a press
+  -- will nudge. A nudged level you hear at once and correct without thinking; a
+  -- nudged chance you do not hear until the pass it eats.
+  assert "a loop encoder's turn sets that loop's level"
+    (LoopTw.turnedAt { bank: 0, index: 5 } 127
+      == Just (Tuple (LB.OnLoop 5) (LB.Level 0.0))
+      && LoopTw.turnedAt { bank: 0, index: 5 } 0
+        == Just (Tuple (LB.OnLoop 5) (LB.Level (-60.0))))
+
+  assert "and the level knob spans silence to unity, both reachable"
+    (Array.all
+      (\v -> case LoopTw.fromKnob LoopTw.PLevel v of
+          LB.Level db -> db <= 0.0 && db >= -60.0
+          _ -> false)
+      (Array.range 0 127)
+      && LoopTw.fromKnob LoopTw.PLevel 127 == LB.Level 0.0
+      && LoopTw.fromKnob LoopTw.PLevel 0 == LB.Level (-60.0))
+
+  -- -30 dB sits below the knee, so it is in the bottom half of the travel and
+  -- not at the middle of it. That is the whole point of the bend: the middle
+  -- belongs to -12, where mixing happens.
+  assert "and the ring reads the level back off the snapshot"
+    (LoopTw.toKnob LoopTw.PLevel ((idle 0) { volDb = 0.0 }) == 127
+      && LoopTw.toKnob LoopTw.PLevel ((idle 0) { volDb = -60.0 }) == 0
+      && LoopTw.toKnob LoopTw.PLevel ((idle 0) { volDb = -12.0 }) == 64
+      && LoopTw.toKnob LoopTw.PLevel ((idle 0) { volDb = -30.0 }) == 40)
+
+  assert "the level verb spells as the daemon expects"
+    (LoopVerb.render (LoopVerb.Level 0.0) == "vol0.0"
+      && LoopVerb.render (LoopVerb.Level (-12.5)) == "vol-12.5")
+
+  -- **A flag on a single control has to flip.** `Grid 1` always set the grid
+  -- *on*, which is fine on the MC6 bank where Free sits beside it with a switch
+  -- of its own, and wrong the moment one encoder has to do both — pressing it
+  -- twice did nothing the second time. Found by printing the layout below, not
+  -- by reading the table.
+  assert "the grid encoder turns the grid off as well as on"
+    (Machine.perform (rigOf [ (idle 0) { quant = false } ]) LB.Focused LB.GridToggle
+      == [ Machine.Command "0g1" ]
+      && Machine.perform (rigOf [ (idle 0) { quant = true } ]) LB.Focused LB.GridToggle
+        == [ Machine.Command "0g0" ])
+
+  -- And the MC6's two switches are renderings of the same value, so they cannot
+  -- come to mean something different from the encoder.
+  assert "the bank's Grid and Free delegate to the same value duty"
+    (let r = rigOf [ idle 0 ]
+     in Array.filter isCommand (Machine.perform r LB.Focused (LB.Grid 4))
+          == Machine.perform r LB.Focused (LB.OnGrid true)
+       && Machine.perform r LB.Focused LB.Free
+            == Machine.perform r LB.Focused (LB.OnGrid false))
+
+  -- **The card cannot drift, because it is generated.** These pin that: a cell
+  -- with a control behind it must describe itself, and a cell with nothing
+  -- behind it must be blank rather than half-filled.
+  -- The pager counts as a control while having no duty at all — it asks nothing
+  -- of the looper, which is the whole reason it is a flag rather than a `Duty`.
+  assert "every control on the card describes itself, and every blank stays blank"
+    (Array.all
+      (\pg -> Array.all
+        (\c -> let k = { bank: pg.bank, index: c.index }
+                   has = LoopTw.pressedAt k /= Nothing || (LoopTw.controlAt k).pager
+               in if has then c.name /= "" && isJust c.press
+                  else c.name == "")
+        pg.cells)
+      LoopTw.pages)
+
+  -- **The pager is the same corner on every page**, because it is one control
+  -- rather than one per page, and a hand finds a corner without looking.
+  assert "the pager sits bottom-right on every page and nowhere else"
+    (Array.all
+      (\pg -> (LoopTw.controlAt { bank: pg.bank, index: 15 }).pager
+        && Array.all (\i -> not (LoopTw.controlAt { bank: pg.bank, index: i }).pager)
+             (Array.range 0 14))
+      LoopTw.pages)
+
+  -- Coarse enough that the press-nudge cannot page you by accident: two pages
+  -- across 128 steps is 64 steps a page.
+  assert "the pager's turn is quantised well clear of a nudge"
+    (LoopTw.pageAt 0 == 0 && LoopTw.pageAt 2 == 0
+      && LoopTw.pageAt 127 == LoopTw.pages' - 1
+      && LoopTw.pageRing 0 == 0
+      && LoopTw.pageRing (LoopTw.pages' - 1) == 127)
+
+  -- **Undo and Redo are one axis.** The scrub sends the difference between
+  -- where the knob is and what the daemon reports, so it cannot drift — and a
+  -- layer removed by a footswitch moves the knob rather than confusing it.
+  assert "the layer knob scrubs the undo stack by the difference"
+    (Machine.perform (rigOf [ (idle 0) { layers = 4 } ]) LB.Focused (LB.Layers 2)
+      == [ Machine.Command "0u", Machine.Command "0u"
+         , Machine.Handled "loop 1: 2 layers" ]
+      && Machine.perform (rigOf [ (idle 0) { layers = 2 } ]) LB.Focused (LB.Layers 4)
+        == [ Machine.Command "0y", Machine.Command "0y"
+           , Machine.Handled "loop 1: 4 layers" ]
+      && Machine.perform (rigOf [ (idle 0) { layers = 3 } ]) LB.Focused (LB.Layers 3)
+        == [])
+
+  -- Eight layers across 128 steps is sixteen steps a layer, and the press guard
+  -- only has to cover two — so the nudge is harmless by arithmetic rather than
+  -- by luck.
+  assert "a layer is sixteen steps wide, well clear of a press nudge"
+    (LoopTw.fromKnob LoopTw.PLayers 127 == LB.Layers 8
+      && LoopTw.fromKnob LoopTw.PLayers 0 == LB.Layers 0
+      && LoopTw.fromKnob LoopTw.PLayers 2 == LB.Layers 0
+      && LoopTw.toKnob LoopTw.PLayers ((idle 0) { layers = 4 }) == 64)
+
+  -- The rig's threshold is not a per-loop value and has no knob for that
+  -- reason; it still needs a verb, because the page sets it.
+  assert "the arm threshold goes unprefixed, like the click and the monitor"
+    (Machine.perform (rigOf [ idle 0 ]) LB.Focused (LB.ArmLevel (-24.0))
+      == [ Machine.Command "arm-24.0" ])
+
+  assert "the card names all eight loops, in order"
+    (map _.name (Array.take LB.nLoops (fromMaybe [] (map _.cells (Array.head LoopTw.pages))))
+      == map (\n -> "Loop " <> show n) (Array.range 1 LB.nLoops))
+
+  -- The range on the card is computed from the constant the knob actually uses.
+  -- A card claiming 250 ms while `fadeTop` said 200 would be worse than none.
+  assert "the printed ranges come from the scales themselves"
+    (LoopTw.paramRange LoopTw.PFade == "0 to 200 ms"
+      && LoopTw.paramRange LoopTw.PDecay == "hold at the top, down to −12 dB a pass")
+
+  -- Enumerated from `LoopPhase`, so a seventh state would appear on the card
+  -- rather than being quietly absent from the only place anyone would look.
+  assert "the colour key covers every phase a loop with material can be in"
+    (Array.length LoopTw.phaseKey == Array.length LooperSock.allPhases)
+
+  log ""
+  log "  The Twister, as the Looper page prints it:"
+  for_ LoopTw.pages \pg -> do
+    log ""
+    log ("    Page " <> show (pg.bank + 1) <> " — " <> pg.name)
+    for_ (Array.range 0 3) \row ->
+      log ("      " <> joinWith "  "
+        (map (\c -> padTo 16 (if c.name == "" then "·" else c.name))
+          (Array.slice (row * 4) (row * 4 + 4) pg.cells)))
+  log ""
+  log ("    loop colours: " <> joinWith ", "
+    (map (\k -> k.phase <> " " <> k.tone) LoopTw.phaseKey))
 
   -- Printed, not just asserted about. The map is the thing a person needs when
   -- deciding where to put the next bank, and a test that only says "no

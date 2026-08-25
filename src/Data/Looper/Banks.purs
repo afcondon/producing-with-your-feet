@@ -150,6 +150,7 @@ module Data.Looper.Banks
   , slotFromIndex
   , slotName
   , loopSwitches
+  , nLoops
   , switchCC
   , Gesture(..)
   , allGestures
@@ -165,6 +166,7 @@ module Data.Looper.Banks
   , switchLetter
   , auxLegend
   , Duty(..)
+  , Subject(..)
   , Duties
   , dutiesAt
   , dutyFor
@@ -175,6 +177,7 @@ module Data.Looper.Banks
   , dutyName
   , Rung
   , ladderLine
+  , levelWord
   , chanceLadder
   , stepChance
   , chanceWord
@@ -196,6 +199,10 @@ module Data.Looper.Banks
   , switchDouble
   , switchHold
   , boardRows
+  , loopRows
+  , switchLoops
+  , loopAtSwitch
+  , switchForLoop
   , Jump(..)
   , sendsTo
   , banks
@@ -222,13 +229,33 @@ switchChannel = 9
 stride :: Int
 stride = 16
 
--- | How many of the loop bank's switches address a loop.
+-- | How many of the eight loops the **MC6** can reach.
 -- |
--- | Must equal `N_LOOPS` in the daemon. Six because that is what the MC6 has
--- | underfoot without an FS3X, and a loop you can only reach through an
--- | accessory is a loop you will not use.
+-- | **This used to say "must equal `N_LOOPS` in the daemon", and it deliberately
+-- | no longer does.** Six was the MC6's number — what it has underfoot without
+-- | an FS3X — and `N_LOOPS` was set to match it. With the web page as the
+-- | reference surface and the Twister as a second controller (`DESIGN-TWISTER`
+-- | §1, §5) that reasoning inverts: the loop count comes from the instrument,
+-- | and the foot reaches what it can.
+-- |
+-- | So this is a fact about the *device*, and `nLoops` is the fact about the
+-- | *instrument*. Restoring the equality would give the app two ghost loops it
+-- | could see and never address.
 loopSwitches :: Int
 loopSwitches = 6
+
+-- | How many loops Itajara has. **Must equal `N_LOOPS` in the daemon** — that
+-- | invariant moved here from `loopSwitches` rather than being dropped.
+-- |
+-- | Eight to match the Twister's 4×4: the top two rows of its first bank are
+-- | the loops, one encoder each. Seven and eight are reachable from the page
+-- | and the Twister and not from the MC6, which is not a deficiency — they are
+-- | the ones you *set up* rather than stomp.
+-- |
+-- | The wire is unaffected: `dispatch` picks the loop from a single leading
+-- | digit, so 0–7 still fits.
+nLoops :: Int
+nLoops = 8
 
 -- | The banks, as roles rather than numbers. Which MC6 bank each lands on is a
 -- | deployment question (`banks` takes a base); which bank a press came from is
@@ -453,6 +480,54 @@ auxLegendAt slot = Array.catMaybes (map entry (Array.range mc6OwnSwitches (switc
 boardRows :: Array (Array Int)
 boardRows = [ [ 3, 4, 5 ], [ 0, 1, 2 ] ]
 
+-- | **The loops, four across and two down, on every surface at once.**
+-- |
+-- | This is the harmonisation, decided 2026-08-25, and it is a reversal worth
+-- | stating plainly: the loop order used to be the *MC6's*, because the MC6 was
+-- | once the only way to reach a loop and its switches number from the bottom.
+-- | So loop 1 was switch A, on the near row, and the screen drew A B C below
+-- | D E F to match.
+-- |
+-- | With eight loops and a 4×4 controller that tail is wagging the dog. The
+-- | Twister's top-left encoder is loop 1 because that is what a grid of eight
+-- | things obviously means, the page draws the same two rows of four, and the
+-- | **pedal is the surface that has to fit in** — it covers the left three
+-- | columns of both rows and simply lacks the fourth.
+-- |
+-- | Which is the shape an MC8 would fill exactly: four across, two down, loops
+-- | 4 and 8 in the column the MC6 does not have. The layout is already waiting
+-- | for it.
+loopRows :: Array (Array Int)
+loopRows = [ [ 0, 1, 2, 3 ], [ 4, 5, 6, 7 ] ]
+
+-- | Which loop each of the MC6's six switches selects, by switch index.
+-- |
+-- | **The device numbers from the bottom** — A B C is the near row, under your
+-- | toes, and D E F the far one — so the far row holds the *top* row of
+-- | `loopRows` and the near row holds the bottom. Read it as the grid with its
+-- | right-hand column removed and its rows swapped, because that is exactly
+-- | what it is.
+-- |
+-- | ```
+-- |   the page and the Twister      the MC6
+-- |     1  2  3  4                    D  E  F      (far row)
+-- |     5  6  7  8                    A  B  C      (near row)
+-- | ```
+-- |
+-- | One table, both directions, so a switch and the letter printed beside a
+-- | loop on screen cannot come to disagree. **Changing this needs the MC6
+-- | re-uploaded**: the labels are compiled from it.
+switchLoops :: Array Int
+switchLoops = [ 4, 5, 6, 0, 1, 2 ]
+
+loopAtSwitch :: Int -> Maybe Int
+loopAtSwitch = Array.index switchLoops
+
+-- | Which switch selects a loop, or `Nothing` for the two the pedal cannot
+-- | reach.
+switchForLoop :: Int -> Maybe Int
+switchForLoop l = Array.findIndex (_ == l) switchLoops
+
 -- | One switch, as a view is allowed to see it.
 -- |
 -- | Opaque, and that is the whole point: **a view cannot make one up.** Three
@@ -523,9 +598,20 @@ faceAux (Face m) = case m of
 -- | The letters are only true on the loop bank. With the board on config, A is
 -- | Quantise — so labelling the first loop "A" there points a foot at the wrong
 -- | thing, which is the same fault the legend had.
+-- | What to print on a loop: the letter of the switch that selects it when the
+-- | board is showing the loop bank, its own number otherwise.
+-- |
+-- | **Through `switchForLoop`, not through the loop's index.** Those were the
+-- | same number until the surfaces were harmonised and are not any more: loop 1
+-- | is switch D. Reading the letter straight off the index would print "A"
+-- | beside loop 1 and send the foot to the wrong corner of the pedal — and the
+-- | two would still agree perfectly on loop 5, which is the kind of half-right
+-- | that survives testing.
+-- |
+-- | Loops with no switch have no letter; their number is the honest answer.
 faceLoopKey :: Face -> Int -> String
 faceLoopKey (Face m) i = case m of
-  Just LoopBank -> fromMaybe (show (i + 1)) (switchLetter i)
+  Just LoopBank -> fromMaybe (show (i + 1)) (switchForLoop i >>= switchLetter)
   _ -> show (i + 1)
 
 data Jump = ToSlot BankSlot | ToBoard
@@ -685,6 +771,93 @@ data Duty
   | Grid Int
   | Rate Number
   | Place Int
+
+  -- ## The verbs the CC table had and this one did not
+  --
+  -- Until 2026-08-25 there were two vocabularies: this one, reached by foot,
+  -- and the CC table in `Data.Looper` reached by the page. `Multiply` lived
+  -- only in the second — the MC6 loop family has never had a switch for it —
+  -- so the *reference* surface could ask for something the machine had no word
+  -- for. Folding the page onto the machine (`DESIGN-TWISTER` §4) means this
+  -- type gains everything the CC table could express.
+
+  -- | Extend by whole cycles while it runs, and close on the next press. Asks
+  -- | "how many bars of this?" where `SpreadLoop` asks "how often?".
+  | MultiplyLoop
+  -- | The layer keeps its length and the loop grows around it, so the pass
+  -- | sounds one cycle in `n`. Structural, instant and reversible; it records
+  -- | nothing.
+  | SpreadLoop Int
+  -- | Move a spread layer one slot later in its cycle.
+  | RotateLoop
+  -- | Sound every cycle again — the way back from `SpreadLoop`, and the reason
+  -- | spreading is safe to try mid-take.
+  | DenseLoop
+  -- | Let go of the length that `Undo` deliberately kept. The third of the
+  -- | three erasures, and the one that is a between-takes decision.
+  | ForgetLength
+  -- | Input monitoring. Global in the engine, like the click.
+  | MonitorToggle
+
+  -- ## Value duties
+  --
+  -- The same parameters as `StepChance`, `StepFade` and `StepDecay`, carrying a
+  -- value rather than a direction. **The step duties are defined in terms of
+  -- these** (`Data.Looper.Machine`): a ladder is a *rendering* of a parameter
+  -- for a surface that can only press, and the value is the parameter. One
+  -- place where chance becomes a command means a footswitch and a knob cannot
+  -- disagree — the argument `Data.Looper.Verb` makes about spellings, one level
+  -- up.
+  --
+  -- `Rate` and `Place` above are the same family; they got here first, put
+  -- there by the Speed and Pan banks.
+
+  -- | The two global flags, as values rather than flips.
+  -- |
+  -- | `ClickToggle` and `MonitorToggle` above are defined in terms of these, the
+  -- | same way the `Step*` family is defined in terms of `Chance` and friends. A
+  -- | footswitch programmed as an MC6 *native toggle* sends 127 and 0 on
+  -- | alternate presses and must **set** from that value — flipping there would
+  -- | flip twice per press — while a momentary switch has no value to carry and
+  -- | must ask what the current one is. Both, one meaning.
+  | Click Boolean
+  | Monitor Boolean
+
+  -- | Whether this loop waits for the grid, as a value — and the flip that a
+  -- | surface with no value to send needs.
+  -- |
+  -- | **`Grid n` and `Free` are the MC6's rendering of these**, and delegate to
+  -- | them the way `StepChance` delegates to `Chance`. They had to be: a control
+  -- | whose press always sets *on* cannot be pressed twice, which is fine on a
+  -- | bank where `Free` sits beside it with a switch of its own and wrong
+  -- | anywhere else. The Twister found it — one encoder for a flag means the
+  -- | encoder has to flip.
+  | OnGrid Boolean
+  | GridToggle
+
+  -- | How many layers should be live — the undo stack as a **position** rather
+  -- | than as two buttons.
+  -- |
+  -- | Undo and Redo are one axis and had two controls, which on a device whose
+  -- | encoders report an absolute position is a waste of the thing it is good
+  -- | at. `perform` compares this with what the daemon reports and sends the
+  -- | difference as `u`s or `y`s, so the knob is a scrub through the stack and
+  -- | the ring shows how deep you are.
+  -- |
+  -- | Nudge-proof by arithmetic rather than by luck: eight layers across 128
+  -- | steps is sixteen steps a layer, and the press guard only has to cover two.
+  | Layers Int
+  -- | The rig's level-arm threshold, in decibels. Not per loop.
+  | ArmLevel Number
+  -- | This loop's level, in decibels. Zero is unity, -60 is silence.
+  | Level Number
+  -- | How often a pass sounds, as a probability. `1.0` is always.
+  | Chance Number
+  -- | How much of the wrap is crossfaded, in milliseconds. Zero is a hard join.
+  | Fade Number
+  -- | How much a pass costs what is already there, in decibels. Zero holds.
+  | Decay Number
+
   -- | Named, unimplemented, and still occupying its switch. Carries what it
   -- | would be called and what it is waiting for, so a press answers with the
   -- | reason rather than with silence.
@@ -692,6 +865,26 @@ data Duty
   | Nothing_
 
 derive instance Eq Duty
+
+-- | Which loop a duty is about.
+-- |
+-- | **An argument to `Data.Looper.Machine.perform`, not a field of `Duty`**, and
+-- | that is the whole point of it: with the subject explicit there is no way to
+-- | send a per-loop verb without having said which loop, because the compiler
+-- | asks. The bug it kills is a class rather than an instance — `SaveTake`
+-- | wrote loop 1 whatever the board was focused on for as long as the CC table
+-- | rendered bare, and every other per-loop verb on that table had the same
+-- | fault waiting.
+-- |
+-- | The MC6 always passes `Focused`: six switches cannot name eight loops in a
+-- | parameter gesture. The Twister passes `OnLoop i` for its per-loop encoders,
+-- | because there every loop has its own knob and turning one must not steal
+-- | focus from another.
+data Subject
+  = Focused
+  | OnLoop Int
+
+derive instance Eq Subject
 
 -- | The eight characters the MC6 prints. Refused rather than truncated by
 -- | `Data.MC6.Model.shortName` downstream, so a label that will not fit is a
@@ -726,6 +919,25 @@ dutyLabel = case _ of
   Grid n -> show n <> (if n == 1 then " Bar" else " Bars")
   Rate r -> "x " <> rateWord r
   Place p -> placeWord p
+  MultiplyLoop -> "Multiply"
+  SpreadLoop _ -> "Spread"
+  RotateLoop -> "Shift"
+  DenseLoop -> "Dense"
+  ForgetLength -> "Length"
+  MonitorToggle -> "Monitor"
+  -- The value goes in `dutyName`, not here. Eight characters cannot hold
+  -- "Chance 3 in 4", and these three never reach an MC6 switch anyway — they
+  -- are what the knobs and the page send.
+  Click _ -> "Click"
+  Monitor _ -> "Monitor"
+  OnGrid _ -> "Grid"
+  GridToggle -> "Grid"
+  Layers _ -> "Layers"
+  ArmLevel _ -> "Listen at"
+  Level _ -> "Level"
+  Chance _ -> "Chance"
+  Fade _ -> "Fade"
+  Decay _ -> "Decay"
   NotYet l _ -> l
   Nothing_ -> ""
 
@@ -762,8 +974,37 @@ dutyName = case _ of
   Grid n -> "Round to " <> show n <> (if n == 1 then " bar" else " bars")
   Rate r -> rateWord r <> " speed"
   Place p -> placeWord p <> " in the field"
+  MultiplyLoop -> "Extend by whole cycles"
+  SpreadLoop n -> "Sound one cycle in " <> show n
+  RotateLoop -> "Move it one slot later"
+  DenseLoop -> "Sound every cycle again"
+  ForgetLength -> "Let go of the length"
+  MonitorToggle -> "Input monitoring"
+  Click on -> "Click " <> onOff on
+  Monitor on -> "Monitoring " <> onOff on
+  OnGrid on -> if on then "Waits for the grid" else "Free length and launch"
+  GridToggle -> "Wait for the grid, or not"
+  Layers n -> "Keep " <> show n <> (if n == 1 then " layer" else " layers")
+  ArmLevel db -> "Starts at " <> show (Int.round db) <> " dBFS"
+  Level db -> "Plays at " <> levelWord db
+  Chance p -> "Sounds " <> chanceWord p
+  Fade ms -> "Wraps " <> fadeWord ms
+  Decay db -> "Decays " <> decayWord db
   NotYet l _ -> l
   Nothing_ -> ""
+
+-- | A level in words. The daemon's own vocabulary — "full" and "silent" rather
+-- | than "0.0 dB" and "-60.0 dB", because those are things a meter says and not
+-- | things a person does.
+levelWord :: Number -> String
+levelWord db
+  | db >= 0.0 = "full"
+  | db <= -60.0 = "silent"
+  | otherwise = show (Int.round db) <> " dB"
+
+-- | For the duties whose whole content is a boolean.
+onOff :: Boolean -> String
+onOff on = if on then "on" else "off"
 
 -- | A value a switch can step to, and what to call it.
 -- |
@@ -1083,7 +1324,10 @@ own = case _ of
   -- Carrying one meaning, they sit on `ActionPress` and report the instant a
   -- foot lands. The verbs they used to carry are on `LoopPage`, one switch and
   -- one printed name each.
-  LoopBank -> map (only <<< SelectLoop) (Array.range 0 (loopSwitches - 1))
+  -- **Not switch order — grid order.** Switch A selects loop 5, because A is
+  -- the bottom-left switch and loop 5 is the bottom-left loop. See
+  -- `switchLoops`.
+  LoopBank -> map (only <<< SelectLoop) switchLoops
 
   -- **The verbs, for whichever loop is in hand.**
   --

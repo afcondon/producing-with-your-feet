@@ -1885,13 +1885,137 @@ body {
 .face-tab:last-child { border-right-width: 1px; }
 .face-tab.on { background: #3a7d6c; border-color: #3a7d6c; color: #fff; }
 
+/* A once-a-session calibration of the room, sitting with the transport rather
+   than on a performance surface. */
+.looper-arm {
+  display: inline-flex; align-items: center; gap: 8px; margin-left: 14px;
+  font-size: 12px; color: #6b6459;
+}
+.looper-arm input[type=range] { width: 120px; accent-color: #3a7d6c; }
+.looper-arm-value {
+  font-variant-numeric: tabular-nums; min-width: 62px; color: #4a453d;
+}
+
+/* ── The Twister's layout, at the foot of the Looper page ──────────────────
+   A reference rather than a control: read once, learn the page, stop looking.
+   Folded shut by default, and laid out four-by-four because that is how the
+   device is laid out — any other arrangement would be a second mapping to hold
+   in your head while using the first. */
+.twister-map {
+  margin: 28px 0 8px; border-top: 1px solid #ded9d1; padding-top: 14px;
+}
+.twister-map > summary {
+  cursor: pointer; font-size: 13px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: #6b6459; list-style: none;
+  display: flex; align-items: baseline; gap: 12px;
+}
+.twister-map > summary::-webkit-details-marker { display: none; }
+.twister-map > summary::before { content: "▸ "; color: #a39a8c; }
+.twister-map[open] > summary::before { content: "▾ "; }
+.twister-map-status {
+  font-size: 11px; letter-spacing: 0.04em; text-transform: none; color: #a39a8c;
+}
+.twister-map-body { padding-top: 16px; }
+.twister-map-intro, .twister-map-caveat {
+  max-width: 62ch; font-size: 13px; line-height: 1.55; color: #6b6459;
+  margin: 0 0 18px;
+}
+.twister-map-caveat { margin: 18px 0 0; font-style: italic; }
+
+.twister-pages { display: flex; flex-wrap: wrap; gap: 32px; align-items: start; }
+.twister-page { flex: 1 1 380px; min-width: 340px; }
+.twister-page h4 {
+  margin: 0 0 4px; font-size: 15px; font-weight: 600; letter-spacing: 0.01em;
+  display: flex; align-items: baseline; gap: 10px;
+}
+.twister-page-num {
+  font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: #a39a8c; font-weight: 500;
+}
+.twister-page-here {
+  font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: #4a9a52; border: 1px solid #b8d6bb; border-radius: 2px;
+  padding: 1px 6px; font-weight: 500;
+}
+.twister-page-go {
+  font-size: 10px; letter-spacing: 0.04em; color: #6b6459;
+  background: #f5f2ed; border: 1px solid #ded9d1; border-radius: 2px;
+  padding: 2px 8px; cursor: pointer; font-family: inherit;
+}
+.twister-page-go:hover { background: #ebe6df; }
+
+.twister-page-note {
+  margin: 0 0 12px; font-size: 12px; line-height: 1.5; color: #857d70;
+  max-width: 52ch;
+}
+
+/* Four across, four down. Cells keep a common height here — unlike the loop
+   slots, where a taller cell means more layers, these are all the same kind of
+   thing and a ragged grid would just be harder to scan. */
+.twister-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+}
+.twister-cell {
+  border: 1px solid #ded9d1; background: #fbfaf8; padding: 7px 8px 8px;
+  display: flex; flex-direction: column; gap: 3px; min-height: 74px;
+}
+.twister-cell.is-empty { background: transparent; border-style: dashed; opacity: 0.4; }
+.twister-cell-head { display: flex; align-items: center; gap: 6px; }
+.twister-cell-name {
+  font-size: 12px; font-weight: 600; line-height: 1.15; flex: 1;
+}
+.twister-cell-line { font-size: 10.5px; line-height: 1.35; color: #6b6459; }
+.twister-cell-verb {
+  display: inline-block; min-width: 34px; color: #a39a8c;
+  letter-spacing: 0.04em; text-transform: uppercase; font-size: 9px;
+}
+.twister-cell-shows {
+  font-size: 10px; line-height: 1.3; color: #a39a8c; font-style: italic;
+  margin-top: auto; padding-top: 3px;
+}
+
+/* The tones are what the app ASKS the device for. Nobody has compared them
+   with what it does, which is why the card says so in words as well. */
+.twister-swatch {
+  width: 10px; height: 10px; border-radius: 50%; display: inline-block;
+  flex: 0 0 auto; border: 1px solid rgba(0,0,0,0.15);
+}
+.tone-red     { background: #c0392b; }
+.tone-orange  { background: #d97b28; }
+.tone-yellow  { background: #d9b526; }
+.tone-green   { background: #4a9a52; }
+.tone-teal    { background: #3a9d92; }
+.tone-blue    { background: #3a72b8; }
+.tone-violet  { background: #8a5fb0; }
+.tone-off     { background: #efece7; }
+
+.twister-phases { margin-top: 22px; }
+.twister-phases h4 {
+  margin: 0 0 8px; font-size: 12px; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase; color: #6b6459;
+}
+.twister-phase-row { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.twister-phase {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11.5px; color: #4a453d;
+}
+
 /* Cells align at the TOP, not stretched to a common height. A loop with four
    layers is a taller object than a loop with one, and saying so is the whole
    point of drawing layers as rows. */
+/* Four across, two down — the Twister's own top half, and the shape an MC8
+   would fill exactly. It was three across while the MC6 dictated the order. */
 .loops-grid {
-  display: grid; grid-template-columns: repeat(3, 1fr);
-  gap: 14px; margin-bottom: 12px; align-items: start;
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: 12px; margin-bottom: 12px; align-items: start;
 }
+
+/* Loops 4 and 8 have no switch on the board — they are the fourth column the
+   MC6 does not have. Marked rather than hidden: they are as real as the others,
+   and the dashed edge is the whole of the difference. An MC8 would fill them
+   and this rule would stop matching anything. */
+.loop-slot.is-offboard { border-style: dashed; }
+.loop-slot.is-offboard .loop-letter { opacity: 0.55; }
 
 .loop-slot {
   border: 1px solid #ded9d1; border-top: 3px solid #ded9d1;
@@ -3932,6 +4056,9 @@ body {
   <div id="app"></div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <script src="./index.js"></script>
+  <!-- Stamped by tools/bundle.sh with the bundle's own mtime. Without it a
+       reload can serve yesterday's app and say nothing, which has cost this
+       project whole afternoons more than once. -->
+  <script src="./index.js?v=1787669238"></script>
 </body>
 </html>

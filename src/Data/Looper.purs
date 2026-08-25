@@ -27,7 +27,7 @@ module Data.Looper
 import Prelude
 
 import Data.Array as Array
-import Data.Looper.Verb as Verb
+import Data.Looper.Banks (Duty(..), Subject(..))
 import Data.MC6.Message as MC6Msg
 import Data.MC6.Types (MC6Action(..))
 import Data.MC6.ControlBank (ControlBank, ControlBankSwitch, ccMomentaryMessages, ccToggleMessages)
@@ -47,14 +47,29 @@ isItajara pid = pid == itajaraId
 
 -- | What a CC change should do.
 data Dispatch
-  -- | Send this to the daemon.
+  -- | Ask the machine for this, about this loop.
   -- |
-  -- | A `Verb` rather than the text of one: this table and the board's in
-  -- | `Data.Looper.Machine` are two independent maps onto the same vocabulary,
-  -- | and while both spelled it out longhand neither could be checked against
-  -- | the other or against `dispatch`. `Data.Looper.Verb.render` is now the one
-  -- | place a command becomes a string.
-  = Send Verb.Verb
+  -- | **A `Duty`, not a `Verb`, since 2026-08-25.** This table used to name
+  -- | verbs directly and go straight to the socket, which made it a *second
+  -- | meaning table* running beside `Data.Looper.Machine` — and the page, which
+  -- | is the reference surface, was the half on the wrong side of it. Two
+  -- | consequences that were live bugs rather than untidiness:
+  -- |
+  -- | * it rendered **bare**, so every per-loop command from the page reached
+  -- |   whichever loop the *daemon* had selected rather than the focused one.
+  -- |   That fault is documented on `Verb.SaveTake`, where it was found and
+  -- |   fixed for one verb; it was true of every verb on this table.
+  -- | * the two vocabularies had drifted. `Multiply` existed only here, so the
+  -- |   page could ask for something the machine had no word for; `redo` and
+  -- |   `loop save` were marked unimplemented here while the machine had been
+  -- |   doing both for weeks.
+  -- |
+  -- | So this is now an **addressing** table, not a meaning one: it says which
+  -- | duty a CC names, and `Data.Looper.Machine.perform` says what that means.
+  -- | It keeps its job because the MC6 assignment UI, board presets and the
+  -- | pedal face all index Itajara by CC — `DESIGN-LOOPER` §2 is still right
+  -- | that a virtual pedal addressed by CC buys all of that for free.
+  = Do Subject Duty
   -- | In the surface, not yet in the engine. Carries its own name so the log
   -- | says which feature is missing rather than just refusing.
   | NotYetImplemented String
@@ -69,31 +84,45 @@ derive instance Eq Dispatch
 -- | `Component.App` also mirrors the daemon's reported `click` and `monitor`
 -- | back into pedal state on every poll: for the things the engine owns, the
 -- | snapshot is authoritative and the app follows it rather than the reverse.
+-- |
+-- | Everything here addresses `Focused`. That is not a shortcut — the pedal
+-- | face, the MC6 and a board preset all speak about *the loop in hand*, and
+-- | the only surface that names a loop while acting on it is the Twister, which
+-- | does not come through this table.
 command :: CC -> MidiValue -> Dispatch
 command theCC val = case unCC theCC of
   -- Transport
-  1 -> onPress (Send Verb.Record)
-  2 -> onPress (Send Verb.Multiply)
-  3 -> onPress (Send Verb.Undo)
-  4 -> onPress (NotYetImplemented "redo — undo currently wipes the layer rather than unlinking it")
-  5 -> onPress (Send Verb.ClaimPast)
-  6 -> onPress (Send Verb.Clear)
-  7 -> NotYetImplemented "play/stop"
+  1 -> onPress (Do Focused RecordLoop)
+  2 -> onPress (Do Focused MultiplyLoop)
+  3 -> onPress (Do Focused Undo)
+  -- **Was marked unimplemented here while the machine was already doing it.**
+  -- `Redo` has had a duty and a `y` in `dispatch` since undo started keeping
+  -- what it removes; only this table had not heard.
+  4 -> onPress (Do Focused Redo)
+  5 -> onPress (Do Focused ClaimPast)
+  6 -> onPress (Do Focused ClearLoop)
+  -- **`Transport` is implemented and this CC still cannot carry it.** CC 7 is
+  -- Itajara's `SingleEngage` CC, so the app sends it by itself whenever a board
+  -- preset is recalled — and a bypass that stopped or started the focused loop
+  -- would be the machine confidently doing something nobody asked for. Stop/Go
+  -- is reachable from the MC6 loop page, from the Twister and from the page's
+  -- own button; it is this *CC* that is spoken for, not the duty.
+  7 -> NotYetImplemented "play/stop on CC 7 — that CC is the pedal's engage"
   8 -> NotYetImplemented "global reverse"
   9 -> NotYetImplemented "global half speed"
 
-  -- The second multiply. Where `x` asks "how many bars of this?" and answers by
-  -- repeating, these ask "how often?" and answer by leaving room: the layer
-  -- keeps its length and the loop grows around it. Structural rather than
-  -- recorded, so they cost no bars and `d` puts it back.
-  10 -> onPress (Send (Verb.Spread 2))
-  11 -> onPress (Send Verb.Rotate)
-  12 -> onPress (Send Verb.Dense)
+  -- The second multiply. Where `x` asks "how many bars of this?", these ask
+  -- "how often?" and answer by leaving room: the layer keeps its length and the
+  -- loop grows around it. Structural rather than recorded, so they cost no bars
+  -- and Dense puts it back.
+  10 -> onPress (Do Focused (SpreadLoop 2))
+  11 -> onPress (Do Focused RotateLoop)
+  12 -> onPress (Do Focused DenseLoop)
 
   -- Undo keeps the length on purpose, so there has to be a way to let go of it.
   -- Three erasures, deliberately separate: undo a layer, forget the length,
   -- clear both.
-  13 -> onPress (Send Verb.ForgetLength)
+  13 -> onPress (Do Focused ForgetLength)
 
   -- Source and routing
   20 -> NotYetImplemented "record source select"
@@ -118,15 +147,19 @@ command theCC val = case unCC theCC of
   70 -> NotYetImplemented "loop select"
   71 -> onPress (NotYetImplemented "loop next")
   72 -> onPress (NotYetImplemented "loop previous")
-  73 -> onPress (NotYetImplemented "loop save")
+  -- The other one this table had marked missing. `w` writes the layers out and
+  -- the daemon answers with where it put them.
+  73 -> onPress (Do Focused SaveTake)
   74 -> onPress (NotYetImplemented "loop load")
 
-  -- Global. The explicit `k1`/`k0` forms rather than the flipping `k`, so a
-  -- dropped command cannot leave the app and the engine disagreeing forever.
+  -- Global. **Set from the value, never flipped.** These two are the CCs an MC6
+  -- *native toggle* lands on — 127 and 0 on alternate presses — so the value is
+  -- the instruction. `ClickToggle` is the duty for a surface with no value to
+  -- send; this is the one with.
   80 -> NotYetImplemented "loop level"
-  81 -> Send (Verb.Click on)
+  81 -> Do Focused (Click on)
+  83 -> Do Focused (Monitor on)
   82 -> NotYetImplemented "click level"
-  83 -> Send (Verb.Monitor on)
 
   n | n >= 40 && n <= 47 -> NotYetImplemented ("layer " <> show (n - 39) <> " mute")
     | n >= 48 && n <= 55 -> NotYetImplemented ("layer " <> show (n - 47) <> " level")

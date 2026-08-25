@@ -1,4 +1,4 @@
--- | Six loops, laid out the way they sit under your feet.
+-- | Eight loops, four across and two down — the same grid on every surface.
 -- |
 -- | The MC6 has no per-switch LEDs, only an LCD, so **all real feedback about
 -- | the looper lives here** (`itajara-in-atlantis` §"The display"). The board
@@ -6,11 +6,23 @@
 -- |
 -- | ## The grid mirrors the pedal
 -- |
--- | Three across and two down, because that is the MC6's own arrangement of
--- | switches A–F, and loop 1 is switch A. Nothing here has to be looked up:
--- | the slot in the top-left of the screen is the switch at the top-left of the
--- | board. Any other arrangement — a column of six, a list — would be a second
--- | mapping to hold in your head while standing on the first one.
+-- | Four across and two down, because that is what eight loops obviously look
+-- | like and because it is the Twister's own top half: encoder 1 is loop 1, and
+-- | the slot in the top-left of the screen is the encoder in the top-left of the
+-- | controller. Nothing has to be looked up.
+-- |
+-- | **This used to be the MC6's arrangement and deliberately is not any more.**
+-- | Three across and two down, drawn D E F above A B C, because the pedal
+-- | numbers its switches from the bottom and was once the only way to reach a
+-- | loop. With eight loops and a 4×4 controller that was the tail wagging the
+-- | dog, so the pedal is now the surface that fits in: it covers the left three
+-- | columns of both rows and lacks the fourth. Each slot prints the letter of
+-- | the switch that selects it — D for loop 1 — so the foot still has an
+-- | answer, and loops 4 and 8 print their number because no foot can reach
+-- | them. An MC8 would fill that column exactly.
+-- |
+-- | `LB.loopRows` owns the arrangement and `LB.switchForLoop` owns the letters;
+-- | this module only draws them.
 -- |
 -- | Which took a correction to actually be true. **The MC6 numbers from the
 -- | bottom**: A B C is the near row and D E F the far one, so drawing the loops
@@ -86,7 +98,7 @@ import Data.Array as Array
 import Data.Int (round, toNumber)
 import Data.String (joinWith)
 import Halogen (AttrName(..), ElemName(..), Namespace(..))
-import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Maybe (Maybe(..), fromMaybe, isNothing)
 import Data.Looper.Banks as LB
 import Foreign.LooperSocket (LoopState, LayerShape, LooperState)
 import Foreign.LooperSocket as Looper
@@ -116,7 +128,7 @@ render :: forall w i. LooperState -> Int -> LB.Face -> HH.HTML w i
 render lp focus fc =
   HH.div [ HP.class_ (HH.ClassName "loops") ]
     [ HH.div [ HP.class_ (HH.ClassName "loops-grid") ]
-        (Array.mapMaybe cell (join LB.boardRows))
+        (Array.mapMaybe cell (join LB.loopRows))
     , utilities fc
     , legend lp focus
     ]
@@ -181,7 +193,8 @@ slot :: forall w i. LooperState -> Int -> LB.Face -> Int -> LoopState -> HH.HTML
 slot top focus fc idx st =
   HH.div
     [ HP.class_ (HH.ClassName ("loop-slot " <> stateClass st
-        <> (if focus == idx then " is-selected" else ""))) ]
+        <> (if focus == idx then " is-selected" else "")
+        <> (if isNothing (LB.switchForLoop idx) then " is-offboard" else ""))) ]
     [ HH.div [ HP.class_ (HH.ClassName "loop-head") ]
         [ HH.span [ HP.class_ (HH.ClassName "loop-letter") ]
             [ HH.text (LB.faceLoopKey fc idx) ]
@@ -520,6 +533,13 @@ marks st = Array.catMaybes
   -- what is happening. A one-shot fires where any other loop stops.
   [ if st.oneShot then Just (Foot "1 shot") else Nothing
   , if st.levelArm then Just (Foot "listen") else Nothing
+  -- **Anything below full, said out loud.** A loop turned down is silent for a
+  -- reason no other mark would show, and that is not hypothetical: a knob left
+  -- one at -58 dB, `Clear All` did not restore it because clearing was the
+  -- thing that had failed to, and the slot showed a perfectly ordinary loop
+  -- making no sound. Shown as `Live` rather than `Set` because it is the loudest
+  -- fact about a loop that is not doing what you expect.
+  , if st.volDb >= 0.0 then Nothing else Just (Live (LB.levelWord st.volDb))
   -- Then the two that move on their own. A loop at 1 in 4 or losing 3 dB a pass
   -- is not where you left it, and nothing else on screen would say so.
   , if st.chance >= 1.0 then Nothing else Just (Live (LB.chanceWord st.chance))

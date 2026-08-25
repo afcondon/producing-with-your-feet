@@ -29,6 +29,8 @@ import Data.MC6.Wire as Wire
 import Data.Array as Array
 import Effect (Effect)
 import Data.Map (Map)
+import Data.Set (Set)
+import Data.Set as Set
 import Halogen as H
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
@@ -89,6 +91,53 @@ type AppState =
   , boardsActivePedal :: Maybe PedalId
   , overviewActivePedal :: Maybe PedalId
   , suppressTwister :: Boolean
+  -- | What each of the Twister's lights was last told to be, keyed by the CC
+  -- | that addresses it.
+  -- |
+  -- | **Not a belief about the device — a record of what we said.** The lights
+  -- | themselves are computed fresh from the daemon's snapshot every poll; this
+  -- | exists only so the app can send the ones that changed. Bank one's rings
+  -- | are playheads and move every frame, and writing all sixty-four lights ten
+  -- | times a second would put over a thousand messages a second on a wire that
+  -- | also carries twelve pedals.
+  -- |
+  -- | Cleared whenever the device is dimmed, because what it was told is no
+  -- | longer true of it.
+  , twisterLit :: Map Int { ring :: Int, hue :: Int }
+  -- | A turn that has arrived and is waiting to find out whether it was part of
+  -- | a press. Keyed by the encoder's CC; the value is its newest position.
+  -- |
+  -- | **Because you cannot press one of these without turning it.** The
+  -- | Midifighter's encoders rotate a little on the way down, so a press sends a
+  -- | nudge as well — and the value under a loop's press is exactly the value
+  -- | that nudge would move. See `Component.App.handleTwisterMsg`.
+  , twisterPending :: Map Int Int
+  -- | Encoders whose turns are being ignored because a press just landed on
+  -- | them. Cleared on a timer.
+  , twisterGuard :: Set Int
+  -- | Which page the Twister last spoke *from* — an observation, read off the
+  -- | wire. The bank travels in every encoder message, so this is what the
+  -- | device believes. `Nothing` until it says something.
+  , twisterHeardBank :: Maybe Int
+  -- | Which page the app is **showing** — its own, and authoritative.
+  -- |
+  -- | **Two fields because there are two facts, and conflating them was the
+  -- | mistake.** `Data.Twister` originally argued that the device owns the page
+  -- | and the CC carries it, which is a fine rule for *reading* and no use at
+  -- | all for getting back: it left the only way between pages on a side button
+  -- | whose behaviour nobody here can verify, and Andrew reported the obvious
+  -- | consequence — stuck on page 2 with no way home.
+  -- |
+  -- | So the app decides which table an encoder is read against, and the device
+  -- | is merely *asked* to follow. If it cannot, paging still works; the two
+  -- | facts simply differ, and the LED writes go to the block the device is
+  -- | really showing (`twisterHeardBank`) carrying the content of the page the
+  -- | app is on. Address from the device, content from the app.
+  -- |
+  -- | The device still wins when it *moves*: a change in the heard bank is an
+  -- | event and is adopted. A heard bank that merely stays where it is is not,
+  -- | which is what lets the app page a device parked on bank 1 for ever.
+  , twisterPage :: Int
   , presets :: Array PedalPreset
   , boardPresets :: Array BoardPreset
   , registry :: PedalRegistry
@@ -318,6 +367,11 @@ initAppState =
   , boardsActivePedal: Nothing
   , overviewActivePedal: Nothing
   , suppressTwister: false
+  , twisterLit: Map.empty
+  , twisterPending: Map.empty
+  , twisterGuard: Set.empty
+  , twisterHeardBank: Nothing
+  , twisterPage: 0
   , presets: []
   , boardPresets: []
   , configError: Nothing

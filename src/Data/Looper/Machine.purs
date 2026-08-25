@@ -38,13 +38,14 @@ module Data.Looper.Machine
   ( Action(..)
   , Rig
   , act
+  , perform
   , describe
   ) where
 
 import Prelude
 
 import Data.Array as Array
-import Data.Looper.Banks (BankSlot(..), SwitchGesture, loopSwitches)
+import Data.Looper.Banks (BankSlot(..), Subject(..), SwitchGesture, nLoops)
 import Data.Looper.Banks as LB
 import Data.Looper.Verb as Verb
 import Data.Maybe (Maybe(..), maybe)
@@ -71,10 +72,25 @@ data Action
 derive instance Eq Action
 
 -- | Everything the machine is allowed to know.
+-- |
+-- | All of it read from the daemon's snapshot, none of it kept here. The two
+-- | global flags were added 2026-08-25 and they close a wart that
+-- | `Data.Looper.Verb` used to describe at length on a verb since deleted: it had
+-- | no way to compute `Click (not current)`, so the click was the one thing
+-- | still sent as a flip rather than a set. It carries them now, so it sets.
 type Rig =
   { loops :: Array LoopState
   -- | The loop the config bank acts on: the last one touched.
   , focus :: Int
+  -- | The metronome and input monitoring. Global in the engine rather than per
+  -- | loop, and addressed without a leading digit.
+  , click :: Boolean
+  , monitor :: Boolean
+  -- | The level a sound has to reach before a level-armed loop starts, in
+  -- | decibels. Rig-wide for the same reason as those two, and reported by the
+  -- | daemon since 2026-08-25 because a control that sets it has to be able to
+  -- | show it.
+  , armDb :: Number
   }
 
 -- | The whole meaning table.
@@ -91,6 +107,8 @@ type Rig =
 -- | command on the wire are three renderings of one value, so they cannot
 -- | disagree — and a new duty is a compile error here until it is given a
 -- | meaning, rather than a switch that silently does nothing.
+-- | **One decoder of three.** `perform` is the meaning; this is the MC6's way
+-- | in, and the page and the Twister have their own. See `DESIGN-TWISTER` §4.
 act :: Rig -> SwitchGesture -> Array Action
 act rig p = case LB.dutiesAt p.slot p.switch of
   Nothing -> [ missing p.slot p.switch ]
@@ -101,7 +119,9 @@ act rig p = case LB.dutiesAt p.slot p.switch of
     -- hold no longer opens the config bank, because both have a switch of their
     -- own on `LoopPage` with their name printed on it — so the gesture chooses
     -- which duty the switch is showing, and the duty decides everything else.
-    _, Just d -> onDuty rig p.slot d
+    -- The MC6 always speaks about the focused loop: six switches cannot name
+    -- eight loops as well as saying what to do to one.
+    _, Just d -> perform rig Focused d
 
     -- **The board and this table have fallen out of step.** A gesture only
     -- arrives because the device was programmed to send it, and the device is
@@ -119,12 +139,20 @@ act rig p = case LB.dutiesAt p.slot p.switch of
 missing :: BankSlot -> Int -> Action
 missing slot i = Unavailable (show' slot <> " switch " <> show i <> " has nothing on it")
 
--- | What a tap means, given what the switch is for.
+-- | **What a duty means. The only way to the socket.**
 -- |
--- | Total over `Duty`, which is the point: adding a switch to a bank cannot
--- | leave it doing nothing, because the compiler asks what it means.
-onDuty :: Rig -> BankSlot -> LB.Duty -> Array Action
-onDuty rig slot = case _ of
+-- | Total over `Duty`, which is the point: adding a duty cannot leave a control
+-- | doing nothing, because the compiler asks what it means. It used to be
+-- | `onDuty`, reachable only through an MC6 bank and a switch number, which is
+-- | one layer too deep — the page and the Twister have no bank and no switch,
+-- | and while this was buried they used a second meaning table instead.
+-- |
+-- | The `Subject` says which loop, and says it out loud. Every per-loop command
+-- | below goes through `cmd i`, which is `Verb.at` — there is deliberately no
+-- | path here that sends an unprefixed per-loop verb, because the daemon then
+-- | applies it to a selection nothing in this app writes.
+perform :: Rig -> Subject -> LB.Duty -> Array Action
+perform rig subject = case _ of
   -- **Selecting a loop does nothing to it.** The MC6 opens its page from the
   -- jump this table put on the switch; all the app has to do is agree whose
   -- page it now is.
@@ -133,23 +161,23 @@ onDuty rig slot = case _ of
   -- loop on the way in would save a press, but the same switch would then stop
   -- a playing one — so you could not look at a loop without acting on it, which
   -- is exactly the thing this page exists to end.
-  LB.SelectLoop i -> [ Focus i, Handled ("loop " <> show (i + 1)) ]
+  LB.SelectLoop n -> [ Focus n, Handled ("loop " <> show (n + 1)) ]
 
-  LB.RecordLoop -> onRecord rig.focus (loopAt rig rig.focus)
-  LB.OverdubLoop -> onOverdub rig.focus (loopAt rig rig.focus)
-  LB.Transport -> onTransport rig.focus (loopAt rig rig.focus)
+  LB.RecordLoop -> onRecord i (loopAt rig i)
+  LB.OverdubLoop -> onOverdub i (loopAt rig i)
+  LB.Transport -> onTransport i (loopAt rig i)
 
   -- The mode and the gesture in one press. `lev1` before `r`, so the record
   -- that follows finds the loop already listening and goes to ARMED rather than
   -- straight to a first take.
-  LB.ArmLoop -> case loopAt rig rig.focus of
-    Nothing -> [ notInSnapshot rig.focus ]
+  LB.ArmLoop -> case loopAt rig i of
+    Nothing -> [ notInSnapshot i ]
     Just st
-      | st.armed -> [ Handled ("loop " <> show (rig.focus + 1) <> " is already listening") ]
+      | st.armed -> [ Handled ("loop " <> show (i + 1) <> " is already listening") ]
       | Looper.phaseOf st /= Looper.Idle ->
-          [ Unavailable ("loop " <> show (rig.focus + 1) <> " is busy — close it first") ]
+          [ Unavailable ("loop " <> show (i + 1) <> " is busy — close it first") ]
       | otherwise ->
-          [ Command (cmd rig.focus (Verb.LevelArm true)), Command (cmd rig.focus Verb.Record) ]
+          [ Command (cmd i (Verb.LevelArm true)), Command (cmd i Verb.Record) ]
 
   -- Navigation the MC6 performs itself, from the jumps it was programmed with.
   -- The app only has to agree that it happened.
@@ -166,9 +194,9 @@ onDuty rig slot = case _ of
   -- whatever is recorded into it next — so Stop All used to reach across the
   -- whole set and disarm every slot the player had not touched yet. Skipping
   -- the empties keeps the gesture meaning what it says.
-  LB.StopAll -> map (\i -> Command (cmd i (Verb.Sounding false))) (sounding rig)
-  LB.Undo -> [ Command (cmd rig.focus Verb.Undo) ]
-  LB.ClearLoop -> [ Command (cmd rig.focus Verb.Clear) ]
+  LB.StopAll -> map (\n -> Command (cmd n (Verb.Sounding false))) (sounding rig)
+  LB.Undo -> [ Command (cmd i Verb.Undo) ]
+  LB.ClearLoop -> [ Command (cmd i Verb.Clear) ]
   -- **Addressed to the focused loop, like everything else on this page.**
   --
   -- It used to go unprefixed. Without a leading digit the daemon applies a
@@ -185,78 +213,129 @@ onDuty rig slot = case _ of
   -- that only some callers depend on is a mode, and a mode that a footswitch
   -- could fall out of step with is the thing this design is trying not to
   -- have."
-  LB.SaveTake -> [ Command (cmd rig.focus (Verb.SaveTake "")) ]
-  -- **The one command that is right to leave unprefixed.** The metronome is
-  -- global — `sh.click`, not `lp.click` — so the daemon never consults its
-  -- selection for it and a loop index would be noise. Still the flipping form
-  -- rather than `Click`, because `Rig` carries the loops and the focus and not
-  -- the global flags, so there is nothing here to compute the opposite of. See
-  -- the note on `Verb.ClickToggle`.
-  LB.ClickToggle -> [ Command (Verb.render Verb.ClickToggle) ]
+  LB.SaveTake -> [ Command (cmd i (Verb.SaveTake "")) ]
+  -- **Set, not flip — and `Rig` is why it can be.**
+  --
+  -- The metronome is global, `sh.click` rather than `lp.click`, so the daemon
+  -- never consults its selection for it and a loop index would be noise. It is
+  -- still unprefixed for that reason. What changed is the form: this sent the
+  -- flipping `k` for as long as `Rig` carried only the loops and the focus, and
+  -- `Verb.ClickToggle` carried a paragraph explaining why the one rule the
+  -- vocabulary has was broken here. `Rig` carries the flags now, so it sets,
+  -- and the verb it apologised for has been deleted.
+  LB.ClickToggle -> perform rig subject (LB.Click (not rig.click))
+  LB.MonitorToggle -> perform rig subject (LB.Monitor (not rig.monitor))
+
+  -- Unprefixed on purpose: both are `sh.` fields in the engine, not `lp.` ones,
+  -- so the daemon never consults its selection for them and a loop index would
+  -- be noise. The only two per-*rig* commands the app sends.
+  LB.Click on -> [ Command (Verb.render (Verb.Click on)) ]
+  LB.Monitor on -> [ Command (Verb.render (Verb.Monitor on)) ]
 
   -- **Set, never flip.** All four of these read the current value out of the
   -- snapshot and send the explicit form, for the reason the daemon spells out
   -- on `k` and `h`: a client that flips drifts out of step the first time a
   -- command is dropped and never recovers. The app has the engine's own answer
   -- thirty times a second, so there is no excuse for asking it to guess.
-  LB.Reverse -> [ Command (cmd rig.focus (Verb.Reversed (not (is _.reverse)))) ]
-  LB.Pendulum -> [ Command (cmd rig.focus (Verb.Pendulum (not (is _.pendulum)))) ]
-  LB.OneShot -> [ Command (cmd rig.focus (Verb.OneShot (not (is _.oneShot)))) ]
-  LB.LevelArm -> [ Command (cmd rig.focus (Verb.LevelArm (not (is _.levelArm)))) ]
+  LB.Reverse -> [ Command (cmd i (Verb.Reversed (not (is _.reverse)))) ]
+  LB.Pendulum -> [ Command (cmd i (Verb.Pendulum (not (is _.pendulum)))) ]
+  LB.OneShot -> [ Command (cmd i (Verb.OneShot (not (is _.oneShot)))) ]
+  LB.LevelArm -> [ Command (cmd i (Verb.LevelArm (not (is _.levelArm)))) ]
 
   -- Chance is a value, not a toggle, so the switch steps rather than flips —
   -- but it is the same principle one step further: the next rung is computed
   -- from what the engine last reported, not counted here and not counted on the
   -- device. A scroll counter on the MC6 would keep its own position, and the
   -- device is the one thing in this rig that cannot be told it is wrong.
+  -- **Delegated, not duplicated.** The step reads the engine's value, finds the
+  -- next rung and hands off to the value duty — so a footswitch and a Twister
+  -- knob reach the socket by the same line of code and cannot come to disagree
+  -- about what chance means. The ladder is a rendering of the parameter for a
+  -- surface that can only press; the value is the parameter.
   LB.StepChance ->
-    let next = LB.stepChance (maybe 1.0 _.chance (loopAt rig rig.focus))
-    in [ Command (cmd rig.focus (Verb.Chance next))
-       , Handled ("loop " <> show (rig.focus + 1) <> " plays " <> LB.chanceWord next)
-       ]
+    let next = LB.stepChance (maybe 1.0 _.chance (loopAt rig i))
+    in perform rig subject (LB.Chance next)
+       <> [ Handled ("loop " <> show (i + 1) <> " plays " <> LB.chanceWord next) ]
 
   -- The same ladder machinery, and the same reason for it: the value is on the
   -- engine, so the step is computed from what the engine said rather than
   -- counted anywhere that could fall out of step with it.
   LB.StepFade ->
-    let next = LB.stepFade (maybe 0.0 _.fadeMs (loopAt rig rig.focus))
-    in [ Command (cmd rig.focus (Verb.Fade next))
-       , Handled ("loop " <> show (rig.focus + 1) <> " wraps " <> LB.fadeWord next)
-       ]
+    let next = LB.stepFade (maybe 0.0 _.fadeMs (loopAt rig i))
+    in perform rig subject (LB.Fade next)
+       <> [ Handled ("loop " <> show (i + 1) <> " wraps " <> LB.fadeWord next) ]
 
   LB.StepDecay ->
-    let next = LB.stepDecay (maybe 0.0 _.decayDb (loopAt rig rig.focus))
-    in [ Command (cmd rig.focus (Verb.Decay next))
-       , Handled ("loop " <> show (rig.focus + 1) <> " decays " <> LB.decayWord next)
-       ]
+    let next = LB.stepDecay (maybe 0.0 _.decayDb (loopAt rig i))
+    in perform rig subject (LB.Decay next)
+       <> [ Handled ("loop " <> show (i + 1) <> " decays " <> LB.decayWord next) ]
 
   -- The one thing a pedal cannot do. With no loop yet it claims the daemon's
   -- default of the last few seconds; with one running it claims the last
   -- complete cycle, which lands on the grid because the fill is addressed in
   -- output frames.
-  LB.ClaimPast -> [ Command (cmd rig.focus Verb.ClaimPast) ]
-  LB.Redo -> [ Command (cmd rig.focus Verb.Redo) ]
-  LB.StartAll -> map (\i -> Command (cmd i (Verb.Sounding true))) (sounding rig)
-  LB.ClearAll -> map (\i -> Command (cmd i Verb.Clear)) (Array.range 0 (loopSwitches - 1))
+  LB.ClaimPast -> [ Command (cmd i Verb.ClaimPast) ]
+  LB.Redo -> [ Command (cmd i Verb.Redo) ]
+  LB.StartAll -> map (\n -> Command (cmd n (Verb.Sounding true))) (sounding rig)
+  LB.ClearAll -> map (\n -> Command (cmd n Verb.Clear)) (Array.range 0 (nLoops - 1))
 
-  LB.Free -> [ Command (cmd rig.focus (Verb.OnGrid false)) ]
+  LB.Free -> perform rig subject (LB.OnGrid false)
+  LB.OnGrid on -> [ Command (cmd i (Verb.OnGrid on)) ]
+  LB.GridToggle -> perform rig subject (LB.OnGrid (not (is _.quant)))
   -- **The engine's grid is the anchor loop's cycle, not a bar**, decided when
   -- quantised close landed: tempo gives a bar's length but not where the bar
   -- falls, so until the frame-to-wall-clock join exists no loop can be put on
   -- "bar 1". The flag is real; the count is a promise, and saying so is more
   -- use than four switches that quietly all mean the same thing.
   LB.Grid _ ->
-    [ Command (cmd rig.focus (Verb.OnGrid true))
-    , Handled "on the grid — bar counts need the frame-to-bar join"
-    ]
+    perform rig subject (LB.OnGrid true)
+      <> [ Handled "on the grid — bar counts need the frame-to-bar join" ]
 
-  LB.Rate r -> [ Command (cmd rig.focus (Verb.Rate r)) ]
-  LB.Place p -> [ Command (cmd rig.focus (Verb.Place p)) ]
+  LB.Rate r -> [ Command (cmd i (Verb.Rate r)) ]
+  LB.Place p -> [ Command (cmd i (Verb.Place p)) ]
+  LB.Level db -> [ Command (cmd i (Verb.Level db)) ]
+
+  -- Rig-wide, so unprefixed — the third of the three, with the click and the
+  -- input monitor.
+  LB.ArmLevel db -> [ Command (Verb.render (Verb.ArmLevel db)) ]
+
+  -- **The undo stack as a position.** The difference between where the knob is
+  -- and where the engine says it is, spent as that many steps in the right
+  -- direction. Nothing is remembered here: `have` comes from the snapshot, so a
+  -- layer removed by a footswitch moves the knob rather than confusing it.
+  LB.Layers want ->
+    let have = maybe 0 _.layers (loopAt rig i)
+        step = want - have
+    in if step == 0 then []
+       else if step < 0
+         then Array.replicate (negate step) (Command (cmd i Verb.Undo))
+           <> [ Handled ("loop " <> show (i + 1) <> ": " <> show want <> " layers") ]
+         else Array.replicate step (Command (cmd i Verb.Redo))
+           <> [ Handled ("loop " <> show (i + 1) <> ": " <> show want <> " layers") ]
+  LB.Chance p -> [ Command (cmd i (Verb.Chance p)) ]
+  LB.Fade ms -> [ Command (cmd i (Verb.Fade ms)) ]
+  LB.Decay db -> [ Command (cmd i (Verb.Decay db)) ]
+
+  -- The four the CC table had and this one did not, until the page was moved
+  -- onto the machine. `x` is the one that mattered: the reference surface could
+  -- ask for a multiply and the machine had no word for it.
+  LB.MultiplyLoop -> [ Command (cmd i Verb.Multiply) ]
+  LB.SpreadLoop n -> [ Command (cmd i (Verb.Spread n)) ]
+  LB.RotateLoop -> [ Command (cmd i Verb.Rotate) ]
+  LB.DenseLoop -> [ Command (cmd i Verb.Dense) ]
+  LB.ForgetLength -> [ Command (cmd i Verb.ForgetLength) ]
 
   LB.NotYet what why -> [ Unavailable (what <> ": " <> why) ]
-  LB.Nothing_ -> [ Unavailable (show' slot <> " has nothing on that switch") ]
+  -- No longer names the bank it came from: a duty has no bank, and the two
+  -- callers that do have one — `act` above, for a switch with no duties at all —
+  -- say so themselves.
+  LB.Nothing_ -> [ Unavailable "nothing is on that control" ]
   where
-  is field = maybe false field (loopAt rig rig.focus)
+  -- **Where the subject becomes an index, and the only place it does.**
+  i = case subject of
+    Focused -> rig.focus
+    OnLoop n -> n
+  is field = maybe false field (loopAt rig i)
 
 
 -- | Whether closing a loop should send the board to the config bank.
@@ -379,7 +458,7 @@ notInSnapshot i = Unavailable ("loop " <> show (i + 1) <> " is not in the snapsh
 sounding :: Rig -> Array Int
 sounding rig =
   Array.filter (\i -> maybe false (\st -> st.layers > 0) (loopAt rig i))
-    (Array.range 0 (loopSwitches - 1))
+    (Array.range 0 (nLoops - 1))
 
 -- | The daemon's loop-prefixed command form: `3r` is "record on loop 3".
 -- |

@@ -14,9 +14,9 @@ import Data.Argonaut.Core (stringify)
 import Data.Argonaut.Parser (jsonParser)
 import Data.Looper as Looper
 import Data.Looper.Banks as LoopBanks
-import Data.Looper.Verb as Verb
 import Component.Looper.Board (render) as BoardSim
 import Component.Looper.Slots as Slots
+import Component.Looper.TwisterMap as TwisterMap
 import Data.Looper.Machine as Machine
 import Data.MC6.Backup as Backup
 import Data.MC6.ControlBank (ControlBank)
@@ -50,7 +50,10 @@ import Data.String as String
 import Data.String.CodeUnits (contains)
 import Data.String.Pattern (Pattern(..))
 import Data.Tuple (Tuple(..))
-import Data.Twister (SideBtn(..), TwisterEncoder(..), TwisterMsg(..), parseTwisterMsg)
+import Data.Twister (Knob, SideBtn(..), TwisterEncoder(..), TwisterMsg(..), parseTwisterMsg)
+import Data.Set as Set
+import Data.Twister as TwisterData
+import Data.Looper.Twister as LoopTwister
 import Control.Monad.Rec.Class (forever)
 import Effect.Aff (Milliseconds(..), delay)
 import Effect.Aff as Aff
@@ -110,6 +113,10 @@ data Action
   | SelectPedalOutput String
   | SelectTwisterInput String
   | TwisterMidiReceived (Array Int)
+  | FlushTwisterTurn Knob
+  | ClearTwisterGuard Knob
+  | ShowTwisterPage Int
+  | SetArmThreshold String
   | HandleHeader Header.Output
   | HandleDetail DetailView.Output
   | HandleGrid GridView.Output
@@ -477,6 +484,11 @@ renderLooperView state =
                 HandlePedal
             ]
         ]
+    -- The Twister's layout, at the bottom because it is a reference rather than
+    -- a control: you read it once, learn the page, and stop looking. Folded
+    -- shut by default for the same reason.
+    , TwisterMap.render (isJust state.connections.twisterOutput)
+        state.twisterPage state.twisterHeardBank ShowTwisterPage
     ]
   where
   st = state.looperStatus
@@ -562,6 +574,35 @@ renderLooperView state =
                                (unsafeMidiValue (if lp.click then 0 else 127))
           ]
           [ HH.text (if lp.click then "Click off" else "Click on") ]
+      , armThreshold lp
+      ]
+
+  -- | How loud a sound has to be to start a level-armed loop.
+  -- |
+  -- | **On the page rather than on a knob, and deliberately.** It very nearly
+  -- | went on the Twister — turn to set the level, which arms the loop, press to
+  -- | record regardless. Two things sent it here instead. It is *rig-wide*, so
+  -- | on a page of eight loop encoders it would have been eight knobs quietly
+  -- | writing one value; and it is a once-a-session calibration of the room and
+  -- | the instrument, which is the same kind of thing as the residual latency
+  -- | and belongs where that kind of thing lives.
+  -- |
+  -- | A performance surface is for what you reach for while playing. Everything
+  -- | else on it is in the way.
+  armThreshold lp =
+    HH.span [ HP.class_ (H.ClassName "looper-arm") ]
+      [ HH.label_ [ HH.text "Listen from" ]
+      , HH.input
+          [ HP.type_ HP.InputRange
+          , HP.min (-80.0)
+          , HP.max 0.0
+          , HP.step (HP.Step 1.0)
+          , HP.value (show (Int.round lp.armDb))
+          , HP.disabled (not st.connected)
+          , HE.onValueInput \v -> SetArmThreshold v
+          ]
+      , HH.span [ HP.class_ (H.ClassName "looper-arm-value") ]
+          [ HH.text (show (Int.round lp.armDb) <> " dBFS") ]
       ]
 
   gestureBtn cls disabled ccNum label =
@@ -1178,7 +1219,18 @@ handleAction = case _ of
     case view of
       DetailView pid -> do
         H.modify_ _ { focusPedalId = Just pid }
-        sendAllLEDs pid
+        refreshTwister pid
+      -- **Opening the looper hands it the Twister.** Focus is what decides
+      -- which of the two surfaces the controller is showing, and the looper's
+      -- page is the one place it is unambiguous — the pill is a door rather
+      -- than a selection, so nothing else was ever going to set it.
+      --
+      -- The side buttons still walk away to a pedal, which is deliberate: the
+      -- controller belongs to whatever you are looking at, and that has to
+      -- include walking off.
+      LooperView -> do
+        H.modify_ _ { focusPedalId = Just Looper.itajaraId }
+        refreshTwister Looper.itajaraId
       _ -> pure unit
     liftEffect do
       w <- window
@@ -1211,12 +1263,17 @@ handleAction = case _ of
         Looper.NotYetImplemented what -> do
           liftEffect $ Console.log $ "looper: " <> what <> " is not in the engine yet"
           H.modify_ _ { midiTest = Just ("looper: " <> what <> " not implemented") }
-        Looper.Send verb -> do
-          let wire = Verb.render verb
-          ok <- liftEffect $ LooperSocket.send wire
-          H.modify_ _ { midiTest = Just
-            ( if ok then "looper: sent " <> wire
-              else "looper: daemon not connected, dropped " <> wire ) }
+        -- **Through the machine, exactly as a footswitch is.** This used to
+        -- render a verb and put it on the socket itself, which made the page a
+        -- second route to the daemon with its own idea of what a press meant —
+        -- and the page is the surface the other two are optional additions to.
+        --
+        -- Nothing is late: there was no recognition window to sit out, because
+        -- a click and a Twister press are unambiguous the moment they happen.
+        -- That is the MC6's cost and not everyone's.
+        Looper.Do subject duty -> do
+          st' <- H.get
+          traverse_ (runAction 0.0) (Machine.perform (rigOf st') subject duty)
       else case st.connections.pedalOutput of
         Nothing ->
           H.modify_ _ { midiTest = Just "CC not sent: no Pedal MIDI output selected" }
@@ -1254,7 +1311,7 @@ handleAction = case _ of
                       Just (TwisterCC { cc: ecc }) -> ecc == ccNum
                       _ -> false) tw.encoders
                 for_ mIdx \idx ->
-                  sendRingPosition idx
+                  sendRingPosition { bank: 0, index: idx }
                     (Twister.ringValueForEncoder (Array.index tw.encoders idx >>= identity) (unMidiValue val))
 
   SendMomentary pid ccNum val ->
@@ -1695,14 +1752,45 @@ handleAction = case _ of
                                       , twisterInputId = Just portId
                                       , twisterInputSub = Just sid } }
 
-  TwisterMidiReceived bytes ->
-    case parseTwisterMsg bytes of
-      Nothing -> pure unit
-      Just msg -> case msg of
-        EncoderTurn idx val -> handleEncoderTurn idx val
-        EncoderPress idx -> handleEncoderPress idx
-        EncoderRelease _ -> pure unit
-        SideButton btn -> handleTwisterSideButton btn
+  TwisterMidiReceived bytes -> do
+    -- **Adopted on change, not on arrival.** Every encoder message carries the
+    -- device's own page, and following it blindly would undo the app's paging
+    -- the instant a knob moved — a device parked on bank 1 says "bank 1" all
+    -- day. So a heard bank that stays put is just an observation; a heard bank
+    -- that *moves* is the device navigating, and the app goes with it.
+    st0 <- H.get
+    for_ (TwisterData.bankOf bytes) \bank -> do
+      when (st0.twisterHeardBank /= Just bank) do
+        H.modify_ _ { twisterPage = bank }
+        -- Redraw, because the content of a page is not the content of the one
+        -- before it and the device keeps whatever it was last told.
+        when (st0.focusPedalId == Just Looper.itajaraId) $
+          H.modify_ _ { twisterLit = Map.empty }
+      H.modify_ _ { twisterHeardBank = Just bank }
+    for_ (parseTwisterMsg bytes) handleTwisterMsg
+
+  ShowTwisterPage bank -> showTwisterPage bank
+
+  -- Through the machine like everything else, even though it is a slider on a
+  -- page rather than a press: `perform` is the only route to the socket, and a
+  -- control that took a shortcut would be the second table starting again.
+  SetArmThreshold raw ->
+    for_ (Number.fromString raw) \db -> do
+      st <- H.get
+      traverse_ (runAction 0.0)
+        (Machine.perform (rigOf st) LoopBanks.Focused (LoopBanks.ArmLevel db))
+
+  FlushTwisterTurn knob -> do
+    st <- H.get
+    -- Gone means a press arrived inside the window and took it. That is the
+    -- whole mechanism: the press does not have to be faster than the nudge,
+    -- only inside the same tenth of a second as it.
+    for_ (Map.lookup (knobCC knob) st.twisterPending) \val -> do
+      H.modify_ \s -> s { twisterPending = Map.delete (knobCC knob) s.twisterPending }
+      handleEncoderTurn knob val
+
+  ClearTwisterGuard knob ->
+    H.modify_ \s -> s { twisterGuard = Set.delete (knobCC knob) s.twisterGuard }
 
   HandleHeader output -> case output of
     Header.ViewChanged view -> handleAction (SetView view)
@@ -2226,6 +2314,17 @@ handleAction = case _ of
               Looper.itajaraId
               s.engine
           }
+      -- **The controller's lights, from the same snapshot and nothing else.**
+      --
+      -- Here rather than beside each command on purpose: what the Twister shows
+      -- is what the *engine* is doing, not what this app just asked it to do.
+      -- Driving a ring from the press that caused it would be the app showing
+      -- its own intention back to itself — and a refused command would light up
+      -- exactly like an accepted one, which is the failure the ack path was
+      -- built to end. `sendLooperLEDs` diffs, so a frame in which nothing moved
+      -- costs no messages.
+      stLit <- H.get
+      when (stLit.focusPedalId == Just Looper.itajaraId) sendLooperLEDs
 
 
 -- | Read the socket ten times a second, forever.
@@ -2695,6 +2794,21 @@ inUpload output act = inSession output \open -> Wire.withUpload open act
 -- | a read-back confirming those five were untouched rather than merely
 -- | unconfirmed — which is the difference between a slow afternoon and a
 -- | silently wrong pedalboard.
+-- | Everything the machine is allowed to know, gathered from the newest
+-- | snapshot.
+-- |
+-- | One place, because there are now three surfaces asking for it and a second
+-- | copy of this expression is a second chance to forget a field — which is
+-- | exactly how the click came to be sent as a flip.
+rigOf :: AppState -> Machine.Rig
+rigOf st =
+  { loops: maybe [] _.loops st.looper
+  , focus: st.looperFocus
+  , click: maybe false _.click st.looper
+  , monitor: maybe false _.monitor st.looper
+  , armDb: maybe (-36.0) _.armDb st.looper
+  }
+
 -- | What a gesture means, and then doing it.
 -- |
 -- | The meaning is a pure function of the gesture and the *daemon's* report of
@@ -2705,7 +2819,7 @@ runGesture
   => LoopBanks.SwitchGesture -> H.HalogenM AppState Action Slots o m Unit
 runGesture g = do
   st <- H.get
-  let rig = { loops: maybe [] _.loops st.looper, focus: st.looperFocus }
+  let rig = rigOf st
   followBoard g
   traverse_ (runAction (deferralOf st.looperDeferral g)) (Machine.act rig g)
 
@@ -3405,73 +3519,252 @@ autoEngageIfNeeded preset = do
 
 -- Twister message handlers
 
-handleEncoderTurn :: forall o m. MonadAff m => Int -> Int -> H.HalogenM AppState Action Slots o m Unit
-handleEncoderTurn idx val = do
-  st <- H.get
-  case st.focusPedalId of
-    Nothing -> pure unit
-    Just pid -> case CRegistry.findPedal st.registry pid of
-      Nothing -> pure unit
-      Just def -> case Map.lookup pid st.engine of
-        Nothing -> pure unit
-        Just ps -> case Twister.handleEncoder idx val def ps of
-          Nothing -> pure unit
-          Just result -> do
-            H.modify_ _ { suppressTwister = true }
-            handleAction (SetValue pid result.cc result.value)
-            H.modify_ _ { suppressTwister = false }
-            for_ result.ringSnap \snap ->
-              sendRingPosition idx snap
+-- | A message from the Twister, and the one thing the hardware makes hard.
+-- |
+-- | **You cannot press one of these encoders without turning it.** The knob
+-- | rotates a little on the way down — Andrew, having used it: *"virtually
+-- | impossible"* — so a press arrives with a nudge beside it, and which of the
+-- | two the app sees first is not decidable. On page 1 that is not a cosmetic
+-- | problem: the press selects a loop and the turn sets its level, so taking a
+-- | loop in hand would quietly move its fader.
+-- |
+-- | So **a turn is withheld until it is clear it was not part of a press**, and
+-- | a press deafens its own encoder for a moment afterwards. Two windows,
+-- | because the nudge can land on either side of the press.
+-- |
+-- | This is the same shape as the MC6 withholding a single press until it knows
+-- | it was not a double, and it is worth seeing that it is — the app is now
+-- | doing for the Twister what the pedal does for itself. The difference is
+-- | what it costs. The MC6's wait is spent on a *transport* gesture, so the
+-- | daemon has to be told how late the press was and reach back into the
+-- | pre-roll for it (`deferralOf`, `@ms`). Nothing withheld here is
+-- | sample-critical — a level is not a downbeat — so the latency is simply
+-- | absorbed, and no lateness travels with it.
+-- |
+-- | The cost is that the first move of a slow turn lands 60 ms late and a fast
+-- | ride is thinned to about sixteen updates a second, which is more than a
+-- | fader needs and kinder to a socket that also carries twelve pedals.
+handleTwisterMsg :: forall o m. MonadAff m => TwisterMsg -> H.HalogenM AppState Action Slots o m Unit
+handleTwisterMsg = case _ of
+  EncoderTurn knob val -> do
+    st <- H.get
+    -- Still ringing from a press. Dropped rather than queued: a nudge is not a
+    -- gesture that deserves to arrive late.
+    unless (Set.member (knobCC knob) st.twisterGuard) do
+      let waiting = Map.member (knobCC knob) st.twisterPending
+      H.modify_ \s -> s { twisterPending = Map.insert (knobCC knob) val s.twisterPending }
+      -- One timer per burst, not per message. Everything that arrives inside
+      -- the window overwrites the value, so the flush acts on where the knob
+      -- ended up rather than on where it passed through.
+      unless waiting $ void $ H.fork do
+        H.liftAff (delay (Milliseconds turnHoldMs))
+        handleAction (FlushTwisterTurn knob)
 
-handleEncoderPress :: forall o m. MonadAff m => Int -> H.HalogenM AppState Action Slots o m Unit
-handleEncoderPress idx = do
+  EncoderPress knob -> do
+    H.modify_ \s -> s
+      { twisterPending = Map.delete (knobCC knob) s.twisterPending
+      , twisterGuard = Set.insert (knobCC knob) s.twisterGuard
+      }
+    handleEncoderPress knob
+    void $ H.fork do
+      H.liftAff (delay (Milliseconds pressGuardMs))
+      handleAction (ClearTwisterGuard knob)
+
+  -- The release carries the same nudge risk as the press and no meaning of its
+  -- own, so it re-arms the guard rather than being ignored: letting go of an
+  -- encoder is exactly as clumsy as pressing it.
+  EncoderRelease knob -> do
+    H.modify_ \s -> s
+      { twisterPending = Map.delete (knobCC knob) s.twisterPending
+      , twisterGuard = Set.insert (knobCC knob) s.twisterGuard
+      }
+    void $ H.fork do
+      H.liftAff (delay (Milliseconds pressGuardMs))
+      handleAction (ClearTwisterGuard knob)
+
+  -- **Back to walking between pedals, which is what they were.**
+  --
+  -- They were the looper's pager for an afternoon, on the ground that they were
+  -- the only physical buttons that certainly reach this app. Then the pager
+  -- became an encoder — turn for the page, press for home — which is
+  -- one-handed, scales to a third page without a new control, and hands these
+  -- back. Which matters, because with the looper holding the controller there
+  -- was otherwise no way to reach a *pedal* on it at all.
+  SideButton btn -> handleTwisterSideButton btn
+
+-- | How long a turn waits to find out whether a press is coming.
+-- |
+-- | Long enough to cover the roll of a finger, short enough that a fader does
+-- | not feel like it is lagging. Both are guesses from one report of the
+-- | problem rather than measurements; if a press still moves a level, this is
+-- | the number to raise first.
+turnHoldMs :: Number
+turnHoldMs = 60.0
+
+-- | How long an encoder stays deaf after a press or a release.
+pressGuardMs :: Number
+pressGuardMs = 300.0
+
+-- | **Two surfaces on one controller**, told apart by what is in focus.
+-- |
+-- | A pedal reaches the Twister through its `twister` field, which maps an
+-- | encoder to one of its CCs; the looper does not, and the difference is not
+-- | an omission. That field's route ends at `Data.Looper.command`, an
+-- | *addressing* table — and the Twister has no CCs to address. It names duties
+-- | instead, through `Data.Looper.Twister`, and hands them to the same
+-- | `perform` a footswitch and a screen button reach.
+-- |
+-- | Which is why `Pedals.Itajara.twister` is still `Nothing` and must stay
+-- | that way: filling it in is a five-minute job that would install a fourth
+-- | route to the daemon.
+handleEncoderTurn :: forall o m. MonadAff m => Knob -> Int -> H.HalogenM AppState Action Slots o m Unit
+handleEncoderTurn knob val = do
   st <- H.get
-  case st.focusPedalId of
-    Nothing -> pure unit
-    Just pid -> case CRegistry.findPedal st.registry pid of
-      Nothing -> pure unit
-      Just def -> case Map.lookup pid st.engine of
+  if st.focusPedalId == Just Looper.itajaraId
+    then
+      let here = onPage st knob
+      in if (LoopTwister.controlAt here).pager
+        -- The pager asks nothing of the looper, so it never reaches `perform`.
+        then showTwisterPage (LoopTwister.pageAt val)
+        else for_ (LoopTwister.turnedAt here val) \(Tuple subject duty) ->
+          traverse_ (runAction 0.0) (Machine.perform (rigOf st) subject duty)
+    else onPedal st \pid def ps ->
+      -- Bank one only. A pedal is a page of knobs; the other three pages are
+      -- the looper's, and a pedal has no opinion about them.
+      when (knob.bank == 0) $ case Twister.handleEncoder knob.index val def ps of
         Nothing -> pure unit
-        Just ps -> case Twister.handleButton idx def ps of
-          Nothing -> pure unit
-          Just changes -> do
-            H.modify_ _ { suppressTwister = true }
-            for_ changes \change ->
-              handleAction (SetValue pid change.cc change.value)
-            H.modify_ _ { suppressTwister = false }
-            sendAllLEDs pid
+        Just result -> do
+          H.modify_ _ { suppressTwister = true }
+          handleAction (SetValue pid result.cc result.value)
+          H.modify_ _ { suppressTwister = false }
+          for_ result.ringSnap \snap ->
+            sendRingPosition knob snap
+
+handleEncoderPress :: forall o m. MonadAff m => Knob -> H.HalogenM AppState Action Slots o m Unit
+handleEncoderPress knob = do
+  st <- H.get
+  if st.focusPedalId == Just Looper.itajaraId
+    then if (LoopTwister.controlAt (onPage st knob)).pager
+      -- Home, because that is the page you want in a hurry and the turn is
+      -- there for going anywhere else.
+      then showTwisterPage 0
+      else for_ (LoopTwister.pressedAt (onPage st knob)) \(Tuple subject duty) -> do
+      traverse_ (runAction 0.0) (Machine.perform (rigOf st) subject duty)
+      -- The lights follow the *snapshot*, and the snapshot has not caught up
+      -- yet — the poll does that within a frame. Nothing is refreshed here on
+      -- purpose: drawing what we just asked for would be the app showing its
+      -- own intention back to itself, which is the failure this whole surface
+      -- is built to avoid.
+      pure unit
+    else onPedal st \pid def ps ->
+      when (knob.bank == 0) $ case Twister.handleButton knob.index def ps of
+        Nothing -> pure unit
+        Just changes -> do
+          H.modify_ _ { suppressTwister = true }
+          for_ changes \change ->
+            handleAction (SetValue pid change.cc change.value)
+          H.modify_ _ { suppressTwister = false }
+          sendAllLEDs pid
+
+-- | Which control an encoder is, on the page the **app** is showing.
+-- |
+-- | The device's own bank is discarded here and that is the point: the encoder
+-- | in the top-left is the encoder in the top-left, and what it means is a
+-- | question for the page the app has turned to. Keeping the device's answer
+-- | would put paging back where it started — in a side button nobody here can
+-- | program or verify.
+onPage :: AppState -> Knob -> Knob
+onPage st knob = { bank: st.twisterPage, index: knob.index }
+
+-- | The focused pedal, its definition and its state, or nothing at all.
+onPedal
+  :: forall o m. MonadAff m
+  => AppState
+  -> (PedalId -> PedalDef -> PedalState -> H.HalogenM AppState Action Slots o m Unit)
+  -> H.HalogenM AppState Action Slots o m Unit
+onPedal st k = for_ st.focusPedalId \pid ->
+  for_ (CRegistry.findPedal st.registry pid) \def ->
+    for_ (Map.lookup pid st.engine) \ps -> k pid def ps
 
 handleTwisterSideButton :: forall o m. MonadAff m => SideBtn -> H.HalogenM AppState Action Slots o m Unit
 handleTwisterSideButton btn = do
   st <- H.get
   case btn of
-    RefreshLEDs -> for_ st.focusPedalId sendAllLEDs
+    RefreshLEDs -> for_ st.focusPedalId refreshTwister
     PrevPedal -> do
       let newFocus = Twister.handleSideButtonPrev st.focusPedalId st.cardOrder
       H.modify_ _ { focusPedalId = newFocus }
       case newFocus of
         Nothing -> dimAllLEDs
-        Just pid -> sendAllLEDs pid
+        Just pid -> refreshTwister pid
     NextPedal -> do
       let newFocus = Twister.handleSideButton st.focusPedalId st.cardOrder
       H.modify_ _ { focusPedalId = newFocus }
       case newFocus of
         Nothing -> dimAllLEDs
-        Just pid -> sendAllLEDs pid
+        Just pid -> refreshTwister pid
+
+-- | Hand the controller over to whatever is now in focus.
+-- |
+-- | **Dim first, always.** The two surfaces light different numbers of banks —
+-- | a pedal uses one, the looper two — so walking from the looper to a pedal
+-- | without clearing would leave the loop bank's colours burning under a page
+-- | of knobs that know nothing about them. It costs one burst of messages on a
+-- | focus change, which is not a thing that happens mid-take.
+refreshTwister :: forall o m. MonadAff m => PedalId -> H.HalogenM AppState Action Slots o m Unit
+refreshTwister pid = do
+  dimAllLEDs
+  if Looper.isItajara pid
+    then do
+      -- **Hand it over on page 1.** Walking back to the looper and finding the
+      -- controller still on the parameter page is walking back to a surface
+      -- that looks like the loops and is not, which is worse than a page you
+      -- have to reach for. Unverified — see `Data.Twister.bankSelectMessage`;
+      -- if it does nothing this line is simply inert.
+      sendTwisterBank 0
+      sendLooperLEDs
+    else sendAllLEDs pid
+
+-- | Turn to a page: the app moves, and the device is invited.
+-- |
+-- | **The app's move is the one that matters.** `sendTwisterBank` is a courtesy
+-- | — if the device honours it the two stay in step and the LEDs land on the
+-- | block it is showing; if it ignores it, the app pages anyway and the LEDs go
+-- | to the block the device *is* on, carrying the new page's content. Either
+-- | way the encoders mean what the card says they mean.
+showTwisterPage :: forall o m. MonadAff m => Int -> H.HalogenM AppState Action Slots o m Unit
+showTwisterPage bank = do
+  H.modify_ _ { twisterPage = clamp 0 (LoopTwister.pages' - 1) bank, twisterLit = Map.empty }
+  sendTwisterBank bank
+  st <- H.get
+  when (st.focusPedalId == Just Looper.itajaraId) sendLooperLEDs
+
+-- | Ask the device to show a page. See `Data.Twister.bankSelectMessage` for why
+-- | this is a candidate rather than a fact.
+sendTwisterBank :: forall o m. MonadAff m => Int -> H.HalogenM AppState Action Slots o m Unit
+sendTwisterBank bank = do
+  st <- H.get
+  for_ st.connections.twisterOutput \out ->
+    liftEffect $ MIDI.send out (TwisterData.bankSelectMessage bank)
 
 -- LED feedback helpers
 
-sendRingPosition :: forall o m. MonadAff m => Int -> Int -> H.HalogenM AppState Action Slots o m Unit
-sendRingPosition idx val = do
+-- | The ring, and the colour. Both addressed by `16 * bank + index`, which is
+-- | the same arithmetic the device used on the way in.
+sendRingPosition :: forall o m. MonadAff m => Knob -> Int -> H.HalogenM AppState Action Slots o m Unit
+sendRingPosition knob val = do
   st <- H.get
   for_ st.connections.twisterOutput \out ->
-    liftEffect $ MIDI.send out [ 0xB0, idx, val ]
+    liftEffect $ MIDI.send out [ 0xB0, knobCC knob, val ]
 
-sendRGBColor :: forall o m. MonadAff m => Int -> Int -> H.HalogenM AppState Action Slots o m Unit
-sendRGBColor idx hue = do
+sendRGBColor :: forall o m. MonadAff m => Knob -> Int -> H.HalogenM AppState Action Slots o m Unit
+sendRGBColor knob hue = do
   st <- H.get
   for_ st.connections.twisterOutput \out ->
-    liftEffect $ MIDI.send out [ 0xB1, idx, hue ]
+    liftEffect $ MIDI.send out [ 0xB1, knobCC knob, hue ]
+
+knobCC :: Knob -> Int
+knobCC knob = knob.bank * TwisterData.encodersPerBank + knob.index
 
 sendAllLEDs :: forall o m. MonadAff m => PedalId -> H.HalogenM AppState Action Slots o m Unit
 sendAllLEDs pid = do
@@ -3483,13 +3776,63 @@ sendAllLEDs pid = do
       Just ps -> do
         let leds = Twister.computeAllLEDs def ps
         for_ leds \led -> do
-          sendRGBColor led.index led.hue
-          sendRingPosition led.index led.ring
+          sendRGBColor { bank: 0, index: led.index } led.hue
+          sendRingPosition { bank: 0, index: led.index } led.ring
+
+-- | Every light on the controller, from the daemon's newest word.
+-- |
+-- | **Both banks every time, and diffed against what was last sent.** All of it
+-- | is computed from the snapshot — nothing here reads what the app asked for —
+-- | so the rings cannot drift from the engine no matter who moved a value: the
+-- | console, a footswitch, or another client entirely.
+-- |
+-- | The diff is not an optimisation for its own sake. Bank one's rings are
+-- | playheads, so they move every frame while a loop turns; the rest change
+-- | only when something happens, and sending all 64 lights ten times a second
+-- | would put 1,280 messages a second on a wire that also carries the pedals.
+sendLooperLEDs :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
+sendLooperLEDs = do
+  st <- H.get
+  -- **Both from the app's page**, and that is a correction: the address used to
+  -- come from `twisterHeardBank`, the last block the device had spoken from,
+  -- on the theory that the lights should land where the device really is even
+  -- if it would not take a bank change.
+  --
+  -- It was wrong, and how it was wrong is the useful part. Turning the page
+  -- from the web interface left the Twister unchanged **until you touched a
+  -- knob** — which is precisely what you would see if the device *had* moved:
+  -- it went to the new block, the lights went to the old one, and nothing
+  -- corrected until a message arrived carrying the real bank. So the delay was
+  -- the evidence that `bankSelectMessage` works.
+  --
+  -- Asking and then assuming is safe here because it is self-healing: if the
+  -- device ever does not comply, its next message carries a different bank,
+  -- `twisterPage` adopts it, `twisterLit` clears, and the following poll paints
+  -- the right block. One touch, not one session.
+  let wanted = LoopTwister.leds (rigOf st) st.twisterPage
+      showing = st.twisterPage
+      changed = Array.filter (\l -> Map.lookup l.index st.twisterLit /= Just { ring: l.ring, hue: l.hue }) wanted
+  unless (Array.null changed) do
+    for_ changed \l -> do
+      let knob = { bank: showing, index: l.index }
+      sendRGBColor knob l.hue
+      sendRingPosition knob l.ring
+    H.modify_ \s -> s
+      { twisterLit = Array.foldl
+          (\m l -> Map.insert l.index { ring: l.ring, hue: l.hue } m)
+          s.twisterLit
+          changed
+      }
 
 dimAllLEDs :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
-dimAllLEDs = for_ (Array.range 0 15) \i -> do
-  sendRGBColor i 0
-  sendRingPosition i 0
+dimAllLEDs = do
+  for_ (Array.range 0 (TwisterData.banks - 1)) \bank ->
+    for_ (Array.range 0 (TwisterData.encodersPerBank - 1)) \index -> do
+      sendRGBColor { bank, index } 0
+      sendRingPosition { bank, index } 0
+  -- What was lit is no longer true of the device, so the diff must forget it or
+  -- the next refresh will skip the lights it thinks are already right.
+  H.modify_ _ { twisterLit = Map.empty }
 
 -- | Merge layout from PureScript pedal definitions into JSON-decoded pedals.
 -- | JSON provides runtime config; layout is PureScript-only (contains ADTs).
