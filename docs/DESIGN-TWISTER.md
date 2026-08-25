@@ -341,8 +341,8 @@ Two banks, where the MC6 family uses seven pages.
 BANK 1 — Loops                        BANK 2 — This loop
  L1    L2    L3    L4                  level  pan    speed  decay
  L5    L6    L7    L8                  chance fade   Grid   Length
- Rec   Ovr   Stop  Arm                 Spread Shift  Dense  Save
- Undo  Redo  Clear Capture             Rev    Pend   1Shot  Listen
+ Rec   Ovr   Stop  REVOX               Spread Shift  Dense  Save
+ Layrs Clear Captr ▸page               Rev    1Shot  Listen ▸page
 ```
 
 The card at the foot of the Looper page prints this from
@@ -396,6 +396,99 @@ that wants to be near your hand, and it is still on the MC6 and the page.
 per-layer surface — CCs 40–68 in `Data.Looper.command`, every one of them
 `NotYetImplemented` today. A bank with room in it is better than one that has to
 be redesigned to admit the next thing.
+
+## 9.1 What the surface settled into
+
+Three cells changed hands after the first sessions, and each for a reason
+worth keeping.
+
+**Undo and Redo became one knob.** They are one axis, and this device reports
+absolute positions, so the stack is a *place*: turn down to undo, up to redo,
+ring shows how deep. It sends the difference between the knob and what the
+daemon reports, so a layer removed by a footswitch moves the knob rather than
+confusing it. Eight layers across 128 steps is sixteen a layer, so the
+press-nudge is harmless by arithmetic. Press still undoes one.
+
+**Arm and Pendulum came off.** `ArmLoop` is `lev1` then `r` — the mode plus the
+gesture — and the mode is one press away on page 2 as Listen; a shortcut to
+something already on the surface is the first cell to give up. Pendulum is a
+once-a-session mode and keeps its MC6 config switch.
+
+**The pager is an encoder, not a toggle**, and it is the same corner on every
+page. Turn picks the page, press goes home to Loops. It read absolute position
+at first, which meant sweeping half the knob to reach the next of two pages —
+and a third page would have made each *band* narrower rather than the *gesture*
+smaller, wrong both ways round. It steps now: the ring is pinned to the page's
+own position every poll, so any deviation is a fresh turn and its sign is the
+direction, and the ring snaps to the new band so turning on gives one page per
+notch. Three steps to count, so a nudge cannot page you.
+
+That also handed the ch 5 side buttons back to prev/next *pedal*, which they
+had to be: with the looper holding the controller there was otherwise no way to
+reach a pedal at all.
+
+## 9.2 Revox — the loop as a tape
+
+Everywhere else here a pass is non-destructive: layers are kept whole and
+`decay` is a resolution applied at playback, which is why turning decay off
+brings a faded loop back. That is the right default and it is not what a tape
+does. Two Revoxes with the second feeding back below unity erase as they
+record, and there is no version of what was under the head that was not erased.
+
+So it is a mode you opt into, and the price is stated rather than hidden.
+
+- **Entering flattens the loop to one layer**, at the gains it is being heard
+  at, so what you hear the instant before is what you hear the instant after. A
+  tape has no layers, and writing over layer zero of several would erase one
+  voice and leave the rest — a mode that only half applies. The fold is not
+  reversible and the ack says so.
+- **Undo goes away**, and the layer scrub refuses *by name* rather than going
+  quiet: "loop 1 is a tape — undo went with the layers". The difference between
+  a mode and a broken knob.
+- **`fb` is its own verb, not `dec`.** Same musical idea by two mechanisms, one
+  destroying and one not; a single number meaning "resolution here, erase head
+  there" depending on a flag is the overload this codebase keeps refusing. `dec`
+  still works in Revox and still does what it always did — and the two compound,
+  which is deliberate.
+- **`tone` rolls off the top on each pass.** Tape loses the high end before it
+  loses the level, and losing only the level is what makes a feedback loop sound
+  digital. One pole, on what is already on the tape as the head goes over it.
+  **Revox only**, and that is design rather than shortcut: outside it a filter
+  would have to be a different filter per layer per pass count, cascaded as deep
+  as the loop is old.
+- **A tape is threaded, not recorded.** `blank<secs>` gives a loop a length and
+  nothing in it — the only route to a length that is not a recording. It is
+  **one silent layer, not none**: playback sums `0..n_layers` and the recording
+  layer sits *at* `n_layers`, so a loop with no layers is silent even while
+  something is written into it. In Revox that matters, because the erasing write
+  goes into layer zero, which is the layer that has to be playing for the tape
+  to come round under your hands.
+- **The Revox encoder carries both halves**: press for the mode, turn for the
+  length. They are one idea — a tape is a loop of a chosen length that you play
+  onto, and choosing the length is how you start.
+
+`threaded` is the fact a layer count cannot carry: a threaded tape has one layer
+and so looks exactly like a recorded loop, which made the length knob a one-shot
+until the flag existed. Cleared the moment anything is recorded, which is the
+moment resizing would stop being a choice of length and become a trim.
+
+## 9.3 The recording is visible now
+
+Everything the display knew about a loop was a *committed* layer, so you pressed
+record, the slot went the colour of recording, and nothing else moved until you
+closed the take. The one moment you most want a picture — is it hearing me, am I
+loud enough, how far round am I — had nothing to say.
+
+`recEnv` is atomics rather than the layer-envelope mutex, because it is written
+from the audio callback and that one is not. A first take has no length to lay a
+picture against, so it is drawn against the arena and rescales when the loop
+closes; an overdub knows its cycle and fills in wherever the playhead is, on the
+second pass as well as the first, which is why the buckets take a peak and not a
+store. Empty whenever nothing is recording, so the display has one test rather
+than a second copy of "what counts as recording".
+
+**It is what makes Revox safe to use at all.** A destructive pass has no undo,
+so watching it happen is the only feedback there is.
 
 ## 10. What only a knob can do — and which of it is engine work
 
@@ -539,15 +632,21 @@ Three things found while building it that were not in the design.
 2. **Are 60 ms and 300 ms the right windows?** Both are guesses from one report
    of the press-nudge, not measurements. If a press still moves a level, raise
    `turnHoldMs` first.
-3. **What moves the MC6's page when the Twister changes focus?** `followBoard`
+3. **Should the tape-length knob step like the pager?** A sweep fires ten
+   `blank`s in half a second — harmless, since each re-threads an empty tape,
+   but imprecise if you want a particular length.
+4. **What moves the MC6's page when the Twister changes focus?** `followBoard`
    only tracks presses it saw, so a Twister-driven `SelectLoop` leaves the board
    showing another loop's page. Push a `ShowBank`, or accept a stale board and
    let the page be where you look.
-4. **Ring as value or ring as playhead?** Bank 1 wants the playhead; a loop's
+5. ~~**Ring as value or ring as playhead?**~~ Answered by the hardware: the ring
+   *is* the encoder's value, so a playhead drawn on it was a playhead written
+   into the number the next touch would send. A ring on an encoder that carries
+   a value belongs to that value. The old text:  Bank 1 wants the playhead; a loop's
    chance then has no readout on its own knob. Colour saturation is a candidate
    and needs an experiment more than an argument.
-5. ~~**Does the Looper page still read at eight rows?**~~ Answered by making it
+6. ~~**Does the Looper page still read at eight rows?**~~ Answered by making it
    two rows of four, the same grid as everything else — §5.1.
-6. **Do the two hardware surfaces ever disagree about focus?** Both write
+7. **Do the two hardware surfaces ever disagree about focus?** Both write
    `looperFocus` and the machine is stateless, so nothing can corrupt — but two
    people, or one person and one forgotten press, can surprise each other.
