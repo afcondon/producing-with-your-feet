@@ -90,7 +90,8 @@ import Foreign.LooperSocket (LoopPhase(..), LoopState, allPhases, phaseName, pha
 -- | moved a value nothing reads would be the worst kind of control — one that
 -- | looks like it worked.
 data Param
-  = PLayers
+  = PTape
+  | PLayers
   | PLevel
   | PRate
   | PPlace
@@ -107,6 +108,7 @@ derive instance Eq Param
 -- | would be worse than no cheat sheet: it would be believed.
 paramLabel :: Param -> String
 paramLabel = case _ of
+  PTape -> "tape"
   PLayers -> "layers"
   PLevel -> "level"
   PRate -> "speed"
@@ -151,6 +153,7 @@ detented p v = case homePosition p of
 
 paramRange :: Param -> String
 paramRange = case _ of
+  PTape -> "none to " <> show (round tapeTop) <> " s, threaded empty"
   PLayers -> "none to " <> show maxLayers <> ", one step a layer"
   PLevel -> "silent to full, -12 dB at half travel"
   PRate -> "×0.125 to ×4, and unity sticks at the middle"
@@ -350,7 +353,23 @@ loopsBank i
       -- that is the choice it is — the same gesture by a different mechanism —
       -- and lit while it is on, because a mode that changes what undo means had
       -- better be visible from across the room.
-      11 -> flagged RevoxToggle FRevox Violet
+      -- **Press is the mode; turn threads the tape.**
+      --
+      -- They belong on one control because they are one idea: a tape is a loop
+      -- of a chosen length that you play onto, and choosing the length is how
+      -- you start. Everywhere else in this app a loop gets its length by being
+      -- recorded, which is exactly what Revox does not do.
+      --
+      -- Turning is refused by the daemon once the loop has anything in it, so
+      -- this cannot resize a take by accident — and the ring still reads the
+      -- loop's real length, which is worth seeing either way.
+      11 ->
+        blank
+          { press = Just RevoxToggle
+          , turn = Just PTape
+          , ring = Value PTape
+          , light = Lit FRevox Violet
+          }
       -- Undo and Redo were two cells doing one job. The stack is an axis, and
       -- this device reports absolute positions, so it is a knob: turn down to
       -- undo, up to redo, ring shows how deep you are. Press still undoes one,
@@ -447,6 +466,10 @@ turnedAt k v =
 -- | daemon's own units are already 0–127 with 64 centre.
 fromKnob :: Param -> Int -> Duty
 fromKnob p v = case p of
+  -- Whole seconds, because that is the unit you think a loop length in, and
+  -- because the daemon rounds it to the grid when the loop is quantised — only
+  -- it knows where the grid is.
+  PTape -> Blank (toNumber (round (toNumber (clamp 0 127 v) / 127.0 * tapeTop)))
   PLayers -> Layers (round (toNumber (clamp 0 127 v) / 127.0 * toNumber maxLayers))
   PLevel -> Level (round1 (levelOf (clamp 0 127 v)))
   PRate -> Rate (round3 (rateOf (detented p v)))
@@ -464,6 +487,10 @@ fromKnob p v = case p of
 -- | the device never has to remember anything.
 toKnob :: Param -> LoopState -> Int
 toKnob p st = clamp 0 127 $ case p of
+  -- The loop's actual length, so the knob shows what is threaded — including
+  -- for a loop that was *recorded* rather than threaded, where turning would be
+  -- refused but the reading is still the truth.
+  PTape -> round (st.loopSecs / tapeTop * 127.0)
   PLayers -> round (toNumber st.layers / toNumber maxLayers * 127.0)
   PLevel -> levelRing st.volDb
   PRate -> rateRing st.speed
@@ -562,6 +589,13 @@ levelRing = positionAt levelLaw
 -- | needs checking rather than trusting.
 maxLayers :: Int
 maxLayers = 8
+
+-- | The longest tape the knob offers, in seconds.
+-- |
+-- | Thirty because that is `--max-secs`' default and the daemon refuses past
+-- | it; a knob whose top end is a refusal is a knob with a dead corner.
+tapeTop :: Number
+tapeTop = 30.0
 
 -- | Two hundred milliseconds rather than the daemon's five hundred: past a
 -- | tenth of a second a wrap fade is not a join any more, so spending three

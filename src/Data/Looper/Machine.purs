@@ -304,6 +304,12 @@ perform rig subject = case _ of
   LB.RevoxToggle -> perform rig subject (LB.Revox (not (is _.revox)))
   LB.Revox on -> [ Command (cmd i (Verb.Revox on)) ]
   LB.Feedback db -> [ Command (cmd i (Verb.Feedback db)) ]
+  -- Zero is not a tape. The knob's bottom end means "no tape here", which is
+  -- not a command — it is the absence of one, and sending `blank0` would have
+  -- the daemon refuse a length nobody asked for.
+  LB.Blank secs
+    | secs <= 0.0 -> []
+    | otherwise -> [ Command (cmd i (Verb.Blank secs)) ]
 
   -- **The undo stack as a position.** The difference between where the knob is
   -- and where the engine says it is, spent as that many steps in the right

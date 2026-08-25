@@ -2835,6 +2835,28 @@ main = do
         pg.cells)
       LoopTw.pages)
 
+  -- **A tape is threaded, not recorded.** Every other way a loop gets a length
+  -- is by recording one; this is the only way to have a length and nothing in
+  -- it, which is what Revox needs to start from.
+  assert "the tape knob threads whole seconds and reads the loop's length back"
+    (LoopTw.fromKnob LoopTw.PTape 127 == LB.Blank 30.0
+      && LoopTw.fromKnob LoopTw.PTape 64 == LB.Blank 15.0
+      && LoopTw.toKnob LoopTw.PTape ((idle 0) { loopSecs = 15.0 }) == 64)
+
+  -- Zero is the absence of a command, not a command for no tape. Sending
+  -- `blank0` would have the daemon refuse a length nobody asked for.
+  assert "the bottom of the tape knob asks for nothing"
+    (LoopTw.fromKnob LoopTw.PTape 0 == LB.Blank 0.0
+      && Machine.perform (rigOf [ idle 0 ]) LB.Focused (LB.Blank 0.0) == []
+      && Machine.perform (rigOf [ idle 0 ]) LB.Focused (LB.Blank 8.0)
+        == [ Machine.Command "0blank8.0" ])
+
+  -- One control, because they are one idea: a tape is a loop of a chosen
+  -- length that you play onto, and choosing the length is how you start.
+  assert "the Revox encoder carries the mode and the tape together"
+    (let c = LoopTw.controlAt { bank: 0, index: 11 }
+     in c.press == Just LB.RevoxToggle && c.turn == Just LoopTw.PTape)
+
   -- **Revox is a mode you opt into, and it takes undo with it.** Refused by
   -- name rather than silently doing nothing: a knob that stops working is a
   -- broken knob until something says otherwise.

@@ -839,6 +839,8 @@ data Duty
   -- | no value to send; `Revox` is the form with.
   | RevoxToggle
   | Revox Boolean
+  -- | Thread an empty tape of this many seconds.
+  | Blank Number
   -- | What a Revox pass leaves of what was under it, in decibels.
   | Feedback Number
   -- | How many layers should be live — the undo stack as a **position** rather
@@ -940,6 +942,7 @@ dutyLabel = case _ of
   GridToggle -> "Grid"
   RevoxToggle -> "Revox"
   Revox _ -> "Revox"
+  Blank _ -> "Tape"
   Feedback _ -> "Feedback"
   Layers _ -> "Layers"
   ArmLevel _ -> "Listen at"
@@ -995,6 +998,7 @@ dutyName = case _ of
   GridToggle -> "Wait for the grid, or not"
   RevoxToggle -> "Tape mode, or layers"
   Revox on -> if on then "A tape: undo is gone" else "Record in layers again"
+  Blank secs -> "Thread " <> show (Int.round secs) <> " s of tape"
   Feedback db -> "A pass leaves " <> levelWord db
   Layers n -> "Keep " <> show n <> (if n == 1 then " layer" else " layers")
   ArmLevel db -> "Starts at " <> show (Int.round db) <> " dBFS"
