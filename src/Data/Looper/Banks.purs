@@ -843,6 +843,8 @@ data Duty
   | Blank Number
   -- | What a Revox pass leaves of what was under it, in decibels.
   | Feedback Number
+  -- | How much top a Revox pass keeps, in hertz.
+  | Tone Number
   -- | How many layers should be live — the undo stack as a **position** rather
   -- | than as two buttons.
   -- |
@@ -944,6 +946,7 @@ dutyLabel = case _ of
   Revox _ -> "Revox"
   Blank _ -> "Tape"
   Feedback _ -> "Feedback"
+  Tone _ -> "Tone"
   Layers _ -> "Layers"
   ArmLevel _ -> "Listen at"
   Level _ -> "Level"
@@ -1000,6 +1003,8 @@ dutyName = case _ of
   Revox on -> if on then "A tape: undo is gone" else "Record in layers again"
   Blank secs -> "Thread " <> show (Int.round secs) <> " s of tape"
   Feedback db -> "A pass leaves " <> levelWord db
+  Tone hz -> if hz >= 20000.0 then "Every pass as bright"
+             else "Keeps " <> show (Int.round (hz / 100.0) * 100) <> " Hz"
   Layers n -> "Keep " <> show n <> (if n == 1 then " layer" else " layers")
   ArmLevel db -> "Starts at " <> show (Int.round db) <> " dBFS"
   Level db -> "Plays at " <> levelWord db

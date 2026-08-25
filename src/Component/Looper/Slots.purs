@@ -576,7 +576,10 @@ marks st = Array.catMaybes
   -- **A tape, and it says so first.** It changes what every other control
   -- means — an overdub writes over what is there and undo is gone — so it
   -- outranks every other mark on the slot.
-  , if st.revox then Just (Foot ("tape " <> LB.levelWord st.fbDb)) else Nothing
+  , if st.revox
+      then Just (Foot ("tape " <> LB.levelWord st.fbDb
+             <> (if st.toneHz >= 20000.0 then "" else " · " <> show (round (st.toneHz / 100.0) * 100) <> " Hz")))
+      else Nothing
   , if st.volDb >= 0.0 then Nothing else Just (Live (LB.levelWord st.volDb))
   -- Then the two that move on their own. A loop at 1 in 4 or losing 3 dB a pass
   -- is not where you left it, and nothing else on screen would say so.

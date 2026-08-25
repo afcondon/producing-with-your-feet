@@ -63,7 +63,8 @@ module Data.Looper.Twister
   , leds
   , pager
   , pageRing
-  , pageAt
+  , pageStep
+  , pageTurn
   , pages'
   , Cell
   , Page
@@ -683,9 +684,35 @@ ringOf c st = case c.ring of
 pageRing :: Int -> Int
 pageRing p = clamp 0 127 (round (toNumber p / toNumber (max 1 (pages' - 1)) * 127.0))
 
-pageAt :: Int -> Int
-pageAt v = clamp 0 (pages' - 1)
-  (round (toNumber (clamp 0 127 v) / 127.0 * toNumber (pages' - 1)))
+-- | Which way a turn of the pager went, and by how much it has to move before
+-- | it counts.
+-- |
+-- | **A step, not a position**, which is the correction. Reading the pager's
+-- | absolute position meant sweeping half the encoder to reach the next of two
+-- | pages, and a third page would have made each band narrower rather than the
+-- | gesture smaller. Wrong both ways round.
+-- |
+-- | It works because the ring is rewritten from `pageRing` on every poll, so
+-- | the encoder is continuously pinned to its page's own position. Any
+-- | deviation is therefore a fresh turn and its sign is the direction — and
+-- | after the page changes the ring snaps to the new band, so turning on gives
+-- | one page per notch rather than a slide.
+-- |
+-- | The device holds nothing: the position it is pinned to is computed from the
+-- | app's page every time, which is the same rule as every other ring here.
+pageStep :: Int
+pageStep = 3
+
+-- | Where a turn from `here` should land, wrapping. `Nothing` when the knob has
+-- | not moved far enough to mean anything — which is most messages, since a
+-- | press nudges it too.
+pageTurn :: Int -> Int -> Maybe Int
+pageTurn here v =
+  let at = pageRing here
+      moved = v - at
+  in if moved >= pageStep then Just ((here + 1) `mod` pages')
+     else if moved <= negate pageStep then Just ((here - 1 + pages') `mod` pages')
+     else Nothing
 
 -- | How many pages the looper surface uses. Two today; the trim-and-shift page
 -- | that `DESIGN-TWISTER` wants next simply raises this, and every pager on
@@ -854,6 +881,6 @@ stub =
   , muted: false, reverse: false, pan: 64, speed: 1.0, pendulum: false
   , oneShot: false, levelArm: false, firing: false
   , chance: 1.0, skipping: false, fadeMs: 0.0, decayDb: 0.0, volDb: 0.0
-  , revox: false, fbDb: -3.0, recEnv: []
+  , revox: false, fbDb: -3.0, toneHz: 6500.0, recEnv: []
   , pendingAt: -1, shapes: []
   }

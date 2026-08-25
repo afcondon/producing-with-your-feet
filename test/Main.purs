@@ -930,7 +930,7 @@ main = do
                , muted: false, reverse: false, pan: 64, speed: 1.0, pendulum: false
                , oneShot: false, levelArm: false, firing: false
                , chance: 1.0, skipping: false, fadeMs: 0.0, decayDb: 0.0
-               , volDb: 0.0, revox: false, fbDb: -3.0, recEnv: []
+               , volDb: 0.0, revox: false, fbDb: -3.0, toneHz: 6500.0, recEnv: []
                , pendingAt: -1, shapes: [] }
       withState n s ls = (idle n) { state = s, layers = ls }
       rigOf ls = { loops: ls, focus: 0, click: false, monitor: false, armDb: -36.0 }
@@ -2835,6 +2835,40 @@ main = do
         pg.cells)
       LoopTw.pages)
 
+  -- **The whole chain for the Revox encoder**, decoder through to the wire,
+  -- because the two ends were each right on their own while the thing did not
+  -- work: threading a tape and pressing for the mode has to end in `rvx1` on
+  -- the focused loop and nothing else.
+  assert "pressing the Revox encoder sends rvx1 for the focused loop"
+    (let tape = (idle 0) { layers = 1, loopSecs = 8.0, state = "playing" }
+         rig = (rigOf [ idle 0, tape ]) { focus = 1 }
+     in case LoopTw.pressedAt { bank: 0, index: 11 } of
+          Just (Tuple subj duty) -> Machine.perform rig subj duty == [ Machine.Command "1rvx1" ]
+          Nothing -> false)
+
+  assert "and again turns it off rather than on"
+    (let tape = (idle 0) { layers = 1, loopSecs = 8.0, revox = true }
+         rig = rigOf [ tape ]
+     in case LoopTw.pressedAt { bank: 0, index: 11 } of
+          Just (Tuple subj duty) -> Machine.perform rig subj duty == [ Machine.Command "0rvx0" ]
+          Nothing -> false)
+
+  -- Turning the same encoder threads, and does not disturb the mode.
+  assert "turning the Revox encoder threads the focused loop"
+    (let rig = (rigOf [ idle 0, idle 1 ]) { focus = 1 }
+     in case LoopTw.turnedAt { bank: 0, index: 11 } 34 of
+          Just (Tuple subj duty) -> Machine.perform rig subj duty == [ Machine.Command "1blank8.0" ]
+          Nothing -> false)
+
+  -- **Tape loses the top before it loses the level.** Losing only the level is
+  -- what makes a feedback loop sound digital — the last repeat is the first
+  -- one, quieter, with every edge still on it.
+  assert "the tape tone is hertz on the wire, and 20 kHz means off"
+    (LoopVerb.render (LoopVerb.Tone 6500.0) == "tone6500.0"
+      && Machine.perform (rigOf [ idle 0 ]) LB.Focused (LB.Tone 6500.0)
+        == [ Machine.Command "0tone6500.0" ]
+      && LB.dutyName (LB.Tone 20000.0) == "Every pass as bright")
+
   -- **A tape is threaded, not recorded.** Every other way a loop gets a length
   -- is by recording one; this is the only way to have a length and nothing in
   -- it, which is what Revox needs to start from.
@@ -2893,13 +2927,26 @@ main = do
              (Array.range 0 14))
       LoopTw.pages)
 
-  -- Coarse enough that the press-nudge cannot page you by accident: two pages
-  -- across 128 steps is 64 steps a page.
-  assert "the pager's turn is quantised well clear of a nudge"
-    (LoopTw.pageAt 0 == 0 && LoopTw.pageAt 2 == 0
-      && LoopTw.pageAt 127 == LoopTw.pages' - 1
-      && LoopTw.pageRing 0 == 0
-      && LoopTw.pageRing (LoopTw.pages' - 1) == 127)
+  -- **A step, not a position.** Reading the pager's absolute position meant
+  -- sweeping half the encoder to reach the next of two pages, and a third page
+  -- would have made each band narrower rather than the gesture smaller — wrong
+  -- both ways round. It works because the ring is pinned to the page's own
+  -- position every poll, so any deviation is a fresh turn and its sign is the
+  -- direction.
+  assert "the pager steps one page a notch, in both directions, wrapping"
+    (LoopTw.pageTurn 0 (LoopTw.pageRing 0 + LoopTw.pageStep) == Just 1
+      && LoopTw.pageTurn 1 (LoopTw.pageRing 1 - LoopTw.pageStep) == Just 0
+      -- Round the ends rather than stopping: a selector with dead ends is one
+      -- you have to look at.
+      && LoopTw.pageTurn (LoopTw.pages' - 1)
+           (LoopTw.pageRing (LoopTw.pages' - 1) + LoopTw.pageStep) == Just 0
+      && LoopTw.pageTurn 0 (LoopTw.pageRing 0 - LoopTw.pageStep) == Just (LoopTw.pages' - 1))
+
+  -- And a press nudges it, so anything smaller than a notch means nothing.
+  assert "a nudge of the pager does not page"
+    (LoopTw.pageTurn 0 (LoopTw.pageRing 0) == Nothing
+      && LoopTw.pageTurn 0 (LoopTw.pageRing 0 + 2) == Nothing
+      && LoopTw.pageTurn 1 (LoopTw.pageRing 1 - 2) == Nothing)
 
   -- **Undo and Redo are one axis.** The scrub sends the difference between
   -- where the knob is and what the daemon reports, so it cannot drift — and a

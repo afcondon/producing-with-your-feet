@@ -118,6 +118,7 @@ data Action
   | ShowTwisterPage Int
   | SetArmThreshold String
   | SetFeedback String
+  | SetTone String
   | HandleHeader Header.Output
   | HandleDetail DetailView.Output
   | HandleGrid GridView.Output
@@ -634,6 +635,19 @@ renderLooperView state =
           ]
       , HH.span [ HP.class_ (H.ClassName "looper-arm-value") ]
           [ HH.text (LoopBanks.levelWord fl.fbDb <> " a pass") ]
+      , HH.label_ [ HH.text "keeping" ]
+      , HH.input
+          [ HP.type_ HP.InputRange
+          , HP.min 1000.0
+          , HP.max 20000.0
+          , HP.step (HP.Step 250.0)
+          , HP.value (show (Int.round fl.toneHz))
+          , HP.disabled (not st.connected)
+          , HE.onValueInput \v -> SetTone v
+          ]
+      , HH.span [ HP.class_ (H.ClassName "looper-arm-value") ]
+          [ HH.text (if fl.toneHz >= 20000.0 then "all of it"
+                     else show (Int.round (fl.toneHz / 100.0) * 100) <> " Hz") ]
       ]
 
   gestureBtn cls disabled ccNum label =
@@ -1816,6 +1830,12 @@ handleAction = case _ of
       st <- H.get
       traverse_ (runAction 0.0)
         (Machine.perform (rigOf st) LoopBanks.Focused (LoopBanks.Feedback db))
+
+  SetTone raw ->
+    for_ (Number.fromString raw) \hz -> do
+      st <- H.get
+      traverse_ (runAction 0.0)
+        (Machine.perform (rigOf st) LoopBanks.Focused (LoopBanks.Tone hz))
 
   FlushTwisterTurn knob -> do
     st <- H.get
@@ -3662,7 +3682,8 @@ handleEncoderTurn knob val = do
       let here = onPage st knob
       in if (LoopTwister.controlAt here).pager
         -- The pager asks nothing of the looper, so it never reaches `perform`.
-        then showTwisterPage (LoopTwister.pageAt val)
+        -- A step rather than a position: see `LoopTwister.pageTurn`.
+        then for_ (LoopTwister.pageTurn st.twisterPage val) showTwisterPage
         else for_ (LoopTwister.turnedAt here val) \(Tuple subject duty) ->
           traverse_ (runAction 0.0) (Machine.perform (rigOf st) subject duty)
     else onPedal st \pid def ps ->
@@ -3771,7 +3792,14 @@ refreshTwister pid = do
 -- | way the encoders mean what the card says they mean.
 showTwisterPage :: forall o m. MonadAff m => Int -> H.HalogenM AppState Action Slots o m Unit
 showTwisterPage bank = do
-  H.modify_ _ { twisterPage = clamp 0 (LoopTwister.pages' - 1) bank, twisterLit = Map.empty }
+  -- Wrapping rather than clamping: a selector whose ends are dead is a selector
+  -- you have to look at, and the ring must be rewritten on every turn or the
+  -- encoder stays off its band and the next notch is measured from the wrong
+  -- place.
+  H.modify_ _
+    { twisterPage = (bank + LoopTwister.pages') `mod` LoopTwister.pages'
+    , twisterLit = Map.empty
+    }
   sendTwisterBank bank
   st <- H.get
   when (st.focusPedalId == Just Looper.itajaraId) sendLooperLEDs
