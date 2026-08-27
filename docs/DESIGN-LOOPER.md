@@ -930,3 +930,110 @@ the one genuine discovery available here.
 **Second run, now worth doing:** repeat with each wet pedal engaged. Under the
 send, "what does this pedal cost in samples" is no longer academic — it is the
 per-destination constant for re-amping through that pedal.
+
+## 21. Should the looper be its own app? — no, and the reason is the Twister
+
+Asked 2026-08-27, when `Component.App` had reached 3,991 lines and 320 of
+them mentioned the looper. The obvious move is to split PWYF in two: a
+pedalboard app and a looper app. It was investigated and rejected, and the
+investigation is worth keeping because the objection is not taste.
+
+### The MC6 is not the problem
+
+The relay is already partitioned by channel, and the partitions are disjoint
+by construction:
+
+| what arrives | who wants it |
+|---|---|
+| ch 13 | Itajara's CCs |
+| `switchChannel` | the loop machine's own switch namespace |
+| ch 1, value 127 | a board-recall footswitch |
+| other `0xB0`–`0xBF` | passive observation of pedal traffic |
+| SysEx | the device protocol — dumps, acks, sessions |
+
+CoreMIDI sources are multi-client, so two processes can both hold the MC6's
+input and each filter to its own rows of that table. **No lock is needed.**
+Programming the device *is* single-owner, but that is a human-initiated
+write, and a lock around it is trivial.
+
+### The Twister is the problem, and a lock does not fix it
+
+One physical surface, one page, sixteen rings, **no read-back**. Arbitration
+today is a single variable — `focusPedalId == itajaraId`. Split the app and
+that becomes state in two processes, able to disagree, with no way to ask the
+device which it believes; `Data.Twister`'s own header rejects exactly this
+shape for exactly this reason.
+
+Two writers to a write-only device is last-writer-wins, and **the loser is
+never told it lost**. That is not a semaphore problem. It is a single-owner
+problem, and the only cure is one owner.
+
+### The measured objection: a background tab is a dead looper
+
+Chrome throttles timers in unfocused tabs. The looper polls the daemon on a
+timer; the MC6 uploader is made of timers; and `LooperSocket`'s own liveness
+watchdog *deliberately exempts hidden tabs*, because a background tab's
+silence is not evidence. So two tabs means **whichever one you are not looking
+at stops being live** — and the looper is precisely the thing that must keep
+running while you look at something else. This has already cost an hour once
+(the MC6 upload that "stalled" was an unfocused tab, not a device refusing a
+bank jump).
+
+There is also a rule on the books that a second app violates head-on: *the
+daemon opens no MIDI port; the app is the MIDI hub, so exactly one process
+talks to the MC6 and exactly one place decides what a press means.*
+
+### What was done instead: split by layer, not by app
+
+The looper is not spread through PWYF because it is entangled with the
+pedals — it is spread through `Component.App` because *everything* was. So
+the cut is horizontal:
+
+```
+  Data.Looper.*              meaning. Duty -> Machine.perform -> Action.
+        │                    Halogen-free, and always was.
+  Component.Looper.Page      the page. A row of the fields it reads, a
+        │                    record of the actions it can cause, and no
+        │                    word for the socket.
+  Component.Looper.Control   the adapter. Every Machine.Action except
+        │                    ShowBank, which is injected.
+  Component.Twister.Lights   device output. Polymorphic in the action and
+        │                    the slot row, so it *cannot* decide anything.
+  Component.App              the hub: both MIDI ports, MC6 sessions,
+                             channel routing, and which surface owns the
+                             controller.
+```
+
+`Component.App` went 3,991 → 3,466 lines with no behaviour change.
+
+The two lower modules are polymorphic in the action type on purpose. It is
+not generality; it is proof. A function whose type cannot name `Action`
+cannot dispatch one, so "the lights are painted from the daemon's snapshot,
+never from what the app just asked for" is now enforced by the compiler
+rather than asserted in a comment.
+
+### If two surfaces at once ever becomes real
+
+The coherent version of "two apps" is not two browser tabs. It is **moving
+the hub down**: a daemon holds the MIDI ports and does the channel-partitioned
+routing, and browsers become views. Then *who owns the Twister* is a field in
+a snapshot, exactly as `click` and `monitor` already are, and the existing
+rule — for the things the engine owns, the snapshot is authoritative — covers
+it for free. It also ends the throttling problem, because the timers that
+matter stop being browser timers.
+
+That is a deliberate reversal of the hub rule rather than an accidental one,
+and it is the only version worth the cost. A Twister daemon *alone*, with the
+MC6 still in the browser, is strictly worse than either end of the choice.
+
+### The package split, and why it is two packages rather than one
+
+The domain closure of `Data.Looper.*` is **16 modules, ~5,100 lines, and
+contains no `Component.*`, no `Config.*` and no Halogen at all**. So a
+published package is real and bounded — but eleven of those sixteen are the
+shared controller layer (`Data.MC6.{ControlBank,Message,Types}`, `Data.Midi`,
+`Data.Pedal.*`, `Data.Twister`, `Foreign.LooperSocket`), which the looper
+needs because it knows how to program a pedalboard for itself.
+
+So it is `controllers` underneath `looper`, not a single lift-out. Worth
+doing; not the afternoon's work it first appeared to be.
