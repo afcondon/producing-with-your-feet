@@ -33,6 +33,7 @@ module Component.Twister.Lights
   ( rigOf
   , refreshTwister
   , showTwisterPage
+  , adoptTwisterPage
   , sendRingPosition
   , sendAllLEDs
   , sendLooperLEDs
@@ -90,10 +91,16 @@ refreshTwister pid = do
       -- **Hand it over on page 1.** Walking back to the looper and finding the
       -- controller still on the parameter page is walking back to a surface
       -- that looks like the loops and is not, which is worse than a page you
-      -- have to reach for. Unverified — see `Data.Twister.bankSelectMessage`;
-      -- if it does nothing this line is simply inert.
-      sendTwisterBank 0
-      sendLooperLEDs
+      -- have to reach for.
+      --
+      -- `showTwisterPage` rather than `sendTwisterBank`, since 2026-08-27: the
+      -- old line moved the device and left `twisterPage` wherever it had been,
+      -- so after `dimAllLEDs` had zeroed every ring the app could believe it
+      -- was on page 2 while the pager stood at the bottom of its travel. The
+      -- next brush of that knob then read as page 1 and looked like a spurious
+      -- page change. Now the page, the lights and the encoder are set together
+      -- from one call, and zero is page one on all three.
+      showTwisterPage 0
     else sendAllLEDs pid
 
 -- | Turn to a page: the app moves, and the device is invited.
@@ -105,12 +112,30 @@ refreshTwister pid = do
 -- | way the encoders mean what the card says they mean.
 showTwisterPage :: forall act slots o m. MonadAff m => Int -> H.HalogenM AppState act slots o m Unit
 showTwisterPage bank = do
-  -- Wrapping rather than clamping: a selector whose ends are dead is a selector
-  -- you have to look at, and the ring must be rewritten on every turn or the
-  -- encoder stays off its band and the next notch is measured from the wrong
-  -- place.
+  goToPage bank
+  -- **Only here**, and that is the whole difference between this and
+  -- `adoptTwisterPage`. The page moved without the knob, so the knob has to be
+  -- carried to the band that now means what it is showing — otherwise the next
+  -- turn is measured from wherever the hand last left it and the two disagree
+  -- until something touches it.
+  st <- H.get
+  sendRingPosition { bank: st.twisterPage, index: LoopTwister.pagerIndex }
+    (LoopTwister.pagerRing st.twisterPage)
+
+-- | The page changed because the pager was turned there.
+-- |
+-- | Everything `showTwisterPage` does except move the encoder — which is
+-- | already where it needs to be, because it is what moved. Writing to it here
+-- | would be the app shoving a knob that a hand is holding.
+adoptTwisterPage :: forall act slots o m. MonadAff m => Int -> H.HalogenM AppState act slots o m Unit
+adoptTwisterPage = goToPage
+
+goToPage :: forall act slots o m. MonadAff m => Int -> H.HalogenM AppState act slots o m Unit
+goToPage bank = do
+  -- Clamped rather than wrapped: the pager is a position now, and a position
+  -- has ends. See `LoopTwister.pageFor`.
   H.modify_ _
-    { twisterPage = (bank + LoopTwister.pages') `mod` LoopTwister.pages'
+    { twisterPage = clamp 0 (LoopTwister.pages' - 1) bank
     , twisterLit = Map.empty
     }
   sendTwisterBank bank
@@ -194,7 +219,10 @@ sendLooperLEDs = do
     for_ changed \l -> do
       let knob = { bank: showing, index: l.index }
       sendRGBColor knob l.hue
-      sendRingPosition knob l.ring
+      -- The pager's ring is the device's — see `LoopTwister.pagerRing`. Writing
+      -- it from the diff would move the page selector every time any colour on
+      -- the page changed.
+      unless l.ringHeld $ sendRingPosition knob l.ring
     H.modify_ \s -> s
       { twisterLit = Array.foldl
           (\m l -> Map.insert l.index { ring: l.ring, hue: l.hue } m)

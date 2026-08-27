@@ -16,7 +16,7 @@ import Data.Looper as Looper
 import Data.Looper.Banks as LoopBanks
 import Component.Looper.Control as LooperControl
 import Component.Looper.Page as LooperPage
-import Component.Twister.Lights (dimAllLEDs, knobCC, refreshTwister, rigOf, sendAllLEDs, sendLooperLEDs, sendRingPosition, showTwisterPage)
+import Component.Twister.Lights (adoptTwisterPage, dimAllLEDs, knobCC, refreshTwister, rigOf, sendAllLEDs, sendLooperLEDs, sendRingPosition, showTwisterPage)
 import Data.Looper.Machine as Machine
 import Data.MC6.Backup as Backup
 import Data.MC6.ControlBank (ControlBank)
@@ -3288,8 +3288,12 @@ handleEncoderTurn knob val = do
       let here = onPage st knob
       in if (LoopTwister.controlAt here).pager
         -- The pager asks nothing of the looper, so it never reaches `perform`.
-        -- A step rather than a position: see `LoopTwister.pageTurn`.
-        then for_ (LoopTwister.pageTurn st.twisterPage val) showTwisterPage
+        -- Its position IS the page — `LoopTwister.pageFor` — and adopting
+        -- rather than showing is what keeps the app from writing back to the
+        -- knob that just moved.
+        then
+          let want = LoopTwister.pageFor val
+          in when (want /= st.twisterPage) (adoptTwisterPage want)
         else for_ (LoopTwister.turnedAt here val) \(Tuple subject duty) ->
           traverse_ (runAction 0.0) (Machine.perform (rigOf st) subject duty)
     else onPedal st \pid def ps ->

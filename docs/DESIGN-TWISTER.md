@@ -421,28 +421,46 @@ and a third page would have made each *band* narrower rather than the *gesture*
 smaller, wrong both ways round. It steps now: the ring is pinned to a reference
 position, so any deviation is a fresh turn and its sign is the direction.
 
-**The reference is the middle of the travel, and the page is a colour**
-(2026-08-27). It was the page's own position — 0 and 127 for two pages — which
-had two consequences, one visible and one not:
+**It is a position with ends, and the device owns it** (2026-08-27, after two
+designs that both failed on the hardware). The pager reads where it stands, in
+fixed 32-unit bands — a quarter turn a page — and the app writes to that
+encoder *only* when the app moved the page by itself.
 
-- *Visible.* Whatever travel the parking spot left was all the gesture could
-  have, so the threshold ended up at three units, about five degrees. The page
-  changed when a hand brushed the knob.
-- *Not visible.* On the last page the ring sat at 127 and the device clamps
-  there, so a turn to the right could not move at all: **forward-wrap was
-  unreachable on hardware**. The test that claimed it worked passed by feeding
-  `pageTurn` a value of 130, which nothing can send.
+The two dead designs are worth keeping, because both looked right:
 
-Parked at 64 there are 63 units either way from every page, both directions
-exist, and the threshold is free to be a real gesture — a quarter of full
-travel, a right angle if a revolution is the whole 0–127 sweep. Which page you
-are on moved to the pager's **colour**, teal then violet, which is what it
-should have been anyway: a ring among two or three bands has to be read, and a
-colour is taken in.
+- *Position over the whole travel.* Two pages meant sweeping half the encoder,
+  and a third page made each **band** narrower rather than the **gesture**
+  smaller. Wrong both ways round.
+- *A step from a parked position.* Parked at the page's own end there was no
+  travel left to turn into, so **forward-wrap was unreachable on hardware** —
+  the ring sat at 127 and the device clamps there. The test asserting it passed
+  by feeding `pageTurn` a value of 130, which nothing can send. Parked in the
+  middle instead, the ring had to be rewritten after every change, so one
+  direction cost a full notch and the other cost a single unit.
 
-If 32 still feels light, the encoder sends more than 128 units a revolution and
-`pageStep` wants raising toward 48. Parking in the middle is what makes that a
-free choice rather than a fight with the travel.
+What both had in common was the app deciding where "here" was, and the knob
+arguing with it. It doesn't any more:
+
+| | |
+|---|---|
+| band width | `pageStep = 32` — a right angle, fixed, not travel ÷ pages |
+| which page | `pageFor v = clamp 0 (pages'-1) (v / pageStep)` |
+| past the end | nothing. **Clamped, not wrapped** — a knob with a physical stop should stop, and it makes the gesture reversible: turn back exactly as far, get back exactly as many pages |
+| the app moves the page | `showTwisterPage` — writes `pagerRing p = p * pageStep` to the encoder |
+| the knob moves the page | `adoptTwisterPage` — writes nothing back |
+| on taking focus | `dimAllLEDs` zeroes every ring, then `showTwisterPage 0`. Zero is page one, so the app, the lights and the knob agree without anyone being told |
+
+A third page costs another 32 units of travel rather than making all three bands
+narrower; three use 96 of 127 and there is room for a fourth.
+
+The page is also the pager's **colour** — teal, violet, and yellow named for the
+page not yet built. Two indicators for the one fact you must not be wrong about,
+and they cannot disagree: both are computed from the page being drawn.
+
+One property worth stating because the previous designs lacked it: this **does
+not depend on writing to the encoder working at all**. If the device ignores a
+ring write, paging by hand still reads correctly — only the card's "turn to this
+page" button would stop carrying the knob with it.
 
 That also handed the ch 5 side buttons back to prev/next *pedal*, which they
 had to be: with the looper holding the controller there was otherwise no way to

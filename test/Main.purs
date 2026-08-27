@@ -2939,48 +2939,56 @@ main = do
              (Array.range 0 14))
       LoopTw.pages)
 
-  -- **A step, not a position, measured from the middle.** Reading the pager's
-  -- absolute position meant sweeping half the encoder to reach the next of two
-  -- pages; parking it on the page's own position then capped how big the
-  -- gesture could be, because the travel left depended on which page you were
-  -- on. It is parked in the middle now, so every turn has 63 units either way.
+  -- **A position with ends, not a step from a moving reference.**
   --
-  -- **Every value below is one the device can actually send.** The version of
-  -- this test before 2026-08-27 asserted forward-wrap by handing `pageTurn` a
-  -- value of 130 — `pageRing 1 + pageStep`, which is off the end of MIDI — so
-  -- it passed while the gesture it described was unreachable on hardware: the
-  -- ring sat at 127 and the device clamps there. A test that can only be
-  -- satisfied by an impossible message is testing arithmetic, not a controller.
-  assert "the pager steps one page a notch, in both directions, wrapping"
-    (LoopTw.pageTurn 0 (LoopTw.pagerPark + LoopTw.pageStep) == Just 1
-      && LoopTw.pageTurn 1 (LoopTw.pagerPark - LoopTw.pageStep) == Just 0
-      -- Round the ends rather than stopping: a selector with dead ends is one
-      -- you have to look at.
-      && LoopTw.pageTurn (LoopTw.pages' - 1)
-           (LoopTw.pagerPark + LoopTw.pageStep) == Just 0
-      && LoopTw.pageTurn 0 (LoopTw.pagerPark - LoopTw.pageStep) == Just (LoopTw.pages' - 1))
+  -- Three designs, and the two dead ones are worth keeping written down because
+  -- both looked right on paper:
+  --
+  -- * position over the whole travel — two pages meant sweeping half the
+  --   encoder, and a third page made each band narrower rather than the gesture
+  --   smaller;
+  -- * a step from a parked position — parked at the page's own end there was no
+  --   travel left to turn into, so forward-wrap was unreachable on hardware and
+  --   the test asserting it passed by handing `pageTurn` a value of 130, which
+  --   nothing can send. Parked in the middle instead, the ring had to be
+  --   rewritten after every change, which made one direction cost a full notch
+  --   and the other cost a single unit.
+  --
+  -- The pager reads where it stands, in fixed 32-unit bands, and the app writes
+  -- to it only when the app moved the page by itself.
+  assert "a quarter turn is one page, and each page is the same angle"
+    (LoopTw.pageFor 0 == 0
+      && LoopTw.pageFor (LoopTw.pageStep - 1) == 0
+      && LoopTw.pageFor LoopTw.pageStep == 1
+      && LoopTw.pageStep == 32)
 
-  -- The gesture has to fit in the travel from every page, or the page you are
-  -- on decides whether you can leave it.
-  assert "a full notch either way is reachable from the middle"
-    (LoopTw.pagerPark + LoopTw.pageStep <= 127
-      && LoopTw.pagerPark - LoopTw.pageStep >= 0)
+  -- **Clamped, not wrapped.** A knob with a physical end should stop, and it
+  -- makes the gesture reversible: turning back exactly as far returns exactly
+  -- as many pages, which a wrap does not.
+  assert "turning past the last page does nothing"
+    (LoopTw.pageFor 127 == LoopTw.pages' - 1
+      && LoopTw.pageFor (LoopTw.pages' * LoopTw.pageStep) == LoopTw.pages' - 1
+      && LoopTw.pageFor 0 == 0)
 
-  -- **A right angle, not a brush.** It was three units — about five degrees —
-  -- and the page changed when a hand touched the knob. A quarter of full travel
-  -- is a deliberate turn.
-  assert "paging takes a real turn, not a nudge"
-    (LoopTw.pageStep >= 24)
+  -- Every page has to be reachable inside the encoder's actual travel, or a
+  -- page added is a page you cannot turn to.
+  assert "every page fits in the travel"
+    (LoopTw.pagerRing (LoopTw.pages' - 1) <= 127
+      && LoopTw.pagerRing (LoopTw.pages' - 1) == (LoopTw.pages' - 1) * LoopTw.pageStep)
 
-  -- And a press nudges it, so anything smaller than a notch means nothing.
-  assert "a nudge of the pager does not page"
-    (LoopTw.pageTurn 0 LoopTw.pagerPark == Nothing
-      && LoopTw.pageTurn 0 (LoopTw.pagerPark + 2) == Nothing
-      && LoopTw.pageTurn 1 (LoopTw.pagerPark - 2) == Nothing
-      && LoopTw.pageTurn 0 (LoopTw.pagerPark + LoopTw.pageStep - 1) == Nothing)
+  -- And where the app parks it must read back as the page it parked it for, or
+  -- the card and the knob disagree the moment anything else moves the page.
+  assert "the app parks the pager where it reads as that page"
+    (Array.all (\p -> LoopTw.pageFor (LoopTw.pagerRing p) == p)
+       (Array.range 0 (LoopTw.pages' - 1)))
 
-  -- The page is the pager's colour now that its ring is a reference point, so
-  -- no two pages may look the same.
+  -- On taking focus everything is dimmed to zero, which is page one — so a
+  -- reload leaves the knob and the app agreeing without either being told.
+  assert "zero is the first page"
+    (LoopTw.pagerRing 0 == 0 && LoopTw.pageFor 0 == 0)
+
+  -- The page is the pager's colour as well as its position, so no two pages may
+  -- look the same.
   assert "each page gives the pager its own colour"
     (Array.length (Array.nubEq (map LoopTw.pageTone (Array.range 0 (LoopTw.pages' - 1))))
        == LoopTw.pages')

@@ -62,10 +62,11 @@ module Data.Looper.Twister
   , Led
   , leds
   , pager
-  , pagerPark
+  , pagerRing
+  , pagerIndex
+  , pageFor
   , pageTone
   , pageStep
-  , pageTurn
   , pages'
   , Cell
   , Page
@@ -79,7 +80,7 @@ import Data.Array as Array
 import Data.Int (round, toNumber)
 import Data.Looper.Banks (Duty(..), Subject(..), dutyLabel, dutyName, nLoops)
 import Data.Looper.Machine (Rig)
-import Data.Maybe (Maybe(..), maybe)
+import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.Number (log, pow) as Number
 import Data.Tuple (Tuple(..))
 import Data.Twister (Knob, encodersPerBank)
@@ -641,7 +642,10 @@ round1 x = toNumber (round (x * 10.0)) / 10.0
 -- | knowing that — `Component.App` addresses them, because it is the thing that
 -- | holds both facts: the page the app is showing and the block the device is
 -- | on. They are usually the same and are allowed not to be.
-type Led = { index :: Int, ring :: Int, hue :: Int }
+-- | `ringHeld` marks a ring the **device** owns: the app may read where it is
+-- | but must not write it, or it would be moving the knob under the hand
+-- | turning it. Only the pager is one. See `pagerRing`.
+type Led = { index :: Int, ring :: Int, hue :: Int, ringHeld :: Boolean }
 
 -- | What the sixteen encoders should look like on one page, given what the
 -- | daemon says.
@@ -658,14 +662,14 @@ leds rig bank = do
       loop = Array.index rig.loops (subjectIndex rig c.subject)
   pure
     { index
-    -- The pager's ring is the only one the engine has no opinion about, so it
-    -- is filled here — this is the function that knows which page it is
-    -- drawing. It is a *reference point*, not a reading: see `pagerPark`.
+    -- The pager's ring is the one the app must not touch — it IS the page
+    -- selector, and the position is the device's. Reported as 0 so it never
+    -- enters the diff; `pagerRing` is written deliberately elsewhere.
     , ring: case c.ring of
-        PageRing -> pagerPark
+        PageRing -> 0
         _ -> maybe 0 (ringOf c) loop
-    -- And the page itself is the pager's colour, for the same reason the ring
-    -- stopped carrying it.
+    , ringHeld: c.pager
+    -- The colour is the app's to say, and says the page.
     , hue: if c.pager then hue (pageTone bank) else maybe (dark c) (hueOf c) loop
     }
   where
@@ -679,35 +683,45 @@ ringOf c st = case c.ring of
   PageRing -> 0
   Value p -> toKnob p st
 
--- | Where the pager's ring is parked, and the position every turn is measured
--- | from.
+-- | Where the encoder stands for a given page, when the *app* is the one moving
+-- | it.
 -- |
--- | **The middle, on every page, since 2026-08-27** — and the reason is that it
--- | used to be the page's own position, which quietly capped how big the
--- | gesture could be.
+-- | **The pager reads its own absolute position, and the device owns that
+-- | position.** Two designs were tried and both were wrong in the same way —
+-- | they had the app rewriting the ring, which meant the app deciding where
+-- | "here" was and the knob arguing with it:
 -- |
--- | With two pages the parking spots were 0 and 127. On page 2 the ring sat at
--- | the top, so a turn to the right had *nowhere to go*: the device clamps at
--- | 127 and every message read as no movement at all. Forward-wrap from the
--- | last page was therefore unreachable on hardware, and the test that claimed
--- | it worked passed by feeding `pageTurn` a value of 130, which nothing can
--- | send. The gesture also had to fit inside whatever travel the parking spot
--- | happened to leave, which is why it ended up at three units — a nudge.
+-- | * *Position over the whole travel.* Two pages meant sweeping half the
+-- |   encoder, and a third page made each band narrower rather than the gesture
+-- |   smaller.
+-- | * *A step from a parked position.* Parked at the page's own end there was
+-- |   no travel left to turn into (forward-wrap was unreachable on hardware);
+-- |   parked in the middle the ring had to be rewritten after every change, so
+-- |   one direction cost a full notch and the other cost one unit.
 -- |
--- | Parked in the middle there are 63 units either way from every page, the
--- | threshold is free to be a real gesture, and wrapping works in both
--- | directions because both directions exist.
--- |
--- | **Which page you are on moved to the colour**, which it should have been
--- | anyway: a ring among two or three bands has to be read, and a colour is
--- | taken in. See `pageTone`.
-pagerPark :: Int
-pagerPark = 64
+-- | So the ring is written **only** when the app moves the page by itself —
+-- | from the card's "turn to this page", or the reset that comes with taking
+-- | focus. A turn is read where it lands and nothing is written back. Bands are
+-- | a fixed `pageStep` wide, so a page is always the same angle however many
+-- | pages there are, and the travel above the last band is simply unused.
+pagerRing :: Int -> Int
+pagerRing p = clamp 0 127 (p * pageStep)
 
--- | The pager's colour on each page, which is now the page indicator.
+-- | Which encoder the pager is, found rather than restated.
 -- |
--- | One tone per page, wrapping if a page is ever added without a tone for it —
--- | a repeat is a wrong answer but a `mod` cannot crash a light.
+-- | It is the bottom-right corner on every page and that is written down in the
+-- | layout tables; a second `15` here would be a second thing to keep true, and
+-- | this file has already been wrong that way once about the side buttons.
+pagerIndex :: Int
+pagerIndex = fromMaybe (encodersPerBank - 1)
+  (Array.find (\i -> (controlAt { bank: 0, index: i }).pager)
+     (Array.range 0 (encodersPerBank - 1)))
+
+-- | The pager's colour on each page, which says the same thing as the ring in
+-- | a way you do not have to read.
+-- |
+-- | Two indicators for the one fact you must not be wrong about, and they
+-- | cannot disagree: both are computed from the page being drawn.
 pageTone :: Int -> Tone
 pageTone p = case p `mod` pages' of
   0 -> Teal
@@ -716,42 +730,27 @@ pageTone p = case p `mod` pages' of
   -- `pages'` and nothing else.
   _ -> Yellow
 
--- | Which way a turn of the pager went, and by how much it has to move before
--- | it counts.
+-- | How far the encoder turns for one page.
 -- |
--- | **A step, not a position**, which was the first correction. Reading the
--- | pager's absolute position meant sweeping half the encoder to reach the next
--- | of two pages, and a third page would have made each band narrower rather
--- | than the gesture smaller. Wrong both ways round.
+-- | **A right angle**, if a revolution is the full 0-127 sweep. It was three
+-- | units for a while — about five degrees — and the page changed when a hand
+-- | brushed the knob.
 -- |
--- | It works because the ring is rewritten to `pagerPark` whenever the page
--- | changes and on every poll thereafter, so the encoder is continuously pinned
--- | to the middle. Any deviation is therefore a fresh turn and its sign is the
--- | direction — and because writing the ring sets the device's own value, a
--- | continued turn starts counting again from the middle rather than running
--- | away into a second page change.
--- |
--- | The device holds nothing: the position it is pinned to is a constant here,
--- | which is the same rule as every other ring on this surface.
--- |
--- | **A quarter of full travel**, which is a right angle if a revolution is the
--- | full 0-127 sweep. It was 3 — about five degrees, and reported as such: the
--- | page changed when a hand brushed the knob. If 32 still feels light the
--- | encoder is sending more than 128 units a revolution and this wants raising
--- | toward 48; parking in the middle is what makes that a free choice rather
--- | than a fight with the travel.
+-- | A fixed width rather than the travel divided by the page count, which is
+-- | the point: a third page costs another 32 units of travel instead of making
+-- | all three bands narrower. Three pages use 96 of 127 and there is room for a
+-- | fourth.
 pageStep :: Int
 pageStep = 32
 
--- | Where a turn from `here` should land, wrapping. `Nothing` when the knob has
--- | not moved far enough to mean anything — which is most messages, since a
--- | press nudges it too.
-pageTurn :: Int -> Int -> Maybe Int
-pageTurn here v =
-  let moved = v - pagerPark
-  in if moved >= pageStep then Just ((here + 1) `mod` pages')
-     else if moved <= negate pageStep then Just ((here - 1 + pages') `mod` pages')
-     else Nothing
+-- | Which page the pager is pointing at.
+-- |
+-- | **Clamped, not wrapped.** Turning past the last page does nothing, which is
+-- | what a knob with a physical end should do — and it means the gesture is
+-- | reversible by turning back exactly as far, which a wrap is not. The travel
+-- | above the last band is dead on purpose.
+pageFor :: Int -> Int
+pageFor v = clamp 0 (pages' - 1) (v / pageStep)
 
 -- | How many pages the looper surface uses. Two today; the trim-and-shift page
 -- | that `DESIGN-TWISTER` wants next simply raises this, and every pager on
@@ -853,8 +852,8 @@ cellAt bank index =
     { index
     , name: "page"
     , press: Just "back to the loops"
-    , turn: Just ("which page — " <> show pages' <> " of them")
-    , shows: Just "the colour is the page you are on"
+    , turn: Just ("which page — " <> show pages' <> " of them, a quarter turn each")
+    , shows: Just "where it stands IS the page; the colour says so too"
     , tone: toneOf c.light
     }
   else case c.press, c.turn of
