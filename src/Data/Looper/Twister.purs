@@ -62,7 +62,8 @@ module Data.Looper.Twister
   , Led
   , leds
   , pager
-  , pageRing
+  , pagerPark
+  , pageTone
   , pageStep
   , pageTurn
   , pages'
@@ -659,11 +660,13 @@ leds rig bank = do
     { index
     -- The pager's ring is the only one the engine has no opinion about, so it
     -- is filled here — this is the function that knows which page it is
-    -- drawing.
+    -- drawing. It is a *reference point*, not a reading: see `pagerPark`.
     , ring: case c.ring of
-        PageRing -> pageRing bank
+        PageRing -> pagerPark
         _ -> maybe 0 (ringOf c) loop
-    , hue: maybe (dark c) (hueOf c) loop
+    -- And the page itself is the pager's colour, for the same reason the ring
+    -- stopped carrying it.
+    , hue: if c.pager then hue (pageTone bank) else maybe (dark c) (hueOf c) loop
     }
   where
   dark c = case c.light of
@@ -676,40 +679,76 @@ ringOf c st = case c.ring of
   PageRing -> 0
   Value p -> toKnob p st
 
--- | Where the pager's ring stands, and the position a turn is read against.
+-- | Where the pager's ring is parked, and the position every turn is measured
+-- | from.
 -- |
--- | Coarse on purpose: two pages across 128 steps is 64 steps a page, so the
--- | press-nudge cannot page you by accident. A third page makes it 42 and still
--- | cannot.
-pageRing :: Int -> Int
-pageRing p = clamp 0 127 (round (toNumber p / toNumber (max 1 (pages' - 1)) * 127.0))
+-- | **The middle, on every page, since 2026-08-27** — and the reason is that it
+-- | used to be the page's own position, which quietly capped how big the
+-- | gesture could be.
+-- |
+-- | With two pages the parking spots were 0 and 127. On page 2 the ring sat at
+-- | the top, so a turn to the right had *nowhere to go*: the device clamps at
+-- | 127 and every message read as no movement at all. Forward-wrap from the
+-- | last page was therefore unreachable on hardware, and the test that claimed
+-- | it worked passed by feeding `pageTurn` a value of 130, which nothing can
+-- | send. The gesture also had to fit inside whatever travel the parking spot
+-- | happened to leave, which is why it ended up at three units — a nudge.
+-- |
+-- | Parked in the middle there are 63 units either way from every page, the
+-- | threshold is free to be a real gesture, and wrapping works in both
+-- | directions because both directions exist.
+-- |
+-- | **Which page you are on moved to the colour**, which it should have been
+-- | anyway: a ring among two or three bands has to be read, and a colour is
+-- | taken in. See `pageTone`.
+pagerPark :: Int
+pagerPark = 64
+
+-- | The pager's colour on each page, which is now the page indicator.
+-- |
+-- | One tone per page, wrapping if a page is ever added without a tone for it —
+-- | a repeat is a wrong answer but a `mod` cannot crash a light.
+pageTone :: Int -> Tone
+pageTone p = case p `mod` pages' of
+  0 -> Teal
+  1 -> Violet
+  -- Waiting for the trim-and-shift page. Named now so adding it is a change to
+  -- `pages'` and nothing else.
+  _ -> Yellow
 
 -- | Which way a turn of the pager went, and by how much it has to move before
 -- | it counts.
 -- |
--- | **A step, not a position**, which is the correction. Reading the pager's
--- | absolute position meant sweeping half the encoder to reach the next of two
--- | pages, and a third page would have made each band narrower rather than the
--- | gesture smaller. Wrong both ways round.
+-- | **A step, not a position**, which was the first correction. Reading the
+-- | pager's absolute position meant sweeping half the encoder to reach the next
+-- | of two pages, and a third page would have made each band narrower rather
+-- | than the gesture smaller. Wrong both ways round.
 -- |
--- | It works because the ring is rewritten from `pageRing` on every poll, so
--- | the encoder is continuously pinned to its page's own position. Any
--- | deviation is therefore a fresh turn and its sign is the direction — and
--- | after the page changes the ring snaps to the new band, so turning on gives
--- | one page per notch rather than a slide.
+-- | It works because the ring is rewritten to `pagerPark` whenever the page
+-- | changes and on every poll thereafter, so the encoder is continuously pinned
+-- | to the middle. Any deviation is therefore a fresh turn and its sign is the
+-- | direction — and because writing the ring sets the device's own value, a
+-- | continued turn starts counting again from the middle rather than running
+-- | away into a second page change.
 -- |
--- | The device holds nothing: the position it is pinned to is computed from the
--- | app's page every time, which is the same rule as every other ring here.
+-- | The device holds nothing: the position it is pinned to is a constant here,
+-- | which is the same rule as every other ring on this surface.
+-- |
+-- | **A quarter of full travel**, which is a right angle if a revolution is the
+-- | full 0-127 sweep. It was 3 — about five degrees, and reported as such: the
+-- | page changed when a hand brushed the knob. If 32 still feels light the
+-- | encoder is sending more than 128 units a revolution and this wants raising
+-- | toward 48; parking in the middle is what makes that a free choice rather
+-- | than a fight with the travel.
 pageStep :: Int
-pageStep = 3
+pageStep = 32
 
 -- | Where a turn from `here` should land, wrapping. `Nothing` when the knob has
 -- | not moved far enough to mean anything — which is most messages, since a
 -- | press nudges it too.
 pageTurn :: Int -> Int -> Maybe Int
 pageTurn here v =
-  let at = pageRing here
-      moved = v - at
+  let moved = v - pagerPark
   in if moved >= pageStep then Just ((here + 1) `mod` pages')
      else if moved <= negate pageStep then Just ((here - 1 + pages') `mod` pages')
      else Nothing
@@ -815,7 +854,7 @@ cellAt bank index =
     , name: "page"
     , press: Just "back to the loops"
     , turn: Just ("which page — " <> show pages' <> " of them")
-    , shows: Just "which page you are on"
+    , shows: Just "the colour is the page you are on"
     , tone: toneOf c.light
     }
   else case c.press, c.turn of

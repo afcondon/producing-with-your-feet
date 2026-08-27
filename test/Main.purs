@@ -2939,26 +2939,51 @@ main = do
              (Array.range 0 14))
       LoopTw.pages)
 
-  -- **A step, not a position.** Reading the pager's absolute position meant
-  -- sweeping half the encoder to reach the next of two pages, and a third page
-  -- would have made each band narrower rather than the gesture smaller — wrong
-  -- both ways round. It works because the ring is pinned to the page's own
-  -- position every poll, so any deviation is a fresh turn and its sign is the
-  -- direction.
+  -- **A step, not a position, measured from the middle.** Reading the pager's
+  -- absolute position meant sweeping half the encoder to reach the next of two
+  -- pages; parking it on the page's own position then capped how big the
+  -- gesture could be, because the travel left depended on which page you were
+  -- on. It is parked in the middle now, so every turn has 63 units either way.
+  --
+  -- **Every value below is one the device can actually send.** The version of
+  -- this test before 2026-08-27 asserted forward-wrap by handing `pageTurn` a
+  -- value of 130 — `pageRing 1 + pageStep`, which is off the end of MIDI — so
+  -- it passed while the gesture it described was unreachable on hardware: the
+  -- ring sat at 127 and the device clamps there. A test that can only be
+  -- satisfied by an impossible message is testing arithmetic, not a controller.
   assert "the pager steps one page a notch, in both directions, wrapping"
-    (LoopTw.pageTurn 0 (LoopTw.pageRing 0 + LoopTw.pageStep) == Just 1
-      && LoopTw.pageTurn 1 (LoopTw.pageRing 1 - LoopTw.pageStep) == Just 0
+    (LoopTw.pageTurn 0 (LoopTw.pagerPark + LoopTw.pageStep) == Just 1
+      && LoopTw.pageTurn 1 (LoopTw.pagerPark - LoopTw.pageStep) == Just 0
       -- Round the ends rather than stopping: a selector with dead ends is one
       -- you have to look at.
       && LoopTw.pageTurn (LoopTw.pages' - 1)
-           (LoopTw.pageRing (LoopTw.pages' - 1) + LoopTw.pageStep) == Just 0
-      && LoopTw.pageTurn 0 (LoopTw.pageRing 0 - LoopTw.pageStep) == Just (LoopTw.pages' - 1))
+           (LoopTw.pagerPark + LoopTw.pageStep) == Just 0
+      && LoopTw.pageTurn 0 (LoopTw.pagerPark - LoopTw.pageStep) == Just (LoopTw.pages' - 1))
+
+  -- The gesture has to fit in the travel from every page, or the page you are
+  -- on decides whether you can leave it.
+  assert "a full notch either way is reachable from the middle"
+    (LoopTw.pagerPark + LoopTw.pageStep <= 127
+      && LoopTw.pagerPark - LoopTw.pageStep >= 0)
+
+  -- **A right angle, not a brush.** It was three units — about five degrees —
+  -- and the page changed when a hand touched the knob. A quarter of full travel
+  -- is a deliberate turn.
+  assert "paging takes a real turn, not a nudge"
+    (LoopTw.pageStep >= 24)
 
   -- And a press nudges it, so anything smaller than a notch means nothing.
   assert "a nudge of the pager does not page"
-    (LoopTw.pageTurn 0 (LoopTw.pageRing 0) == Nothing
-      && LoopTw.pageTurn 0 (LoopTw.pageRing 0 + 2) == Nothing
-      && LoopTw.pageTurn 1 (LoopTw.pageRing 1 - 2) == Nothing)
+    (LoopTw.pageTurn 0 LoopTw.pagerPark == Nothing
+      && LoopTw.pageTurn 0 (LoopTw.pagerPark + 2) == Nothing
+      && LoopTw.pageTurn 1 (LoopTw.pagerPark - 2) == Nothing
+      && LoopTw.pageTurn 0 (LoopTw.pagerPark + LoopTw.pageStep - 1) == Nothing)
+
+  -- The page is the pager's colour now that its ring is a reference point, so
+  -- no two pages may look the same.
+  assert "each page gives the pager its own colour"
+    (Array.length (Array.nubEq (map LoopTw.pageTone (Array.range 0 (LoopTw.pages' - 1))))
+       == LoopTw.pages')
 
   -- **Undo and Redo are one axis.** The scrub sends the difference between
   -- where the knob is and what the daemon reports, so it cannot drift — and a

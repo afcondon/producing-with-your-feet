@@ -418,10 +418,31 @@ once-a-session mode and keeps its MC6 config switch.
 page. Turn picks the page, press goes home to Loops. It read absolute position
 at first, which meant sweeping half the knob to reach the next of two pages —
 and a third page would have made each *band* narrower rather than the *gesture*
-smaller, wrong both ways round. It steps now: the ring is pinned to the page's
-own position every poll, so any deviation is a fresh turn and its sign is the
-direction, and the ring snaps to the new band so turning on gives one page per
-notch. Three steps to count, so a nudge cannot page you.
+smaller, wrong both ways round. It steps now: the ring is pinned to a reference
+position, so any deviation is a fresh turn and its sign is the direction.
+
+**The reference is the middle of the travel, and the page is a colour**
+(2026-08-27). It was the page's own position — 0 and 127 for two pages — which
+had two consequences, one visible and one not:
+
+- *Visible.* Whatever travel the parking spot left was all the gesture could
+  have, so the threshold ended up at three units, about five degrees. The page
+  changed when a hand brushed the knob.
+- *Not visible.* On the last page the ring sat at 127 and the device clamps
+  there, so a turn to the right could not move at all: **forward-wrap was
+  unreachable on hardware**. The test that claimed it worked passed by feeding
+  `pageTurn` a value of 130, which nothing can send.
+
+Parked at 64 there are 63 units either way from every page, both directions
+exist, and the threshold is free to be a real gesture — a quarter of full
+travel, a right angle if a revolution is the whole 0–127 sweep. Which page you
+are on moved to the pager's **colour**, teal then violet, which is what it
+should have been anyway: a ring among two or three bands has to be read, and a
+colour is taken in.
+
+If 32 still feels light, the encoder sends more than 128 units a revolution and
+`pageStep` wants raising toward 48. Parking in the middle is what makes that a
+free choice rather than a fight with the travel.
 
 That also handed the ch 5 side buttons back to prev/next *pedal*, which they
 had to be: with the looper holding the controller there was otherwise no way to
