@@ -135,9 +135,13 @@ type AppState =
   -- | Encoders whose turns are being ignored because a press just landed on
   -- | them. Cleared on a timer.
   , twisterGuard :: Set Int
-  -- | Which page the Twister last spoke *from* — an observation, read off the
-  -- | wire. The bank travels in every encoder message, so this is what the
+  -- | Which block the Twister last spoke *from* — an observation, read off the
+  -- | wire. The block travels in every encoder message, so this is what the
   -- | device believes. `Nothing` until it says something.
+  -- |
+  -- | Kept only to notice **drift**: the device is pinned to one block, so
+  -- | anything else here is a stray press of its own block buttons and is put
+  -- | back. It is no longer an address for anything.
   , twisterHeardBank :: Maybe Int
   -- | Which page the app is **showing** — its own, and authoritative.
   -- |
@@ -148,15 +152,15 @@ type AppState =
   -- | whose behaviour nobody here can verify, and Andrew reported the obvious
   -- | consequence — stuck on page 2 with no way home.
   -- |
-  -- | So the app decides which table an encoder is read against, and the device
-  -- | is merely *asked* to follow. If it cannot, paging still works; the two
-  -- | facts simply differ, and the LED writes go to the block the device is
-  -- | really showing (`twisterHeardBank`) carrying the content of the page the
-  -- | app is on. Address from the device, content from the app.
+  -- | So the app decides which table an encoder is read against — and since
+  -- | 2026-08-27 it decides alone. **A page is not a device block.** The device
+  -- | is pinned to one block and a page turn repaints it; see
+  -- | `Component.Twister.Lights.deviceBank` for the hardware fact that forced
+  -- | this — a Twister keeps a value per encoder per block, so paging by block
+  -- | moved the pager's own position out from under it.
   -- |
-  -- | The device still wins when it *moves*: a change in the heard bank is an
-  -- | event and is adopted. A heard bank that merely stays where it is is not,
-  -- | which is what lets the app page a device parked on bank 1 for ever.
+  -- | The two fields therefore no longer name two candidate addresses. There is
+  -- | one address, and `twisterHeardBank` is only how drift is spotted.
   , twisterPage :: Int
   , presets :: Array PedalPreset
   , boardPresets :: Array BoardPreset

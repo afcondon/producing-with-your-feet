@@ -35,6 +35,7 @@ module Component.Twister.Lights
   , showTwisterPage
   , adoptTwisterPage
   , sendRingPosition
+  , pinDevice
   , sendAllLEDs
   , sendLooperLEDs
   , dimAllLEDs
@@ -93,23 +94,28 @@ refreshTwister pid = do
       -- that looks like the loops and is not, which is worse than a page you
       -- have to reach for.
       --
-      -- `showTwisterPage` rather than `sendTwisterBank`, since 2026-08-27: the
-      -- old line moved the device and left `twisterPage` wherever it had been,
-      -- so after `dimAllLEDs` had zeroed every ring the app could believe it
-      -- was on page 2 while the pager stood at the bottom of its travel. The
+      -- `showTwisterPage` rather than a bare block change, since 2026-08-27:
+      -- the old line moved the device and left `twisterPage` wherever it had
+      -- been, so after `dimAllLEDs` had zeroed every ring the app could believe
+      -- it was on page 2 while the pager stood at the bottom of its travel. The
       -- next brush of that knob then read as page 1 and looked like a spurious
       -- page change. Now the page, the lights and the encoder are set together
       -- from one call, and zero is page one on all three.
       showTwisterPage 0
-    else sendAllLEDs pid
+    else do
+      -- `sendAllLEDs` has always addressed bank 0 and nothing ever put the
+      -- device there, so walking from the looper to a pedal while the device
+      -- sat on another block lit a page nobody was looking at. Pinning first
+      -- makes the address true.
+      pinDevice
+      sendAllLEDs pid
 
--- | Turn to a page: the app moves, and the device is invited.
+-- | Turn to a page: the app moves, and the device does not.
 -- |
--- | **The app's move is the one that matters.** `sendTwisterBank` is a courtesy
--- | — if the device honours it the two stay in step and the LEDs land on the
--- | block it is showing; if it ignores it, the app pages anyway and the LEDs go
--- | to the block the device *is* on, carrying the new page's content. Either
--- | way the encoders mean what the card says they mean.
+-- | **The page is the app's, and it is now the app's alone.** Nothing about a
+-- | page turn reaches the Twister except a repaint of the sixteen encoders it
+-- | is already showing — see `Data.Twister.deviceBank` for why the device used to move with
+-- | it and why that was the whole bug.
 showTwisterPage :: forall act slots o m. MonadAff m => Int -> H.HalogenM AppState act slots o m Unit
 showTwisterPage bank = do
   goToPage bank
@@ -119,7 +125,7 @@ showTwisterPage bank = do
   -- turn is measured from wherever the hand last left it and the two disagree
   -- until something touches it.
   st <- H.get
-  sendRingPosition { bank: st.twisterPage, index: LoopTwister.pagerIndex }
+  sendRingPosition { bank: TwisterData.deviceBank, index: LoopTwister.pagerIndex }
     (LoopTwister.pagerRing st.twisterPage)
 
 -- | The page changed because the pager was turned there.
@@ -127,6 +133,10 @@ showTwisterPage bank = do
 -- | Everything `showTwisterPage` does except move the encoder — which is
 -- | already where it needs to be, because it is what moved. Writing to it here
 -- | would be the app shoving a knob that a hand is holding.
+-- |
+-- | That sentence was *false* for a day, and only `Data.Twister.deviceBank` makes it true
+-- | again: while the app moved the device between blocks, the knob that moved
+-- | and the knob the device would read next were two different stores.
 adoptTwisterPage :: forall act slots o m. MonadAff m => Int -> H.HalogenM AppState act slots o m Unit
 adoptTwisterPage = goToPage
 
@@ -138,17 +148,26 @@ goToPage bank = do
     { twisterPage = clamp 0 (LoopTwister.pages' - 1) bank
     , twisterLit = Map.empty
     }
-  sendTwisterBank bank
+  -- The page is entirely the app's; the device is only told to stay put. The
+  -- repaint below is what a page turn *is* now, and it costs what the old bank
+  -- change already cost, because clearing `twisterLit` forced a full repaint
+  -- either way.
+  pinDevice
   st <- H.get
   when (st.focusPedalId == Just Looper.itajaraId) sendLooperLEDs
 
--- | Ask the device to show a page. See `Data.Twister.bankSelectMessage` for why
--- | this is a candidate rather than a fact.
-sendTwisterBank :: forall act slots o m. MonadAff m => Int -> H.HalogenM AppState act slots o m Unit
-sendTwisterBank bank = do
+-- | Put the device back on `deviceBank`, wherever it thought it was.
+-- |
+-- | Sent on every page turn and whenever the device is heard speaking from
+-- | somewhere else, which is what makes the pin self-healing rather than an
+-- | assumption: if a block button is pressed, the next message says so and this
+-- | undoes it. See `Data.Twister.bankSelectMessage` — the message is still a
+-- | request, but now there is only ever one thing being requested.
+pinDevice :: forall act slots o m. MonadAff m => H.HalogenM AppState act slots o m Unit
+pinDevice = do
   st <- H.get
   for_ st.connections.twisterOutput \out ->
-    liftEffect $ MIDI.send out (TwisterData.bankSelectMessage bank)
+    liftEffect $ MIDI.send out (TwisterData.bankSelectMessage TwisterData.deviceBank)
 
 -- LED feedback helpers
 
@@ -196,28 +215,16 @@ sendAllLEDs pid = do
 sendLooperLEDs :: forall act slots o m. MonadAff m => H.HalogenM AppState act slots o m Unit
 sendLooperLEDs = do
   st <- H.get
-  -- **Both from the app's page**, and that is a correction: the address used to
-  -- come from `twisterHeardBank`, the last block the device had spoken from,
-  -- on the theory that the lights should land where the device really is even
-  -- if it would not take a bank change.
-  --
-  -- It was wrong, and how it was wrong is the useful part. Turning the page
-  -- from the web interface left the Twister unchanged **until you touched a
-  -- knob** — which is precisely what you would see if the device *had* moved:
-  -- it went to the new block, the lights went to the old one, and nothing
-  -- corrected until a message arrived carrying the real bank. So the delay was
-  -- the evidence that `bankSelectMessage` works.
-  --
-  -- Asking and then assuming is safe here because it is self-healing: if the
-  -- device ever does not comply, its next message carries a different bank,
-  -- `twisterPage` adopts it, `twisterLit` clears, and the following poll paints
-  -- the right block. One touch, not one session.
+  -- **Content from the app's page, address from `deviceBank`** — and the second
+  -- half of that is the correction (2026-08-27). The address was `twisterPage`,
+  -- and before that `twisterHeardBank`, both on the theory that the lights
+  -- should land on whichever block the device was showing. There is no such
+  -- question now: the device is only ever on one.
   let wanted = LoopTwister.leds (rigOf st) st.twisterPage
-      showing = st.twisterPage
       changed = Array.filter (\l -> Map.lookup l.index st.twisterLit /= Just { ring: l.ring, hue: l.hue }) wanted
   unless (Array.null changed) do
     for_ changed \l -> do
-      let knob = { bank: showing, index: l.index }
+      let knob = { bank: TwisterData.deviceBank, index: l.index }
       sendRGBColor knob l.hue
       -- The pager's ring is the device's — see `LoopTwister.pagerRing`. Writing
       -- it from the diff would move the page selector every time any colour on

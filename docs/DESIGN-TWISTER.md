@@ -462,6 +462,58 @@ not depend on writing to the encoder working at all**. If the device ignores a
 ring write, paging by hand still reads correctly — only the card's "turn to this
 page" button would stop carrying the knob with it.
 
+**And then a third design failed, and the reason retired the whole premise**
+(2026-08-27, same day). "The device owns the position" was one assumption short:
+the device owns *four* positions. **A Twister keeps a separate value for every
+encoder on every block** — the `16b + i` arithmetic `parseTwisterMsg` decodes on
+the way in, read in the other direction — and the app was changing block on
+every page turn, via `bankSelectMessage`. So paging swapped which of four stores
+the corner encoder read from, and the new one held whatever it had last been
+left at. Those leftovers survive a reload, which is why the same test gave a
+different answer each time and why it felt like persistent state somewhere. It
+was: in the device.
+
+Symptom: a quarter turn reached page 2, the pager's ring dropped to zero, and a
+click or two later it was back on page 1 and thereafter unrepeatable. It
+presented as a threshold problem and survived every fix aimed at one, because
+none of them touched *which store was being read*.
+
+Mirroring the value into the other three blocks is the obvious repair and it was
+tried first. It is wrong: it keeps four copies of one fact in step by hand, and
+it has to keep doing so while a hand is turning one of them.
+
+**So the device is pinned to one block and the app owns the paging outright**
+(`Lights.deviceBank = 0`, `pinDevice`). A page turn now sends no block change at
+all — only a repaint of the sixteen encoders the device is already showing,
+which costs exactly what the old block change cost, since `twisterLit` was
+cleared and everything repainted either way.
+
+This is not a new position so much as the one the rest of the code had already
+taken. `onPage` throws the device's block away before deciding what an encoder
+means; `sendAllLEDs` has only ever written to block 0. The looper was the single
+surface that disagreed — and that disagreement had a second bug in it nobody had
+noticed: walking from the looper to a *pedal* while the device sat on block 2
+lit block 0, which is to say lit nothing you could see.
+
+What is given up is the device's own block buttons, which are now put back
+rather than followed (`TwisterMidiReceived`). That is a gain. They changed the
+meaning of all sixteen encoders with nothing on screen to say so.
+
+Three notes for next time:
+
+- **The pure tests could not have caught any of this and still cannot.**
+  `pageFor`, `pagerRing` and `pageStep` were right throughout and every
+  assertion about them passed, twice over. All three bugs lived one layer down,
+  in which CC the write went out on — `Component.Twister.Lights`, effectful, on
+  the wire.
+- Each of the three dead designs was a true statement about the hardware with a
+  missing qualifier: the device owns the position (*which* position?), the
+  device owns the block (*so what does an encoder mean?*). The fix each time was
+  to take ownership rather than to guess better.
+- The remaining hardware unknown is now harmless but still unmeasured: whether a
+  ring write to a non-active block lands at all. Nothing depends on the answer
+  any more, because nothing writes to one.
+
 That also handed the ch 5 side buttons back to prev/next *pedal*, which they
 had to be: with the looper holding the controller there was otherwise no way to
 reach a pedal at all.

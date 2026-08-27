@@ -16,7 +16,7 @@ import Data.Looper as Looper
 import Data.Looper.Banks as LoopBanks
 import Component.Looper.Control as LooperControl
 import Component.Looper.Page as LooperPage
-import Component.Twister.Lights (adoptTwisterPage, dimAllLEDs, knobCC, refreshTwister, rigOf, sendAllLEDs, sendLooperLEDs, sendRingPosition, showTwisterPage)
+import Component.Twister.Lights (adoptTwisterPage, dimAllLEDs, knobCC, pinDevice, refreshTwister, rigOf, sendAllLEDs, sendLooperLEDs, sendRingPosition, showTwisterPage)
 import Data.Looper.Machine as Machine
 import Data.MC6.Backup as Backup
 import Data.MC6.ControlBank (ControlBank)
@@ -1482,19 +1482,26 @@ handleAction = case _ of
                                       , twisterInputSub = Just sid } }
 
   TwisterMidiReceived bytes -> do
-    -- **Adopted on change, not on arrival.** Every encoder message carries the
-    -- device's own page, and following it blindly would undo the app's paging
-    -- the instant a knob moved — a device parked on bank 1 says "bank 1" all
-    -- day. So a heard bank that stays put is just an observation; a heard bank
-    -- that *moves* is the device navigating, and the app goes with it.
+    -- **Put back, not followed.** Every encoder message carries the block the
+    -- device is on, and the app used to adopt a block that *moved* — the device
+    -- navigating, so the app went with it.
+    --
+    -- It goes the other way now. The app owns the paging outright and the
+    -- device is pinned to one block (`Data.Twister.deviceBank`), because a Twister
+    -- keeps a separate value for each encoder on each block and moving between
+    -- them silently moved the pager's position out from under it. So a heard
+    -- block that is not the pinned one is not navigation, it is drift — a stray
+    -- press of one of the device's own block buttons — and the answer is to put
+    -- it back and repaint, rather than to let sixteen encoders quietly change
+    -- meaning with nothing on screen saying so.
     st0 <- H.get
     for_ (TwisterData.bankOf bytes) \bank -> do
-      when (st0.twisterHeardBank /= Just bank) do
-        H.modify_ _ { twisterPage = bank }
-        -- Redraw, because the content of a page is not the content of the one
-        -- before it and the device keeps whatever it was last told.
-        when (st0.focusPedalId == Just Looper.itajaraId) $
-          H.modify_ _ { twisterLit = Map.empty }
+      when (st0.twisterHeardBank /= Just bank && bank /= TwisterData.deviceBank) do
+        pinDevice
+        -- The device keeps whatever it was last told, and it has just been
+        -- somewhere else, so nothing on it can be trusted to still be true.
+        H.modify_ _ { twisterLit = Map.empty }
+        when (st0.focusPedalId == Just Looper.itajaraId) sendLooperLEDs
       H.modify_ _ { twisterHeardBank = Just bank }
     for_ (parseTwisterMsg bytes) handleTwisterMsg
 
@@ -3291,9 +3298,8 @@ handleEncoderTurn knob val = do
         -- Its position IS the page — `LoopTwister.pageFor` — and adopting
         -- rather than showing is what keeps the app from writing back to the
         -- knob that just moved.
-        then
-          let want = LoopTwister.pageFor val
-          in when (want /= st.twisterPage) (adoptTwisterPage want)
+        then when (LoopTwister.pageFor val /= st.twisterPage)
+               (adoptTwisterPage (LoopTwister.pageFor val))
         else for_ (LoopTwister.turnedAt here val) \(Tuple subject duty) ->
           traverse_ (runAction 0.0) (Machine.perform (rigOf st) subject duty)
     else onPedal st \pid def ps ->

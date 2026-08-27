@@ -22,6 +22,7 @@ module Data.Twister
   , Knob
   , SideBtn(..)
   , banks
+  , deviceBank
   , encodersPerBank
   , bankOf
   , bankSelectMessage
@@ -62,6 +63,35 @@ banks = 4
 
 encodersPerBank :: Int
 encodersPerBank = 16
+
+-- | **The one block this app ever puts the Twister on.**
+-- |
+-- | The device has four, and for a while the looper used them as its pages: a
+-- | page turn sent `bankSelectMessage` and the LED writes followed the device
+-- | across. That is where the pager kept dying, and the reason is a hardware
+-- | fact the design never took account of — *the Twister stores a value per
+-- | encoder per block*. Four stores behind one knob, and they survive a reload.
+-- | So paging also swapped which store the pager read from, the new one held
+-- | whatever it had last been left at, and "the device owns the position"
+-- | quietly meant a different position each time.
+-- |
+-- | Mirroring the value into the other blocks was the obvious repair and it is
+-- | the wrong one: four copies of one fact kept in step by hand, and kept in
+-- | step *while* a hand is turning one of them.
+-- |
+-- | So the device stays here and the app owns the paging outright. This is not
+-- | a new position, it is the one the rest of the code already took —
+-- | `App.onPage` throws the device's block away before deciding what an encoder
+-- | means, and `sendAllLEDs` has only ever written to block 0. The looper was
+-- | the one surface disagreeing.
+-- |
+-- | It lives here rather than beside the MIDI writes because two places need
+-- | it and one of them is a view: the card has to know that a heard block other
+-- | than this one means the encoders are misaddressed, which is not the same
+-- | question as which *page* the app is showing. Conflating those two is what
+-- | made the card's warning fire on every visit to page 2.
+deviceBank :: Int
+deviceBank = 0
 
 -- | Ask the device to show a page.
 -- |
