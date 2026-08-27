@@ -4,6 +4,9 @@ module Engine
   , MidiConnections
   , View(..)
   , LooperPanel(..)
+  , LogLine
+  , pushLooperLog
+  , logLimit
   , AppState
   , MC6Assignment
   , initEngineFromPedals
@@ -61,10 +64,12 @@ derive instance Eq View
 -- | each consulted once and then in the way — and the page they were crowding
 -- | is the one surface that has to be legible while both hands are busy.
 -- |
--- | `Board` is deliberately not modal (see `Component.Looper.Page`): learning
--- | the machine by clicking it is worth nothing if the loops are behind a
--- | backdrop while you do it.
-data LooperPanel = PanelBoard | PanelTwister | PanelBanks
+-- | **The board is not one of these.** It was, for an afternoon, as a corner
+-- | dock — and seeing it there settled the question the other way: it is small
+-- | enough to keep beside the loops permanently, and a control you have to open
+-- | is a control you do not use while both hands are busy. It lives in the
+-- | page's right column now, with the log under it.
+data LooperPanel = PanelTwister | PanelBanks
 
 derive instance Eq LooperPanel
 
@@ -231,10 +236,20 @@ type AppState =
   -- | surface keeps meeting.
   , looperSnapshotAge :: Number
   , looperFocus :: Int
-  -- | What the last footswitch press did, in words. Every press produces one,
-  -- | including the refusals: a press that leaves no trace anywhere is the
-  -- | thing the whole looper surface exists to prevent.
-  , looperLastAction :: Maybe String
+  -- | What presses have done, in words, newest first.
+  -- |
+  -- | Every press produces a line, including the refusals: a press that leaves
+  -- | no trace anywhere is the thing the whole looper surface exists to
+  -- | prevent. **It was one line until 2026-08-27** — the newest, replacing the
+  -- | last — which is fine when you are watching and useless when you are
+  -- | playing, because the interesting sequence is always the three presses
+  -- | before the one that surprised you.
+  -- |
+  -- | Consecutive repeats collapse to a count rather than being dropped. That
+  -- | is not tidiness: pressing the same dead switch twice IS two refusals and
+  -- | has to say so, which is the same reason `looperAckSeq` is a counter and
+  -- | not a string.
+  , looperLog :: Array LogLine
   -- | The `ackSeq` of the last thing the daemon said that we have shown.
   -- |
   -- | A counter rather than the text, because two identical refusals in a row
@@ -425,7 +440,7 @@ initAppState =
   , looperDeferral: { tapMs: 250.0, holdMs: 700.0 }
   , looperSnapshotAge: 0.0
   , looperFocus: 0
-  , looperLastAction: Nothing
+  , looperLog: []
   , looperAckSeq: 0
   , mc6ProbeBankNum: 10
   , looperShowsSlots: true
@@ -481,3 +496,28 @@ pedalsOnChannel channel engine =
   Array.mapMaybe
     (\(Tuple pid ps) -> if ps.channel == channel then Just pid else Nothing)
     (Map.toUnfoldable engine)
+
+-- | One line of the looper log.
+type LogLine = { text :: String, times :: Int }
+
+-- | How many lines are kept.
+-- |
+-- | Enough to cover a take and the fumbling either side of it; short enough
+-- | that the panel never becomes the page. The list is rebuilt on every entry,
+-- | so the bound is what keeps that from mattering.
+logLimit :: Int
+logLimit = 60
+
+-- | Add a line, newest first, collapsing an immediate repeat into a count.
+-- |
+-- | **In `Engine` because three places write to it** — the machine adapter, the
+-- | MC6 bank courtesy, and the daemon's own ack — and a second copy of the
+-- | collapse rule is a second chance for two of them to disagree about what
+-- | counts as the same press.
+pushLooperLog :: String -> AppState -> AppState
+pushLooperLog msg st = st { looperLog = next }
+  where
+  next = case Array.uncons st.looperLog of
+    Just { head, tail } | head.text == msg ->
+      Array.cons (head { times = head.times + 1 }) tail
+    _ -> Array.take logLimit (Array.cons { text: msg, times: 1 } st.looperLog)

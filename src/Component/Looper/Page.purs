@@ -55,7 +55,7 @@ import Data.Int as Int
 import Data.Looper as Looper
 import Data.Looper.Banks as LoopBanks
 import Data.Maybe (Maybe(..))
-import Engine (LooperPanel(..))
+import Engine (LogLine, LooperPanel(..))
 import Foreign.LooperSocket (LooperState, SocketStatus)
 import Foreign.LooperSocket as LooperSocket
 import Halogen.HTML as HH
@@ -75,7 +75,7 @@ type State r =
   , looperShowsSlots :: Boolean
   , looperPanel :: Maybe LooperPanel
   , looperBankShown :: Maybe LoopBanks.BankSlot
-  , looperLastAction :: Maybe String
+  , looperLog :: Array LogLine
   , looperProgramStatus :: Maybe String
   , mc6LooperBankNum :: Int
   , mc6LoopBankBase :: Int
@@ -124,30 +124,32 @@ render h ports state =
   HH.div [ HP.class_ (HH.ClassName "looper-view") ]
     [ HH.div [ HP.class_ (HH.ClassName "looper-head") ]
         [ HH.h2_ [ HH.text "Looper" ]
-        -- Three things you look up, and none of them things you do. They were
-        -- all on the page until 2026-08-27, between you and the loops.
+        -- Two things you look up. The board used to be a third and is now a
+        -- fixture in the right column — see `boardCard`.
         , HH.div [ HP.class_ (HH.ClassName "looper-help-row") ]
-            [ panelBtn PanelBoard "Board"
-            , panelBtn PanelTwister "Twister"
+            [ panelBtn PanelTwister "Twister"
             , panelBtn PanelBanks "MC6 banks"
             ]
         ]
     , connectionLine
     , audioLine
-    , faceToggle
-    , case state.looper of
-        Just lp | state.looperShowsSlots -> Slots.render lp state.looperFocus (LoopBanks.face state.looperBankShown)
-        _ -> HH.text ""
-    -- What the last press did, in words. Present for refusals as much as for
-    -- commands: the machine names every gap it meets rather than swallowing
-    -- the press, and a footswitch that silently does nothing is the failure
-    -- this whole surface exists to design against.
-    , case state.looperLastAction of
-        Nothing -> HH.text ""
-        Just msg -> HH.p [ HP.class_ (HH.ClassName "looper-lastaction") ] [ HH.text msg ]
-    , case state.looper of
-        Just lp | not state.looperShowsSlots -> HH.div_ [ transport lp, readout lp ]
-        _ -> HH.text ""
+    , HH.div [ HP.class_ (HH.ClassName "looper-body") ]
+        [ HH.div [ HP.class_ (HH.ClassName "looper-main") ]
+            [ faceToggle
+            , case state.looper of
+                Just lp | state.looperShowsSlots -> Slots.render lp state.looperFocus (LoopBanks.face state.looperBankShown)
+                _ -> HH.text ""
+            , case state.looper of
+                Just lp | not state.looperShowsSlots -> HH.div_ [ transport lp, readout lp ]
+                _ -> HH.text ""
+            ]
+        -- **The board and the log, in that order, and the order is the
+        -- argument.** Press a switch here and the sentence it produced appears
+        -- directly underneath it — cause above effect, in one column, without
+        -- crossing the page. That is what the corner dock could not do.
+        , HH.div [ HP.class_ (HH.ClassName "looper-side") ]
+            [ boardCard, logCard ]
+        ]
     , panel
     ]
   where
@@ -163,34 +165,70 @@ render h ports state =
 
   panel = case state.looperPanel of
     Nothing -> HH.text ""
-    -- **Docked, not modal, and that is the whole point of it.** The way to
-    -- learn what a switch does is to press it and watch a loop go red; behind a
-    -- backdrop there is nothing to watch. So this floats in a corner, the page
-    -- underneath stays live, and it is small enough that the twelve switches
-    -- stop being three page-widths of white space with a word in the corner.
-    Just PanelBoard ->
-      HH.div [ HP.class_ (HH.ClassName "looper-dock") ]
-        [ dockHead "The board, live"
-        , BoardSim.render h.simulate (LoopBanks.face state.looperBankShown)
-        ]
     Just PanelTwister ->
       modal "Midifighter Twister — what each encoder does"
         [ TwisterMap.render ports.twister state.twisterPage state.twisterHeardBank h.showTwisterPage ]
     Just PanelBanks ->
       modal "MC6 banks" [ footswitchCard, loopFamilyCard ]
 
-  dockHead title =
-    HH.div [ HP.class_ (HH.ClassName "looper-panel-head") ]
-      [ HH.span [ HP.class_ (HH.ClassName "looper-panel-title") ] [ HH.text title ]
-      , closeBtn
+  -- | The board, permanently.
+  -- |
+  -- | **Not behind a button, and that is a reversal made by looking at it.** It
+  -- | was a corner dock you opened; seeing it open showed that it is small
+  -- | enough to keep, and that a control you have to summon is one you will not
+  -- | summon with a guitar in your hands. It is also the only place G to L are
+  -- | written down at all — those are FS3X switches with no markings and no
+  -- | LCD — which used to be the job of a legend under the loops. That legend
+  -- | said the same six things less usefully, because you could not press it.
+  boardCard =
+    HH.div [ HP.class_ (HH.ClassName "looper-side-card") ]
+      [ cardHead "The board, live" Nothing
+      , BoardSim.render h.simulate (LoopBanks.face state.looperBankShown)
       ]
 
-  closeBtn =
-    HH.button
-      [ HP.class_ (HH.ClassName "looper-panel-close")
-      , HE.onClick \_ -> h.openPanel Nothing
+  -- | What the presses did, newest first.
+  -- |
+  -- | A log rather than the single line it replaced, because the sentence you
+  -- | want is almost never the newest one — it is the two or three before the
+  -- | press that surprised you, and a line that overwrites itself has thrown
+  -- | those away by the time you look up.
+  logCard =
+    HH.div [ HP.class_ (HH.ClassName "looper-side-card") ]
+      [ cardHead "What happened" Nothing
+      , if Array.null state.looperLog
+          then HH.p [ HP.class_ (HH.ClassName "looper-log-empty") ]
+                 [ HH.text "Nothing pressed yet." ]
+          else HH.ol [ HP.class_ (HH.ClassName "looper-log") ]
+                 (map logLine state.looperLog)
       ]
-      [ HH.text "\x00D7" ]
+
+  -- A repeat carries its count rather than a second identical line: pressing
+  -- the same dead switch twice is two refusals and has to say so, but it does
+  -- not have to say so twice as loudly as everything else.
+  logLine l =
+    HH.li [ HP.class_ (HH.ClassName "looper-log-line") ]
+      ( [ HH.span_ [ HH.text l.text ] ]
+          <> if l.times > 1
+               then [ HH.span [ HP.class_ (HH.ClassName "looper-log-times") ]
+                        [ HH.text ("\x00d7" <> show l.times) ] ]
+               else []
+      )
+
+  -- One head for both kinds. The side cards pass `Nothing` because there is
+  -- nothing to close: they are the page, not something laid over it.
+  cardHead title mClose =
+    HH.div [ HP.class_ (HH.ClassName "looper-panel-head") ]
+      ( [ HH.span [ HP.class_ (HH.ClassName "looper-panel-title") ] [ HH.text title ] ]
+          <> case mClose of
+               Nothing -> []
+               Just act ->
+                 [ HH.button
+                     [ HP.class_ (HH.ClassName "looper-panel-close")
+                     , HE.onClick \_ -> act
+                     ]
+                     [ HH.text "\x00D7" ]
+                 ]
+      )
 
   -- Backdrop closes it, because a reference you cannot dismiss with the hand
   -- that opened it is a reference you stop opening.
@@ -202,7 +240,7 @@ render h ports state =
           ]
           []
       , HH.div [ HP.class_ (HH.ClassName "looper-modal") ]
-          [ dockHead title
+          [ cardHead title (Just (h.openPanel Nothing))
           , HH.div [ HP.class_ (HH.ClassName "looper-modal-body") ] body
           ]
       ]

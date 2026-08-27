@@ -49,7 +49,7 @@ import Data.Traversable (traverse_)
 import Effect.Aff.Class (class MonadAff)
 import Effect.Class (liftEffect)
 import Effect.Class.Console as Console
-import Engine (AppState)
+import Engine (AppState, pushLooperLog)
 import Foreign.LooperSocket as LooperSocket
 import Halogen as H
 
@@ -157,4 +157,4 @@ runAction showBank late a = do
     Machine.Unavailable why -> note why
     Machine.Handled what -> note what
   where
-  note msg = H.modify_ _ { looperLastAction = Just msg }
+  note msg = H.modify_ (pushLooperLog msg)

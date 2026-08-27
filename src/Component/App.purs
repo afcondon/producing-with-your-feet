@@ -64,7 +64,7 @@ import Effect.Exception as Exception
 import Config.Decode as Decode
 import Data.Either (Either(..))
 import Data.String.CodeUnits as SCU
-import Engine (AppState, EngineState, LooperPanel, MC6Assignment, PedalState, View(..), getValue, initAppState, initEngineFromPedals, pedalsOnChannel)
+import Engine (AppState, EngineState, LooperPanel, MC6Assignment, PedalState, View(..), getValue, initAppState, initEngineFromPedals, pedalsOnChannel, pushLooperLog)
 import Config.Preset as CPreset
 import Engine.Storage as Storage
 import Engine.Twister as Twister
@@ -2041,7 +2041,7 @@ handleAction = case _ of
       -- twice, and comparing strings would silently swallow the second.
       for_ snap \lp ->
         when (lp.ackSeq /= cur.looperAckSeq && lp.ack /= "") do
-          H.modify_ _ { looperLastAction = Just lp.ack, looperAckSeq = lp.ackSeq }
+          H.modify_ (pushLooperLog lp.ack <<< _ { looperAckSeq = lp.ackSeq })
       -- The daemon's `k` and `m` flip rather than set, so the app's idea of
       -- them could drift from the engine's after one dropped command and never
       -- recover. It reports both in every snapshot, so take its word: for the
@@ -2533,7 +2533,7 @@ looperShowBank :: forall o m. MonadAff m => LoopBanks.BankSlot -> H.HalogenM App
 looperShowBank slot = do
   st <- H.get
   case st.connections.mc6Output of
-    Nothing -> H.modify_ _ { looperLastAction = Just "no MC6 output — cannot change bank" }
+    Nothing -> H.modify_ (pushLooperLog "no MC6 output — cannot change bank")
     Just out -> void $ H.fork $ inSession out \open ->
       Wire.send open (SysEx.sysexEditorBankChange
         (st.mc6LoopBankBase + LoopBanks.slotIndex slot))

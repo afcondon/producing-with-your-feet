@@ -129,64 +129,16 @@ render lp focus fc =
   HH.div [ HP.class_ (HH.ClassName "loops") ]
     [ HH.div [ HP.class_ (HH.ClassName "loops-grid") ]
         (Array.mapMaybe cell (join LB.loopRows))
-    , utilities fc
+    -- **No aux legend here since 2026-08-27.** There used to be a row naming
+    -- G to L, because nothing else could — those are FS3X switches with no
+    -- markings and no LCD. The board panel beside this one names them now, and
+    -- names them better: it is the same table read the same way, and you can
+    -- press it. A second copy of the six would only be a second thing to keep
+    -- true.
     , legend lp focus
     ]
   where
   cell i = slot lp focus fc i <$> Array.index lp.loops i
-
--- | What the six unmarked switches do, on the bank the board is showing.
--- |
--- | **Because nothing else can say.** The MC6's LCD names its own six switches
--- | and stops there; G to L are FS3X footswitches with no display and no
--- | markings at all. Six functions were put on them and the player was left to
--- | remember which — with the predictable result that Clear was pressed for
--- | some minutes without ever being pressed, while Undo was hit until the loop
--- | gave up.
--- |
--- | It named the wrong six for a while, which was worse than naming none. The
--- | list was hand-written, and it was the LOOP bank's list shown whatever bank
--- | the board was on — so with the board on config, the screen said J was Clear
--- | while J was End Stop, and pressing it answered with something about
--- | leaving-state. That reads exactly like a switch wired to the wrong place,
--- | and sent us looking for a reversed mapping that did not exist.
--- |
--- | Two changes, and the second is the one that matters: it takes the bank as
--- | an argument, and it reads `Data.Looper.Banks` rather than restating it. A
--- | display that keeps its own copy of what the device was programmed with is a
--- | display that can be confidently wrong.
-utilities :: forall w i. LB.Face -> HH.HTML w i
-utilities fc =
-  HH.div [ HP.class_ (HH.ClassName "loops-utils-wrap") ]
-    [ HH.div [ HP.class_ (HH.ClassName "loops-utils-bank") ]
-        [ HH.text (LB.faceName fc) ]
-    -- Empty when the board has left the family, which draws nothing rather
-    -- than drawing six labels that are not true of anything.
-    , HH.div [ HP.class_ (HH.ClassName "loops-utils") ]
-        (map one (LB.faceAux fc))
-    ]
-  where
-  -- Tap, then whatever else the switch carries. The extra gestures are shown
-  -- smaller and only when they exist: G to L have no markings, so this is the
-  -- only place they are written down at all, and a row of empty slots would
-  -- suggest a surface fuller than it is.
-  one sw =
-    HH.div [ HP.class_ (HH.ClassName "loops-util") ]
-      [ HH.span [ HP.class_ (HH.ClassName "util-key") ] [ HH.text (LB.switchKey sw) ]
-      , HH.div [ HP.class_ (HH.ClassName "util-duties") ]
-          ( [ HH.span_ [ HH.text (LB.switchLabel sw) ] ]
-              <> extra "\x00d7\x00d7" (LB.switchDouble sw)
-              <> extra "hold" (LB.switchHold sw)
-          )
-      ]
-  extra how = case _ of
-    Nothing -> []
-    Just what ->
-      [ HH.span [ HP.class_ (HH.ClassName "util-alt") ]
-          [ HH.span [ HP.class_ (HH.ClassName "util-how") ] [ HH.text how ]
-          , HH.text what
-          ]
-      ]
 
 -- | One loop.
 slot :: forall w i. LooperState -> Int -> LB.Face -> Int -> LoopState -> HH.HTML w i

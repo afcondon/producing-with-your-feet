@@ -1752,7 +1752,7 @@ body {
    knobs stretched across a metre are no easier to read than knobs that fit. */
 .looper-view {
   padding: 24px 32px;
-  max-width: 1180px;
+  max-width: 1440px;
 }
 
 .looper-view h2 {
@@ -1901,27 +1901,65 @@ body {
 .looper-modal-body .looper-footswitch { border: 0; padding: 0; margin: 0 0 18px; }
 .looper-modal-body .looper-footswitch:last-child { margin-bottom: 0; }
 
-/* The dock. Narrow on purpose: at page width the twelve switches were three
-   columns of near-empty box with a word in the corner, which is the white
-   space that made this worth moving. At 300px the same grid is dense. */
-.looper-dock {
-  position: fixed; right: 18px; bottom: 18px; z-index: 900; width: 300px;
-  background: #fbfaf8; border: 1px solid #ccc5ba;
-  box-shadow: 0 6px 24px rgba(0,0,0,0.18);
+/* ── Two columns: what you operate, and what tells you about it ────────────
+   The board was a corner dock for an afternoon. Seeing it open answered the
+   question: it is small enough to keep, and a control you have to summon is
+   one you will not summon with a guitar in your hands. So it is a fixture —
+   and the log goes directly beneath it, so a press and the sentence it
+   produced are in one column, cause above effect, without crossing the page. */
+.looper-body {
+  display: grid; grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 28px; align-items: start;
 }
-.looper-dock .board-sim { border: 0; margin: 0; padding: 10px; background: transparent; }
-.looper-dock .board-sim-head { margin-bottom: 6px; }
-.looper-dock .board-sim-rows { gap: 4px; }
-.looper-dock .board-sim-row { gap: 4px; }
-.looper-dock .board-sim-rows > .board-sim-row:nth-child(3) { margin-top: 6px; }
-.looper-dock .board-sim-tap { min-height: 0; padding: 3px 5px; gap: 0; }
-.looper-dock .board-sim-key.is-blank { min-height: 0; padding: 6px 0; }
-.looper-dock .board-sim-label { font-size: 11px; line-height: 1.1; }
-.looper-dock .board-sim-letter { font-size: 9px; }
-.looper-dock .board-sim-extra { font-size: 9px; padding: 0 4px; }
+.looper-side { display: flex; flex-direction: column; gap: 16px; }
+.looper-side-card {
+  background: #fbfaf8; border: 1px solid #ded9d1;
+}
+.looper-side-card .looper-panel-head { padding: 7px 10px; }
 
-@media (max-width: 700px) {
-  .looper-dock { right: 8px; left: 8px; bottom: 8px; width: auto; }
+/* Narrow on purpose: at page width the twelve switches were three columns of
+   near-empty box with a word in the corner, which is the white space that made
+   this worth moving. In a 320px column the same grid is dense. */
+.looper-side-card .board-sim { border: 0; margin: 0; padding: 10px; background: transparent; }
+.looper-side-card .board-sim-head { margin-bottom: 6px; }
+.looper-side-card .board-sim-rows { gap: 4px; }
+.looper-side-card .board-sim-row { gap: 4px; }
+.looper-side-card .board-sim-rows > .board-sim-row:nth-child(3) { margin-top: 6px; }
+.looper-side-card .board-sim-tap { min-height: 0; padding: 3px 5px; gap: 0; }
+.looper-side-card .board-sim-key.is-blank { min-height: 0; padding: 6px 0; }
+.looper-side-card .board-sim-label { font-size: 11px; line-height: 1.1; }
+.looper-side-card .board-sim-letter { font-size: 9px; }
+.looper-side-card .board-sim-extra { font-size: 9px; padding: 0 4px; }
+
+/* ── The log ───────────────────────────────────────────────────────────────
+   Newest first, because the question is always "what did I just do", and
+   reading down is then reading backwards in time. Capped in `Engine.logLimit`
+   and scrolled here, so a long session cannot make the column taller than the
+   loops it sits beside. */
+.looper-log {
+  list-style: none; margin: 0; padding: 6px 10px 10px;
+  max-height: 320px; overflow-y: auto;
+  font-size: 12px; line-height: 1.45; color: #4a453f;
+}
+.looper-log-line {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  padding: 3px 0; border-bottom: 1px solid #f0ede7;
+}
+.looper-log-line:last-child { border-bottom: 0; }
+/* The newest is the one you are looking for, so it is the one that is dark. */
+.looper-log-line:first-child { color: #2f2b27; font-weight: 500; }
+.looper-log-times {
+  font-size: 10px; color: #a09a92; font-variant-numeric: tabular-nums;
+  flex: none;
+}
+.looper-log-empty {
+  margin: 0; padding: 8px 10px 12px; font-size: 12px; color: #a09a92;
+}
+
+@media (max-width: 1000px) {
+  .looper-body { grid-template-columns: 1fr; }
+  .looper-side { flex-direction: row; flex-wrap: wrap; }
+  .looper-side-card { flex: 1 1 300px; }
 }
 
 /* The MC6 starter bank, and the button that writes it. Sits below the
@@ -2217,43 +2255,6 @@ body {
 .loop-slot.is-stopped .mark-set  { color: #b0aaa2; background: #f4f2ee; }
 .loop-slot.is-stopped .mark-live { color: #b9b3a9; border-color: #ded9d1; }
 .loop-slot.is-stopped .mark-foot { background: #b9b3a9; }
-
-.looper-lastaction {
-  font-size: 12px; color: #6d6862; margin: -14px 0 20px 0;
-  padding: 6px 10px; background: #f3f1ec; border-left: 3px solid #3a7d6c;
-}
-
-/* The six switches the board cannot label. G-L are FS3X footswitches with no
-   display and no markings, so this is the only place their meaning exists at
-   the moment it is needed. */
-.loops-utils-wrap { margin: 0 0 10px 0; }
-/* Which bank the board is showing. G-L have no markings, so the six labels
-   below are only true of one bank at a time — naming it is what stops the
-   legend being confidently wrong. */
-.loops-utils-bank {
-  font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
-  color: #8a847c; margin: 0 0 5px 0;
-}
-.loops-utils {
-  display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px;
-}
-.loops-util {
-  display: flex; align-items: baseline; gap: 7px;
-  font-size: 11px; color: #6d6862;
-  border-top: 1px solid #e6e2dc; padding-top: 6px;
-}
-/* Tap on the first line; the gestures a switch also carries beneath it,
-   quieter, because they are the ones you look up rather than reach for. */
-.util-duties { display: flex; flex-direction: column; gap: 2px; }
-.util-alt { font-size: 10px; color: #a09a92; display: flex; gap: 5px; }
-.util-how {
-  font-size: 9px; letter-spacing: 0.04em; text-transform: uppercase;
-  color: #bdb6ad; min-width: 2.1em;
-}
-.util-key {
-  font-weight: 600; font-size: 13px; color: #2f2b27;
-  min-width: 1em; font-variant-numeric: tabular-nums;
-}
 
 .loops-legend {
   display: flex; gap: 18px; font-size: 11px; color: #8b857d;
@@ -4106,6 +4107,6 @@ body {
   <!-- Stamped by tools/bundle.sh with the bundle's own mtime. Without it a
        reload can serve yesterday's app and say nothing, which has cost this
        project whole afternoons more than once. -->
-  <script src="./index.js?v=1787815554"></script>
+  <script src="./index.js?v=1787816328"></script>
 </body>
 </html>

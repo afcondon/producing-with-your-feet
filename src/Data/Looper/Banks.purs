@@ -188,16 +188,9 @@ module Data.Looper.Banks
   , stepDecay
   , decayWord
   , Face
-  , Switch
   , face
   , faceSlot
-  , faceName
-  , faceAux
   , faceLoopKey
-  , switchKey
-  , switchLabel
-  , switchDouble
-  , switchHold
   , boardRows
   , loopRows
   , switchLoops
@@ -536,23 +529,16 @@ switchForLoop l = Array.findIndex (_ == l) switchLoops
 -- | the copy was right when written and wrong later. Types cannot stop somebody
 -- | typing a word into a div, but they can stop a second *table* existing, and
 -- | a second table is what actually rots.
-newtype Switch = Switch { index :: Int, key :: String, duties :: Duties }
-
-switchKey :: Switch -> String
-switchKey (Switch s) = s.key
-
--- | The words, fished out of the duty rather than stored beside it.
-switchLabel :: Switch -> String
-switchLabel (Switch s) = dutyLabel s.duties.tap
-
--- | What a second press does, when there is anything.
-switchDouble :: Switch -> Maybe String
-switchDouble (Switch s) = dutyLabel <$> s.duties.double
-
--- | What holding it does. Mostly nothing, and deliberately: three meanings on
--- | an unmarked switch is three times as much to remember while standing on it.
-switchHold :: Switch -> Maybe String
-switchHold (Switch s) = dutyLabel <$> s.duties.hold
+-- | **The `Switch` view type was removed 2026-08-27**, with `switchKey`,
+-- | `switchLabel`, `switchDouble`, `switchHold`, `faceAux` and `faceName`.
+-- |
+-- | They existed for one caller: the row under the loops that named G to L,
+-- | because those are FS3X switches with no markings and nothing else could
+-- | say. The board panel says it now, from `dutiesAt` and `dutyLabel` — the
+-- | same facts by a shorter road, and pressable, which the legend never was.
+-- |
+-- | Left as a note rather than silently: `auxLegend` above is the surviving
+-- | answer to the same question and is what four tests hold to.
 
 -- | What the board is showing, as everything a view may say about it.
 -- |
@@ -567,30 +553,11 @@ face = Face
 
 -- | Which bank the face is, when it is one of ours.
 -- |
--- | The one way out of the newtype, and it is deliberately the *only* one: a
--- | view that wants to draw the whole board needs the slot, and every other
--- | question — the name, the aux switches, a loop's key — is already answered
--- | here so that nothing has to open it up to ask.
+-- | The one way out of the newtype, and deliberately so. A view that wants to
+-- | draw the whole board needs the slot; a view that only wants to label a loop
+-- | asks `faceLoopKey` and never opens it at all.
 faceSlot :: Face -> Maybe BankSlot
 faceSlot (Face m) = m
-
--- | What to call the bank on screen, including when there is not one.
-faceName :: Face -> String
-faceName (Face m) = case m of
-  Just slot -> slotName slot
-  Nothing -> "the board is on another bank"
-
--- | The unmarked switches past the MC6's own, for this face. Empty when the
--- | board has left the family, because then nothing here is true.
-faceAux :: Face -> Array Switch
-faceAux (Face m) = case m of
-  Nothing -> []
-  Just slot -> Array.catMaybes (map entry (Array.range mc6OwnSwitches (switchCount - 1)))
-    where
-    entry i = do
-      key <- switchLetter i
-      sw <- dutiesAt slot i
-      if sw.tap == Nothing_ then Nothing else Just (Switch { index: i, key, duties: sw })
 
 -- | What to print on a loop's slot: the switch that reaches it, or its number
 -- | when the board is somewhere that cannot reach it.
