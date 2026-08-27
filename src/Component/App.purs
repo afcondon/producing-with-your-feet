@@ -14,9 +14,9 @@ import Data.Argonaut.Core (stringify)
 import Data.Argonaut.Parser (jsonParser)
 import Data.Looper as Looper
 import Data.Looper.Banks as LoopBanks
-import Component.Looper.Board (render) as BoardSim
-import Component.Looper.Slots as Slots
-import Component.Looper.TwisterMap as TwisterMap
+import Component.Looper.Control as LooperControl
+import Component.Looper.Page as LooperPage
+import Component.Twister.Lights (dimAllLEDs, knobCC, refreshTwister, rigOf, sendAllLEDs, sendLooperLEDs, sendRingPosition, showTwisterPage)
 import Data.Looper.Machine as Machine
 import Data.MC6.Backup as Backup
 import Data.MC6.ControlBank (ControlBank)
@@ -39,7 +39,7 @@ import Data.Traversable (for)
 import Data.Map as Map
 import Data.Int as Int
 import Data.Number as Number
-import Data.Maybe (Maybe(..), fromMaybe, isJust, isNothing, maybe)
+import Data.Maybe (Maybe(..), fromMaybe, isJust, isNothing)
 import Data.Midi (CC, MidiValue, ProgramNumber, makeCC, makeChannel, makeMidiValue, makeProgramNumber, unCC, unChannel, unMidiValue, unProgramNumber, unsafeCC, unsafeMidiValue)
 import Data.Pedal (PedalDef, PedalId)
 import Pedals.Registry as PsRegistry
@@ -436,359 +436,51 @@ renderFolderBackup state =
 
 -- | The looper tab.
 -- |
--- | The engine is `itajara/` in this repo — a Rust daemon on cpal holding the
--- | Audio4c directly. This page holds nothing: it renders the snapshot the
--- | daemon pushes, and sends command strings back. Every decision about what a
--- | command means lives in one place, at the other end of the socket.
+-- | The page itself is `Component.Looper.Page`. What is left here is the join:
+-- | the actions that page can cause, the two connection facts it needs, and the
+-- | pedal face — which is a `HH.slot` and therefore this component's to build.
 -- |
--- | Deliberately unfinished. The interface this wants is in DESIGN-LOOPER §12 —
--- | concentric rings sharing a phase pointer, and a column per layer — and the
--- | thesis is that the display should say what the *next press* will do, not
--- | merely what happened. What is here is proof the wire works, and one button.
+-- | **The handler record is the boundary, and it repays reading as one.** Every
+-- | control on that page appears in it, and every one of them lands on
+-- | `SetValue` for the Itajara pedal or on an action that already existed. There
+-- | is no route from the page to the socket that does not come through here,
+-- | which is the same rule the Twister and the MC6 relay follow and the reason
+-- | `Machine.perform` can stay the only place a command is decided.
 renderLooperView :: forall m. MonadAff m => AppState -> H.ComponentHTML Action Slots m
-renderLooperView state =
-  HH.div [ HP.class_ (H.ClassName "looper-view") ]
-    [ HH.h2_ [ HH.text "Looper" ]
-    , connectionLine
-    , audioLine
-    , faceToggle
-    , case state.looper of
-        Just lp | state.looperShowsSlots -> Slots.render lp state.looperFocus (LoopBanks.face state.looperBankShown)
-        _ -> HH.text ""
-    -- The board, on screen, with every switch live. Present always rather than
-    -- behind a debug flag: knowing what the pedal is showing is useful when
-    -- nothing is broken, and a panel you have to turn on is a panel that is off
-    -- when you need it.
-    , BoardSim.render SimulateSwitch (LoopBanks.face state.looperBankShown)
-    -- What the last press did, in words. Present for refusals as much as for
-    -- commands: the machine names every gap it meets rather than swallowing
-    -- the press, and a footswitch that silently does nothing is the failure
-    -- this whole surface exists to design against.
-    , case state.looperLastAction of
-        Nothing -> HH.text ""
-        Just msg -> HH.p [ HP.class_ (H.ClassName "looper-lastaction") ] [ HH.text msg ]
-    , HH.div [ HP.class_ (H.ClassName "looper-columns") ]
-        [ HH.div [ HP.class_ (H.ClassName "looper-left") ]
-            [ case state.looper of
-                Just lp | not state.looperShowsSlots -> HH.div_ [ transport lp, readout lp ]
-                _ -> HH.text ""
-            , footswitchCard
-            ]
-        -- The pedal face, on the page it belongs to rather than in the board
-        -- grid. Same component the board uses, so the knobs, the drag handling
-        -- and the value routing are the ones already in service elsewhere.
-        , HH.div [ HP.class_ (H.ClassName "looper-right") ]
-            [ HH.slot (Proxy :: _ "pedal") unit PedalView.component
-                { engine: state.engine
-                , pedalId: Looper.itajaraId
-                , registry: state.registry
-                }
-                HandlePedal
-            ]
-        ]
-    -- The Twister's layout, at the bottom because it is a reference rather than
-    -- a control: you read it once, learn the page, and stop looking. Folded
-    -- shut by default for the same reason.
-    , TwisterMap.render (isJust state.connections.twisterOutput)
-        state.twisterPage state.twisterHeardBank ShowTwisterPage
-    ]
+renderLooperView state = LooperPage.render handlers ports pedalFace state
   where
-  st = state.looperStatus
+  handlers =
+    { setFace: SetLooperFace
+    , simulate: SimulateSwitch
+    , showTwisterPage: ShowTwisterPage
+    -- A CC, not a command. The page names the control it pressed and this turns
+    -- it into the message the MC6 would have sent, so a screen button and a
+    -- footswitch are indistinguishable by the time anything acts on them.
+    , gesture: \ccNum -> SetValue Looper.itajaraId (unsafeCC ccNum) (unsafeMidiValue 127)
+    -- Set from the wanted state rather than flipped, because the daemon's `k`
+    -- flips: two surfaces flipping one engine is how the click came to disagree
+    -- with the button that claimed to own it.
+    , setClick: \wanted -> SetValue Looper.itajaraId (unsafeCC 81)
+        (unsafeMidiValue (if wanted then 127 else 0))
+    , setArm: SetArmThreshold
+    , setFeedback: SetFeedback
+    , setTone: SetTone
+    , programLooperBank: ProgramLooperBank
+    , programLoopBanks: ProgramLoopBanks
+    }
 
-  -- Two faces, not two pages. The old transport is the only thing that can
-  -- drive the engine by hand, which is exactly what the six-slot display needs
-  -- in order to have anything to show while the state machine does not exist
-  -- yet — so it stays one click away rather than behind a nav item.
-  faceToggle =
-    HH.div [ HP.class_ (H.ClassName "looper-face-toggle") ]
-      [ tab true "Loops", tab false "Transport" ]
+  ports =
+    { mc6: isJust state.connections.mc6Output
+    , twister: isJust state.connections.twisterOutput
+    }
 
-  tab wants label =
-    HH.button
-      [ HP.class_ (H.ClassName (if state.looperShowsSlots == wants then "face-tab on" else "face-tab"))
-      , HE.onClick \_ -> SetLooperFace wants
-      ]
-      [ HH.text label ]
-
-  -- A connected socket says nothing about whether audio is running: the push
-  -- thread reads shared atomics and will serve a confident snapshot from an
-  -- engine whose device was unplugged. That failure cost an afternoon of
-  -- hunting a MIDI fault, so it gets its own line and says what to do.
-  audioLine = case state.looper of
-    Just lp | not lp.audioAlive ->
-      HH.p [ HP.class_ (H.ClassName "looper-conn down") ]
-        [ HH.text $
-            if lp.deviceLost
-              then "The daemon lost the audio device — reconnecting. Commands will not take effect until it is back."
-              else "The daemon is connected but its audio has stopped. Commands will not take effect."
-        ]
-    Just lp | lp.reopens > 0 ->
-      HH.p [ HP.class_ (H.ClassName "looper-muted") ]
-        [ HH.text $ "Audio device recovered "
-            <> show lp.reopens
-            <> (if lp.reopens == 1 then " time" else " times")
-            <> " this session."
-        ]
-    _ -> HH.text ""
-
-  -- **A picture of the past must never be presented as the present.**
-  --
-  -- "Connected" was true and useless: the socket was open, commands were
-  -- landing, and the loops on screen were minutes old. So the line reports the
-  -- age of the newest snapshot as well as the state of the socket — the daemon
-  -- pushes thirty times a second, so anything approaching a second is already
-  -- wrong and the player deserves to be told rather than to work it out from a
-  -- playhead that has stopped moving.
-  connectionLine =
-    let stale = state.looperSnapshotAge > 1000.0
-    in HH.p
-      [ HP.class_ (H.ClassName ("looper-conn" <>
-          if st.connected && not stale then " ok" else " down")) ]
-      [ HH.text $
-          if st.connected && stale then
-            "Connected, but the picture is "
-              <> show (Int.round (state.looperSnapshotAge / 100.0) / 10) <> " s old."
-          else if st.connected then "Connected to the daemon."
-          else if st.everConnected then "Lost the daemon — retrying."
-          else "No daemon. Start it with:  itajara loop --device AUDIO4c --ws"
-      ]
-
-  -- Every button here goes through `SetValue` on the Itajara pedal — the same
-  -- path a footswitch or a Twister encoder takes. There is deliberately no
-  -- shortcut to the socket from the UI: one route in means one place to debug.
-  transport lp =
-    HH.div [ HP.class_ (H.ClassName "looper-transport") ]
-      [ gestureBtn ("looper-btn" <> if lp.recording then " recording" else "")
-          (not st.connected) 1 (nextPress lp)
-      , gestureBtn "looper-btn small"
-          (not st.connected || lp.loopFrames == 0) 2
-          (if LooperSocket.phaseOf lp == LooperSocket.Multiplying then "End multiply" else "Multiply")
-      , gestureBtn "looper-btn small" (not st.connected) 5 "Take"
-      , gestureBtn "looper-btn small" (not st.connected || lp.layers == 0) 3 "Undo"
-      -- Only offered when there is a length and nothing sitting in it, which is
-      -- the only moment it is meaningful and also the only moment it is wanted.
-      , gestureBtn "looper-btn small"
-          (not st.connected || lp.layers /= 0 || lp.loopFrames == 0) 13 "Forget length"
-      , HH.button
-          [ HP.class_ (H.ClassName "looper-btn small")
-          , HP.disabled (not st.connected)
-          , HE.onClick \_ -> SetValue Looper.itajaraId (unsafeCC 81)
-                               (unsafeMidiValue (if lp.click then 0 else 127))
-          ]
-          [ HH.text (if lp.click then "Click off" else "Click on") ]
-      , armThreshold lp
-      , revoxFeedback
-      ]
-
-  -- | How loud a sound has to be to start a level-armed loop.
-  -- |
-  -- | **On the page rather than on a knob, and deliberately.** It very nearly
-  -- | went on the Twister — turn to set the level, which arms the loop, press to
-  -- | record regardless. Two things sent it here instead. It is *rig-wide*, so
-  -- | on a page of eight loop encoders it would have been eight knobs quietly
-  -- | writing one value; and it is a once-a-session calibration of the room and
-  -- | the instrument, which is the same kind of thing as the residual latency
-  -- | and belongs where that kind of thing lives.
-  -- |
-  -- | A performance surface is for what you reach for while playing. Everything
-  -- | else on it is in the way.
-  armThreshold lp =
-    HH.span [ HP.class_ (H.ClassName "looper-arm") ]
-      [ HH.label_ [ HH.text "Listen from" ]
-      , HH.input
-          [ HP.type_ HP.InputRange
-          , HP.min (-80.0)
-          , HP.max 0.0
-          , HP.step (HP.Step 1.0)
-          , HP.value (show (Int.round lp.armDb))
-          , HP.disabled (not st.connected)
-          , HE.onValueInput \v -> SetArmThreshold v
-          ]
-      , HH.span [ HP.class_ (H.ClassName "looper-arm-value") ]
-          [ HH.text (show (Int.round lp.armDb) <> " dBFS") ]
-      ]
-
-  -- | What a Revox pass leaves of what was under it.
-  -- |
-  -- | **Here rather than on the Twister, and only because both pages are
-  -- | full.** It is a performance control — riding the feedback is how the mode
-  -- | is played — so it wants a knob, and it will get one on the trim-and-shift
-  -- | page when that exists. Until then a slider you can reach is better than a
-  -- | cell nothing else could spare.
-  -- The focused loop's, because Revox is a per-loop mode — unlike the arm
-  -- threshold above it, which is the rig's.
-  revoxFeedback = case state.looper >>= \l -> Array.index l.loops state.looperFocus of
-    Nothing -> HH.text ""
-    Just fl -> revoxSlider fl
-
-  revoxSlider fl =
-    HH.span [ HP.class_ (H.ClassName "looper-arm") ]
-      [ HH.label_ [ HH.text "Tape leaves" ]
-      , HH.input
-          [ HP.type_ HP.InputRange
-          , HP.min (-24.0)
-          , HP.max 0.0
-          , HP.step (HP.Step 0.5)
-          , HP.value (show fl.fbDb)
-          , HP.disabled (not st.connected)
-          , HE.onValueInput \v -> SetFeedback v
-          ]
-      , HH.span [ HP.class_ (H.ClassName "looper-arm-value") ]
-          [ HH.text (LoopBanks.levelWord fl.fbDb <> " a pass") ]
-      , HH.label_ [ HH.text "keeping" ]
-      , HH.input
-          [ HP.type_ HP.InputRange
-          , HP.min 1000.0
-          , HP.max 20000.0
-          , HP.step (HP.Step 250.0)
-          , HP.value (show (Int.round fl.toneHz))
-          , HP.disabled (not st.connected)
-          , HE.onValueInput \v -> SetTone v
-          ]
-      , HH.span [ HP.class_ (H.ClassName "looper-arm-value") ]
-          [ HH.text (if fl.toneHz >= 20000.0 then "all of it"
-                     else show (Int.round (fl.toneHz / 100.0) * 100) <> " Hz") ]
-      ]
-
-  gestureBtn cls disabled ccNum label =
-    HH.button
-      [ HP.class_ (H.ClassName cls)
-      , HP.disabled disabled
-      , HE.onClick \_ -> SetValue Looper.itajaraId (unsafeCC ccNum) (unsafeMidiValue 127)
-      ]
-      [ HH.text label ]
-
-  -- | What the next press does, which is the thing every looper hides.
-  nextPress lp = case LooperSocket.phaseOf lp of
-    LooperSocket.RecordingFirst -> "Close the loop"
-    LooperSocket.Overdubbing -> "Finish overdub"
-    LooperSocket.Multiplying -> "End multiply"
-    LooperSocket.Armed -> "Starting…"
-    -- An empty loop with a length is not an overdub, whatever the engine calls
-    -- the phase. Saying "Overdub" with nothing to overdub onto is what made a
-    -- kept grid read as a stuck one. `Playing` and `Idle` differ only in
-    -- whether the playhead is moving, and the next press is the same either
-    -- way, so they share the answer rather than repeating it.
-    LooperSocket.Playing -> byContents
-    LooperSocket.Idle -> byContents
-    where
-    byContents
-      | lp.loopFrames == 0 = "Record"
-      | lp.layers == 0 = "Record on the grid"
-      | otherwise = "Overdub"
-
-  readout lp =
-    HH.div [ HP.class_ (H.ClassName "looper-readout") ]
-      [ phaseBar lp
-      , HH.table [ HP.class_ (H.ClassName "docs-table") ]
-          [ HH.tbody_
-              [ row "State" lp.state
-              , row "Layers" (show lp.layers <> " of " <> show lp.maxLayers)
-              , row "Loop"
-                  ( if lp.loopFrames == 0 then "not set"
-                    else fmt2 lp.loopSecs <> " s  (" <> show lp.loopFrames <> " frames)"
-                           <> (if lp.layers == 0
-                                 then "  \x2014 empty, grid kept for the next take"
-                                 else "")
-                  )
-              , row "Input" (fmt1 lp.inDb <> " dBFS")
-              , row "Output" (fmt1 lp.outDb <> " dBFS")
-              , row "Alignment"
-                  ( if lp.calibrated then "locked, K " <> show lp.k
-                    else "waiting for the first input buffer"
-                  )
-              ]
-          ]
-      ]
-
-  -- Where we are in the cycle. Crude next to the concentric rings §12 wants,
-  -- but it is the one thing a looper must never leave you guessing about.
-  phaseBar lp =
-    HH.div [ HP.class_ (H.ClassName "looper-phase") ]
-      [ HH.div
-          [ HP.class_ (H.ClassName "looper-phase-fill")
-          , HP.style ("width:" <> show (max 0.0 (min 100.0 (lp.phase * 100.0))) <> "%")
-          ]
-          []
-      ]
-
-  -- Itajara is a pedal now, so its full surface lives on its own Detail page
-  -- and any switch can be assigned to any of it. What remains here is the one
-  -- thing that page cannot do: put a usable bank on the hardware today.
-  footswitchCard =
-    HH.div [ HP.class_ (H.ClassName "looper-footswitch") ]
-      [ HH.h3_ [ HH.text "Footswitch control" ]
-      , HH.p [ HP.class_ (H.ClassName "looper-muted") ]
-          [ HH.text $
-              "Itajara is a pedal on channel " <> show Looper.itajaraChannel
-              <> ", so the MC6 addresses it exactly as it addresses Habit or MOOD — "
-              <> "and every control is on its own page, assignable to any switch. "
-              <> "This writes a starter transport bank to MC6 bank "
-              <> show state.mc6LooperBankNum <> "."
-          ]
-      , HH.table [ HP.class_ (H.ClassName "docs-table") ]
-          [ HH.tbody_ (map bankRow (Looper.looperBank state.mc6LooperBankNum state.mc6BoardBankNum).switches) ]
-      , HH.button
-          [ HP.class_ (H.ClassName "files-btn")
-          , HP.disabled (isNothing state.connections.mc6Output)
-          , HE.onClick \_ -> ProgramLooperBank
-          ]
-          [ HH.text "Program MC6 looper bank" ]
-      , loopFamilyCard
-      , case state.looperProgramStatus of
-          Nothing -> HH.text ""
-          Just msg -> HH.p [ HP.class_ (H.ClassName "looper-muted") ] [ HH.text msg ]
-      ]
-
-  -- The six-loop machine's own banks, which are a different thing wearing a
-  -- similar name to the transport bank above: that one drives one loop through
-  -- Itajara's pedal CCs, this one gives the app twelve labelled places to stand
-  -- on each of six pages and lets the app decide what standing there means.
-  loopFamilyCard =
-    HH.div [ HP.class_ (H.ClassName "looper-footswitch") ]
-      [ HH.h3_ [ HH.text "Six-loop banks" ]
-      , HH.p [ HP.class_ (H.ClassName "looper-muted") ]
-          [ HH.text $
-              show (Array.length LoopBanks.allSlots)
-              <> " banks from MC6 bank " <> show state.mc6LoopBankBase
-              <> ", uploaded once. Every switch sends its own CC on channel "
-              <> show LoopBanks.switchChannel
-              <> ", so a press says which bank it came from and the app never has "
-              <> "to remember which page the board is showing."
-          ]
-      , HH.table [ HP.class_ (H.ClassName "docs-table") ]
-          [ HH.tbody_ (map familyRow (LoopBanks.banks
-              { base: state.mc6LoopBankBase, boardBank: state.mc6BoardBankNum })) ]
-      , HH.button
-          [ HP.class_ (H.ClassName "files-btn")
-          , HP.disabled (isNothing state.connections.mc6Output)
-          , HE.onClick \_ -> ProgramLoopBanks
-          ]
-          [ HH.text "Program MC6 loop banks" ]
-      ]
-
-  familyRow cb =
-    HH.tr_
-      [ HH.td [ HP.class_ (H.ClassName "docs-cc") ] [ HH.text (show cb.mc6BankNumber) ]
-      , HH.td_ [ HH.text cb.name ]
-      , HH.td_
-          [ HH.text $ Array.intercalate ", "
-              (Array.filter (_ /= "") (map _.label cb.switches)) ]
-      ]
-
-  -- Switch letters run A–F on the MC6 itself, then G/H/I on the first FS3X.
-  bankRow sw =
-    if sw.label == "" then HH.text ""
-    else HH.tr_
-      [ HH.td [ HP.class_ (H.ClassName "docs-cc") ] [ HH.text sw.label ]
-      , HH.td_ [ HH.text sw.longName ]
-      ]
-
-  row label value =
-    HH.tr_ [ HH.td [ HP.class_ (H.ClassName "docs-cc") ] [ HH.text label ], HH.td_ [ HH.text value ] ]
-
-  fmt1 n = show (Int.toNumber (Int.round (n * 10.0)) / 10.0)
-  fmt2 n = show (Int.toNumber (Int.round (n * 100.0)) / 100.0)
+  pedalFace =
+    HH.slot (Proxy :: _ "pedal") unit PedalView.component
+      { engine: state.engine
+      , pedalId: Looper.itajaraId
+      , registry: state.registry
+      }
+      HandlePedal
 
 
 renderConnectView :: forall m. MonadAff m => AppState -> H.ComponentHTML Action Slots m
@@ -2824,145 +2516,33 @@ inUpload
   -> H.HalogenM AppState Action Slots o m a
 inUpload output act = inSession output \open -> Wire.withUpload open act
 
--- | Write whole banks, having first made the device show each one.
--- |
--- | **The MC6 ignores the bank number in the preset frame.** An upload lands on
--- | the bank the editor is *currently on*, whatever `sysexPresetData`'s header
--- | says — which was found the only way it could be found, by writing six banks
--- | to 22-27, reading the device back, and finding all six had gone to bank 19
--- | on top of each other, leaving the last one standing. Nothing complained:
--- | seventy-two frames went out, the device took every one, and the app said
--- | "written to banks 22-27".
--- |
--- | It is also why the looper transport bank has always appeared to work. It
--- | was written while the device sat on the bank being looked at, so the labels
--- | duly appeared on the LCD, and "the bank I asked for" and "the bank I was
--- | looking at" were never once distinguished by the evidence.
--- |
--- | So: jump, **wait for the device to say it moved**, then write. And where it
--- | does not say so, write nothing and report the bank as refused — a silent
--- | skip here means overwriting a bank nobody named, which is the exact failure
--- | this whole function exists to have found.
--- |
--- | **A session per bank, not a session per run.** With one session around all
--- | six, the first jump was answered and the other five never were: committing
--- | an upload leaves the editor somewhere that no longer replies to a bank
--- | change. The guard caught it — one bank written, five reported refused, and
--- | a read-back confirming those five were untouched rather than merely
--- | unconfirmed — which is the difference between a slow afternoon and a
--- | silently wrong pedalboard.
--- | Everything the machine is allowed to know, gathered from the newest
--- | snapshot.
--- |
--- | One place, because there are now three surfaces asking for it and a second
--- | copy of this expression is a second chance to forget a field — which is
--- | exactly how the click came to be sent as a flip.
-rigOf :: AppState -> Machine.Rig
-rigOf st =
-  { loops: maybe [] _.loops st.looper
-  , focus: st.looperFocus
-  , click: maybe false _.click st.looper
-  , monitor: maybe false _.monitor st.looper
-  , armDb: maybe (-36.0) _.armDb st.looper
-  }
 
--- | What a gesture means, and then doing it.
+-- | The looper's adapter, bound to this app's pedalboard.
 -- |
--- | The meaning is a pure function of the gesture and the *daemon's* report of
--- | the loops — this app models no loop state of its own, so there is nothing
--- | here that can fall out of step with the engine.
-runGesture
-  :: forall o m. MonadAff m
-  => LoopBanks.SwitchGesture -> H.HalogenM AppState Action Slots o m Unit
-runGesture g = do
+-- | `Component.Looper.Control` carries out everything a gesture means except
+-- | turning the MC6 to a bank, which needs an editor session — so the session
+-- | is supplied here and the two names go on reading as they did at every call
+-- | site. **One line is the entire coupling** between the looper and the wire
+-- | that happens to be under your feet, which is the point of the split: swap
+-- | `looperShowBank` and the looper drives a different board, or none.
+runAction :: forall o m. MonadAff m => Number -> Machine.Action -> H.HalogenM AppState Action Slots o m Unit
+runAction = LooperControl.runAction looperShowBank
+
+runGesture :: forall o m. MonadAff m => LoopBanks.SwitchGesture -> H.HalogenM AppState Action Slots o m Unit
+runGesture = LooperControl.runGesture looperShowBank
+
+-- | Turn the board to one of the loop machine's banks, if there is a board.
+-- |
+-- | **Forked, so audio never waits on the display.** The loop closes and plays
+-- | on the engine's own schedule; this either lands or does not.
+looperShowBank :: forall o m. MonadAff m => LoopBanks.BankSlot -> H.HalogenM AppState Action Slots o m Unit
+looperShowBank slot = do
   st <- H.get
-  let rig = rigOf st
-  followBoard g
-  traverse_ (runAction (deferralOf st.looperDeferral g)) (Machine.act rig g)
-
--- | How late this command already is, before it has gone anywhere.
--- |
--- | The daemon spends it where a frame matters (`@ms` in its dispatch) and
--- | strips it everywhere else, so everything can be stamped without the app
--- | having to know which commands care.
--- |
--- | **It is the device's own threshold rather than a measurement**, and that is
--- | what moving gesture recognition onto the MC6 cost. The app used to see the
--- | switch go down and could subtract; now it sees one message that the device
--- | withheld until it knew, and the length of that wait is a setting rather than
--- | an observation. See `Engine.looperDeferral` for what each number is worth.
--- |
--- | **Except when there was no wait at all.** A switch carrying one meaning is
--- | programmed on `ActionPress`, which the device fires at press-down — so its
--- | tap is not late, and saying it was would have the daemon reach back into the
--- | pre-roll ring for time that has not passed. That is a fact about how the
--- | switch was programmed, so it is read from the table that programmed it.
-deferralOf
-  :: { tapMs :: Number, holdMs :: Number } -> LoopBanks.SwitchGesture -> Number
-deferralOf d g
-  | LoopBanks.firesAtPressDown g.slot g.switch g.gesture = 0.0
-  | otherwise = case g.gesture of
-      LoopBanks.Tap -> d.tapMs
-      -- The window again, measured from the second press. Doubles used to be
-      -- dated from the *first* of the pair, on the grounds that it is where the
-      -- player committed; that is no longer knowable, and a double tap is not
-      -- the gesture anything sample-critical hangs on.
-      LoopBanks.Double -> d.tapMs
-      LoopBanks.Hold -> d.holdMs
-
--- | Keep track of which bank the board is showing, including the jumps it makes
--- | on its own.
--- |
--- | A press tells us the bank it came *from*; this works out the bank it leaves
--- | the board on, by reading the same jump table the device was programmed with.
--- | Without it the app is permanently one press behind — the long press that
--- | opens the config bank is performed entirely by the MC6, so the app sees a
--- | *loop* switch and hears nothing more until something on the config bank is
--- | pressed. The legend then names the wrong six switches, which is how "J is
--- | Clear" came to be printed under a foot standing on End Stop.
--- |
--- | `Nothing` means the looper is not on screen at all: `< Board` leaves the
--- | family, and a legend that kept describing the loop bank there would be
--- | inventing a board.
-followBoard
-  :: forall o m. MonadAff m
-  => LoopBanks.SwitchGesture -> H.HalogenM AppState Action Slots o m Unit
-followBoard g =
-  H.modify_ _ { looperBankShown = case LoopBanks.sendsTo g.slot g.switch g.gesture of
-      Just (LoopBanks.ToSlot to) -> Just to
-      Just LoopBanks.ToBoard -> Nothing
-      -- Not a navigating switch, so the board stayed where the press came from.
-      Nothing -> Just g.slot
-    }
-
-runAction
-  :: forall o m. MonadAff m
-  => Number -> Machine.Action -> H.HalogenM AppState Action Slots o m Unit
-runAction late a = do
-  liftEffect $ Console.log $ "looper: " <> Machine.describe a
-    <> (if late >= 1.0 then " (" <> show (Int.round late) <> " ms late)" else "")
-  case a of
-    Machine.Command c -> do
-      ok <- liftEffect $ LooperSocket.send (c <> "@" <> show (Int.round late))
-      note (if ok then Machine.describe a else "no daemon — " <> c <> " went nowhere")
-    Machine.Focus i -> H.modify_ _ { looperFocus = i }
-    -- **Forked on purpose.** The loop closes and plays on the engine's own
-    -- schedule; the bank change is a courtesy that either lands or does not.
-    -- Audio must never wait on the display, and opening an editor session takes
-    -- the better part of a second.
-    Machine.ShowBank slot -> do
-      stB <- H.get
-      case stB.connections.mc6Output of
-        Nothing -> note "no MC6 output — cannot change bank"
-        Just out -> do
-          note (Machine.describe a)
-          void $ H.fork $ inSession out \open ->
-            Wire.send open (SysEx.sysexEditorBankChange
-              (stB.mc6LoopBankBase + LoopBanks.slotIndex slot))
-    Machine.Unavailable why -> note why
-    Machine.Handled what -> note what
-  where
-  note msg = H.modify_ _ { looperLastAction = Just msg }
+  case st.connections.mc6Output of
+    Nothing -> H.modify_ _ { looperLastAction = Just "no MC6 output — cannot change bank" }
+    Just out -> void $ H.fork $ inSession out \open ->
+      Wire.send open (SysEx.sysexEditorBankChange
+        (st.mc6LoopBankBase + LoopBanks.slotIndex slot))
 
 -- | Bank numbers as prose, for a status line that has to name several.
 commaList :: Array Int -> String
@@ -3013,6 +2593,38 @@ uploadBanks label output cbs note = do
           , retried: acc.retried <> r.written
           }
 
+-- | Write whole banks, having first made the device show each one.
+-- |
+-- | **The MC6 ignores the bank number in the preset frame.** An upload lands on
+-- | the bank the editor is *currently on*, whatever `sysexPresetData`'s header
+-- | says — which was found the only way it could be found, by writing six banks
+-- | to 22-27, reading the device back, and finding all six had gone to bank 19
+-- | on top of each other, leaving the last one standing. Nothing complained:
+-- | seventy-two frames went out, the device took every one, and the app said
+-- | "written to banks 22-27".
+-- |
+-- | It is also why the looper transport bank has always appeared to work. It
+-- | was written while the device sat on the bank being looked at, so the labels
+-- | duly appeared on the LCD, and "the bank I asked for" and "the bank I was
+-- | looking at" were never once distinguished by the evidence.
+-- |
+-- | So: jump, **wait for the device to say it moved**, then write. And where it
+-- | does not say so, write nothing and report the bank as refused — a silent
+-- | skip here means overwriting a bank nobody named, which is the exact failure
+-- | this whole function exists to have found.
+-- |
+-- | **A session per bank, not a session per run.** With one session around all
+-- | six, the first jump was answered and the other five never were: committing
+-- | an upload leaves the editor somewhere that no longer replies to a bank
+-- | change. The guard caught it — one bank written, five reported refused, and
+-- | a read-back confirming those five were untouched rather than merely
+-- | unconfirmed — which is the difference between a slow afternoon and a
+-- | silently wrong pedalboard.
+-- |
+-- | **Stranded above `runGesture` until 2026-08-27**, where it read as the
+-- | doc for a function about footswitch gestures — a blank line went missing
+-- | when `uploadBanks` was inserted between the two, and the essay stayed
+-- | put while the function it describes moved on without it.
 uploadPass
   :: forall o m. MonadAff m
   => String
@@ -3761,143 +3373,6 @@ handleTwisterSideButton btn = do
       case newFocus of
         Nothing -> dimAllLEDs
         Just pid -> refreshTwister pid
-
--- | Hand the controller over to whatever is now in focus.
--- |
--- | **Dim first, always.** The two surfaces light different numbers of banks —
--- | a pedal uses one, the looper two — so walking from the looper to a pedal
--- | without clearing would leave the loop bank's colours burning under a page
--- | of knobs that know nothing about them. It costs one burst of messages on a
--- | focus change, which is not a thing that happens mid-take.
-refreshTwister :: forall o m. MonadAff m => PedalId -> H.HalogenM AppState Action Slots o m Unit
-refreshTwister pid = do
-  dimAllLEDs
-  if Looper.isItajara pid
-    then do
-      -- **Hand it over on page 1.** Walking back to the looper and finding the
-      -- controller still on the parameter page is walking back to a surface
-      -- that looks like the loops and is not, which is worse than a page you
-      -- have to reach for. Unverified — see `Data.Twister.bankSelectMessage`;
-      -- if it does nothing this line is simply inert.
-      sendTwisterBank 0
-      sendLooperLEDs
-    else sendAllLEDs pid
-
--- | Turn to a page: the app moves, and the device is invited.
--- |
--- | **The app's move is the one that matters.** `sendTwisterBank` is a courtesy
--- | — if the device honours it the two stay in step and the LEDs land on the
--- | block it is showing; if it ignores it, the app pages anyway and the LEDs go
--- | to the block the device *is* on, carrying the new page's content. Either
--- | way the encoders mean what the card says they mean.
-showTwisterPage :: forall o m. MonadAff m => Int -> H.HalogenM AppState Action Slots o m Unit
-showTwisterPage bank = do
-  -- Wrapping rather than clamping: a selector whose ends are dead is a selector
-  -- you have to look at, and the ring must be rewritten on every turn or the
-  -- encoder stays off its band and the next notch is measured from the wrong
-  -- place.
-  H.modify_ _
-    { twisterPage = (bank + LoopTwister.pages') `mod` LoopTwister.pages'
-    , twisterLit = Map.empty
-    }
-  sendTwisterBank bank
-  st <- H.get
-  when (st.focusPedalId == Just Looper.itajaraId) sendLooperLEDs
-
--- | Ask the device to show a page. See `Data.Twister.bankSelectMessage` for why
--- | this is a candidate rather than a fact.
-sendTwisterBank :: forall o m. MonadAff m => Int -> H.HalogenM AppState Action Slots o m Unit
-sendTwisterBank bank = do
-  st <- H.get
-  for_ st.connections.twisterOutput \out ->
-    liftEffect $ MIDI.send out (TwisterData.bankSelectMessage bank)
-
--- LED feedback helpers
-
--- | The ring, and the colour. Both addressed by `16 * bank + index`, which is
--- | the same arithmetic the device used on the way in.
-sendRingPosition :: forall o m. MonadAff m => Knob -> Int -> H.HalogenM AppState Action Slots o m Unit
-sendRingPosition knob val = do
-  st <- H.get
-  for_ st.connections.twisterOutput \out ->
-    liftEffect $ MIDI.send out [ 0xB0, knobCC knob, val ]
-
-sendRGBColor :: forall o m. MonadAff m => Knob -> Int -> H.HalogenM AppState Action Slots o m Unit
-sendRGBColor knob hue = do
-  st <- H.get
-  for_ st.connections.twisterOutput \out ->
-    liftEffect $ MIDI.send out [ 0xB1, knobCC knob, hue ]
-
-knobCC :: Knob -> Int
-knobCC knob = knob.bank * TwisterData.encodersPerBank + knob.index
-
-sendAllLEDs :: forall o m. MonadAff m => PedalId -> H.HalogenM AppState Action Slots o m Unit
-sendAllLEDs pid = do
-  st <- H.get
-  case CRegistry.findPedal st.registry pid of
-    Nothing -> pure unit
-    Just def -> case Map.lookup pid st.engine of
-      Nothing -> pure unit
-      Just ps -> do
-        let leds = Twister.computeAllLEDs def ps
-        for_ leds \led -> do
-          sendRGBColor { bank: 0, index: led.index } led.hue
-          sendRingPosition { bank: 0, index: led.index } led.ring
-
--- | Every light on the controller, from the daemon's newest word.
--- |
--- | **Both banks every time, and diffed against what was last sent.** All of it
--- | is computed from the snapshot — nothing here reads what the app asked for —
--- | so the rings cannot drift from the engine no matter who moved a value: the
--- | console, a footswitch, or another client entirely.
--- |
--- | The diff is not an optimisation for its own sake. Bank one's rings are
--- | playheads, so they move every frame while a loop turns; the rest change
--- | only when something happens, and sending all 64 lights ten times a second
--- | would put 1,280 messages a second on a wire that also carries the pedals.
-sendLooperLEDs :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
-sendLooperLEDs = do
-  st <- H.get
-  -- **Both from the app's page**, and that is a correction: the address used to
-  -- come from `twisterHeardBank`, the last block the device had spoken from,
-  -- on the theory that the lights should land where the device really is even
-  -- if it would not take a bank change.
-  --
-  -- It was wrong, and how it was wrong is the useful part. Turning the page
-  -- from the web interface left the Twister unchanged **until you touched a
-  -- knob** — which is precisely what you would see if the device *had* moved:
-  -- it went to the new block, the lights went to the old one, and nothing
-  -- corrected until a message arrived carrying the real bank. So the delay was
-  -- the evidence that `bankSelectMessage` works.
-  --
-  -- Asking and then assuming is safe here because it is self-healing: if the
-  -- device ever does not comply, its next message carries a different bank,
-  -- `twisterPage` adopts it, `twisterLit` clears, and the following poll paints
-  -- the right block. One touch, not one session.
-  let wanted = LoopTwister.leds (rigOf st) st.twisterPage
-      showing = st.twisterPage
-      changed = Array.filter (\l -> Map.lookup l.index st.twisterLit /= Just { ring: l.ring, hue: l.hue }) wanted
-  unless (Array.null changed) do
-    for_ changed \l -> do
-      let knob = { bank: showing, index: l.index }
-      sendRGBColor knob l.hue
-      sendRingPosition knob l.ring
-    H.modify_ \s -> s
-      { twisterLit = Array.foldl
-          (\m l -> Map.insert l.index { ring: l.ring, hue: l.hue } m)
-          s.twisterLit
-          changed
-      }
-
-dimAllLEDs :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
-dimAllLEDs = do
-  for_ (Array.range 0 (TwisterData.banks - 1)) \bank ->
-    for_ (Array.range 0 (TwisterData.encodersPerBank - 1)) \index -> do
-      sendRGBColor { bank, index } 0
-      sendRingPosition { bank, index } 0
-  -- What was lit is no longer true of the device, so the diff must forget it or
-  -- the next refresh will skip the lights it thinks are already right.
-  H.modify_ _ { twisterLit = Map.empty }
 
 -- | Merge layout from PureScript pedal definitions into JSON-decoded pedals.
 -- | JSON provides runtime config; layout is PureScript-only (contains ADTs).
