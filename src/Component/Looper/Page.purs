@@ -166,10 +166,13 @@ render h ports state =
   panel = case state.looperPanel of
     Nothing -> HH.text ""
     Just PanelTwister ->
-      modal "Midifighter Twister — what each encoder does"
+      -- Narrow, because the card is one page now. It was as wide as the panel
+      -- would go so that both pages could sit side by side, and that width was
+      -- spent covering the loops the card describes.
+      modal "is-narrow" "Midifighter Twister — what each encoder does"
         [ TwisterMap.render ports.twister state.twisterPage state.twisterHeardBank h.showTwisterPage ]
     Just PanelBanks ->
-      modal "MC6 banks" [ footswitchCard, loopFamilyCard ]
+      modal "" "MC6 banks" [ footswitchCard, loopFamilyCard ]
 
   -- | The board, permanently.
   -- |
@@ -231,7 +234,7 @@ render h ports state =
   -- | dismisses — a reference you cannot get rid of with the hand that opened it
   -- | is a reference you stop opening. `title` survives as the accessible name
   -- | rather than as furniture.
-  modal title body =
+  modal klass title body =
     HH.div [ HP.class_ (HH.ClassName "looper-modal-overlay") ]
       [ HH.div
           [ HP.class_ (HH.ClassName "looper-modal-backdrop")
@@ -239,7 +242,7 @@ render h ports state =
           ]
           []
       , HH.div
-          [ HP.class_ (HH.ClassName "looper-modal")
+          [ HP.class_ (HH.ClassName ("looper-modal " <> klass))
           , HP.attr (HH.AttrName "role") "dialog"
           , HP.attr (HH.AttrName "aria-label") title
           ]

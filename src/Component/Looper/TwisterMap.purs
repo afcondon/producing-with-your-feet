@@ -20,99 +20,114 @@ module Component.Looper.TwisterMap (render) where
 
 import Prelude
 
+import Data.Array as Array
 import Data.Looper.Twister as TW
+import Data.Twister as TwisterData
 import Data.Maybe (Maybe(..))
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 
--- | The card. Takes whether a Twister output is selected, which page the device
--- | last spoke from, and what to do about wanting a different one.
+-- | The card. Takes whether a Twister output is selected, which page the app is
+-- | showing, which block the device last spoke from, and what to do about
+-- | wanting a different page.
 -- |
--- | **No longer its own disclosure.** It was a `<details>` folded shut at the
--- | foot of the page; it now lives in a panel that is itself the disclosure, and
--- | a card you have to open twice is a card you do not open.
+-- | **One page at a time, since 2026-08-27.** It printed both side by side, in
+-- | a panel 1180px wide that covered the loops it was describing. Two things
+-- | made that the wrong shape. The first is that you open this card to answer
+-- | "what does *this* knob do" — a question about the page you are on, so the
+-- | other page is furniture. The second is that the pager works now: turning
+-- | the bottom-right encoder moves `showing`, so the card follows the device
+-- | without anything here doing the following. Printing both pages was a
+-- | workaround for a page turn you could not perform.
+-- |
+-- | What is left is narrow enough to read beside the loops instead of on top of
+-- | them, which is the whole gain.
 render :: forall w i. Boolean -> Int -> Maybe Int -> (Int -> i) -> HH.HTML w i
 render connected showing heard goTo =
   HH.div [ HP.class_ (HH.ClassName "twister-map") ]
     [ HH.div [ HP.class_ (HH.ClassName "twister-map-body") ]
-        ( -- **The preamble is gone, and losing it was the point.** There was a
-          -- paragraph explaining that each encoder is a knob and a button, and
-          -- a line saying which page was showing. Both were true and neither
-          -- was worth what it cost: the card is opened mid-take to answer
-          -- "what does this knob do", and a quarter of the panel spent on
-          -- prose you have already read is a quarter of the grid you now have
-          -- to scroll to.
-          --
-          -- The page badges say which page is showing better than a sentence
-          -- did — HERE is on one of them — so nothing was lost with it.
-          exception
-            <> [ HH.div [ HP.class_ (HH.ClassName "twister-pages") ]
-                   (map (page showing goTo) TW.pages)
-               , phases
-               , HH.p [ HP.class_ (HH.ClassName "twister-map-caveat") ]
-                   -- Kept, and kept short. Pages 3 and 4 being empty is a fact
-                   -- you can see; the colours being unverified is not, and a
-                   -- legend that presented an intention as an observation would
-                   -- be the thing to blame when a knob is the wrong colour.
-                   [ HH.text "Pages 3 and 4 are kept for the per-layer surface. \
-                             \The colours are what the app asks for, not what \
+        ( exception
+            <> [ HH.div [ HP.class_ (HH.ClassName "twister-tabs") ]
+                   (map (tab showing goTo) TW.pages) ]
+            <> body
+            <> [ HH.p [ HP.class_ (HH.ClassName "twister-map-caveat") ]
+                   -- Kept, and kept short. It says the one thing about this
+                   -- card that you cannot check by looking at it.
+                   [ HH.text "The colours are what the app asks for, not what \
                              \anyone has seen the device do." ]
                ]
         )
     ]
   where
-  -- Printed only when it has something to say. In the ordinary case the badge
-  -- on the page heading already says where we are, so a line repeating it is a
-  -- line in the way.
-  exception = case status connected showing heard of
+  -- Printed only when it has something to say. In the ordinary case the tab
+  -- strip already says where we are, so a line repeating it is a line in the
+  -- way.
+  exception = case status connected heard of
     Nothing -> []
     Just msg ->
       [ HH.p [ HP.class_ (HH.ClassName "twister-map-status") ] [ HH.text msg ] ]
 
+  -- The page the app is on, and nothing else. `Nothing` cannot happen —
+  -- `twisterPage` is clamped to the pages that exist — so it draws nothing
+  -- rather than inventing a fallback that would only ever be wrong.
+  body = case Array.find (\p -> p.bank == showing) TW.pages of
+    Nothing -> []
+    Just p ->
+      [ HH.p [ HP.class_ (HH.ClassName "twister-page-note") ] [ HH.text p.note ]
+      , HH.div [ HP.class_ (HH.ClassName "twister-grid") ] (map cell p.cells)
+      ]
+        -- Only where it applies. The key is titled "on page 1" because that is
+        -- the only page whose rings are loops, and carrying it onto page 2 was
+        -- something the two-column layout did by accident.
+        <> if p.bank == 0 then [ phases ] else []
+
 -- | Anything worth interrupting the card to say. `Nothing` in the ordinary
 -- | case, which is most of the time.
 -- |
--- | **Read off the wire, never tracked.** Every encoder message carries its
--- | page, so a disagreement here cannot be wrong for longer than one turn of a
--- | knob — which is the reason it is worth printing at all.
+-- | **This no longer compares the page with the block, and that distinction is
+-- | the point.** It used to warn whenever `twisterHeardBank` differed from the
+-- | page being shown, back when a page *was* a device block. Since the device
+-- | is pinned to `TwisterData.deviceBank` and the app owns paging outright,
+-- | those are two different kinds of fact and comparing them would fire the
+-- | warning on every visit to page 2.
 -- |
--- | It used to print in every case, including "showing page 1", which is the
--- | one thing the page headings already say with a badge. Now it speaks only
--- | when the app and the device are in different places, or when there is no
--- | device: the two states where reading the card and reaching for a knob would
--- | give different answers.
-status :: Boolean -> Int -> Maybe Int -> Maybe String
-status false _ _ = Just "No Twister output selected — nothing here is reaching a device."
-status true showing heard = case heard of
-  -- The two facts only ever differ when the device will not take a bank
-  -- change, and that is worth saying out loud rather than hiding: it is the
-  -- difference between "the encoders mean the other page" and "the device is
-  -- somewhere else and the lights have followed it there".
-  Just b | b /= showing ->
-    Just ("The device is on its own page " <> show (b + 1)
-            <> ", not page " <> show (showing + 1) <> ".")
+-- | What is still worth saying is drift: a device that has wandered off the
+-- | pinned block and not been put back. `App.TwisterMidiReceived` pins it again
+-- | on the next message, so seeing this at all means the device is refusing —
+-- | and then every encoder is being read against the wrong sixteen CCs, which
+-- | is exactly the kind of silence worth breaking.
+status :: Boolean -> Maybe Int -> Maybe String
+status false _ = Just "No Twister output selected — nothing here is reaching a device."
+status true heard = case heard of
+  Just b | b /= TwisterData.deviceBank ->
+    Just ("The device is on its own block " <> show (b + 1)
+            <> " and has not gone back to block 1, so the encoders are not \
+               \where this card says they are.")
   _ -> Nothing
 
-page :: forall w i. Int -> (Int -> i) -> TW.Page -> HH.HTML w i
-page showing goTo p =
-  HH.div [ HP.class_ (HH.ClassName "twister-page") ]
-    [ HH.h4_
-        [ HH.span [ HP.class_ (HH.ClassName "twister-page-num") ]
-            [ HH.text ("Page " <> show (p.bank + 1)) ]
-        , HH.text p.name
-        , if showing == p.bank
-            then HH.span [ HP.class_ (HH.ClassName "twister-page-here") ] [ HH.text "here" ]
-            else HH.button
-              [ HP.class_ (HH.ClassName "twister-page-go")
-              , HE.onClick \_ -> goTo p.bank
-              , HP.title "Turn to this page. The app decides what the encoders mean; the device is asked to follow."
-              ]
-              [ HH.text "turn to this page" ]
-        ]
-    , HH.p [ HP.class_ (HH.ClassName "twister-page-note") ] [ HH.text p.note ]
-    , HH.div [ HP.class_ (HH.ClassName "twister-grid") ] (map cell p.cells)
-    ]
+-- | The pages, as a strip. Two jobs in one row of chrome: it says which page is
+-- | showing, and it is how you get to the other one without reaching for the
+-- | knob.
+-- |
+-- | It also moves on its own. Turn the pager and `showing` changes underneath
+-- | this, so the strip is a readout of the encoder as much as a control — which
+-- | is why the current page is not a button. There is nothing to press.
+tab :: forall w i. Int -> (Int -> i) -> TW.Page -> HH.HTML w i
+tab showing goTo p =
+  let
+    label =
+      [ HH.span [ HP.class_ (HH.ClassName "twister-tab-num") ] [ HH.text (show (p.bank + 1)) ]
+      , HH.text p.name
+      ]
+  in
+    if showing == p.bank then HH.span [ HP.class_ (HH.ClassName "twister-tab on") ] label
+    else HH.button
+      [ HP.class_ (HH.ClassName "twister-tab")
+      , HE.onClick \_ -> goTo p.bank
+      , HP.title "Turn to this page. The same thing the pager encoder does, and it carries the knob with it."
+      ]
+      label
 
 -- | One encoder, drawn where it physically sits: four across, four down, in
 -- | index order, because that is how the device is laid out and any other

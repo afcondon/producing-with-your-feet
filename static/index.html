@@ -1899,6 +1899,10 @@ body {
   max-width: 1180px; width: 94%; max-height: 92vh;
   display: flex; flex-direction: column; overflow: hidden;
 }
+/* One Twister page is four cells across and nothing else, so the panel is
+   sized to that rather than to the widest thing the app has. The reclaimed
+   half is loops you can still see while reading the card. */
+.looper-modal.is-narrow { max-width: 640px; }
 .looper-modal-body { padding: 18px 20px 16px; overflow-y: auto; }
 /* Floats over the body rather than sitting in a bar of its own. The right
    padding above leaves it somewhere to be without overlapping anything. */
@@ -2020,29 +2024,29 @@ body {
   font-style: italic; margin: 16px 0 0;
 }
 
-.twister-pages { display: flex; flex-wrap: wrap; gap: 32px; align-items: start; }
-/* Two pages side by side inside a 1180px panel. Wider cells wrap less, and
-   wrapping is what made the grid tall enough to need scrolling. */
-.twister-page { flex: 1 1 460px; min-width: 430px; }
-.twister-page h4 {
-  margin: 0 0 4px; font-size: 15px; font-weight: 600; letter-spacing: 0.01em;
-  display: flex; align-items: baseline; gap: 10px;
+/* The pages, as a strip of tabs: which page is showing, and the way to the
+   other one. It is also a readout — turning the pager moves the highlight — so
+   the current tab is a span, not a disabled button. */
+.twister-tabs {
+  display: flex; gap: 2px; margin: 0 0 12px;
+  border-bottom: 1px solid #ded9d1;
 }
-.twister-page-num {
-  font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
-  color: #a39a8c; font-weight: 500;
+.twister-tab {
+  font: inherit; font-size: 12.5px; line-height: 1.2;
+  padding: 6px 12px 7px; margin-bottom: -1px;
+  display: inline-flex; align-items: baseline; gap: 7px;
+  background: transparent; border: 1px solid transparent; border-bottom: none;
+  color: #6b6459; cursor: pointer;
 }
-.twister-page-here {
-  font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
-  color: #4a9a52; border: 1px solid #b8d6bb; border-radius: 2px;
-  padding: 1px 6px; font-weight: 500;
+.twister-tab:hover { color: #2e2b27; background: #f5f2ed; }
+.twister-tab.on {
+  background: #fff; border-color: #ded9d1; color: #2e2b27;
+  font-weight: 600; cursor: default;
 }
-.twister-page-go {
-  font-size: 10px; letter-spacing: 0.04em; color: #6b6459;
-  background: #f5f2ed; border: 1px solid #ded9d1; border-radius: 2px;
-  padding: 2px 8px; cursor: pointer; font-family: inherit;
+.twister-tab-num {
+  font-size: 10px; letter-spacing: 0.08em; color: #a39a8c; font-weight: 500;
 }
-.twister-page-go:hover { background: #ebe6df; }
+.twister-tab.on .twister-tab-num { color: #4a9a52; }
 
 /* Tightened with the preamble. These are the last prose on the card and they
    earn their place — they say what a page is FOR, which no cell can — but at

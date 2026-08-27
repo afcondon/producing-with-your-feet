@@ -514,6 +514,28 @@ Three notes for next time:
   ring write to a non-active block lands at all. Nothing depends on the answer
   any more, because nothing writes to one.
 
+**The card follows the knob** (2026-08-27). With the pager working, the panel
+in the Looper page shows **one page at a time** — a tab strip, then that page's
+grid — instead of printing both side by side. Turning the pager moves the
+highlight, so the strip is a readout of the encoder as much as a control, which
+is why the current tab is not a button.
+
+Printing both was a workaround for a page turn you could not perform, and it
+cost the panel its width: 1180px of card over the loops the card describes. It
+is 640px now — four cells across and nothing else — and the reclaimed half is
+loops you can still see while reading it. The phase key goes with page 1, where
+it applies; carrying it onto page 2 was something the two-column layout did by
+accident.
+
+The card's warning line changed with it, and the reason is worth recording
+because it was a bug the pin introduced. It compared the page being shown with
+`twisterHeardBank` and warned when they differed — correct while a page *was* a
+device block, and wrong the moment the device was pinned, since it would then
+have fired on every visit to page 2. It compares the heard block against
+`Data.Twister.deviceBank` now: not "which page", but "is the device still where
+we put it". That is also why `deviceBank` lives in `Data.Twister` rather than
+beside the MIDI writes — a view needs it to ask the second question.
+
 That also handed the ch 5 side buttons back to prev/next *pedal*, which they
 had to be: with the looper holding the controller there was otherwise no way to
 reach a pedal at all.
