@@ -171,7 +171,7 @@ phases =
   HH.div [ HP.class_ (HH.ClassName "twister-phases") ]
     [ HH.h4_ [ HH.text "A loop's colour, on page 1" ]
     , HH.div [ HP.class_ (HH.ClassName "twister-phase-row") ]
-        (map one TW.phaseKey <> [ empty ])
+        (map one TW.phaseKey <> [ heldKey, empty ])
     ]
   where
   one k =
@@ -185,4 +185,12 @@ phases =
     HH.span [ HP.class_ (HH.ClassName "twister-phase") ]
       [ HH.span [ HP.class_ (HH.ClassName "twister-swatch tone-off") ] []
       , HH.text "empty"
+      ]
+  -- Also not a phase. A loop at speed zero is *playing* as far as `LoopPhase`
+  -- is concerned — held is orthogonal to it, the same way muted is — but it is
+  -- a colour you will see, and a key that omits a colour is worse than none.
+  heldKey =
+    HH.span [ HP.class_ (HH.ClassName "twister-phase") ]
+      [ HH.span [ HP.class_ (HH.ClassName "twister-swatch tone-teal") ] []
+      , HH.text "held at zero"
       ]

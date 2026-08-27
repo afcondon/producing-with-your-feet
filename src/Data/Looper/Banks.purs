@@ -835,6 +835,37 @@ data Duty
   -- | How much a pass costs what is already there, in decibels. Zero holds.
   | Decay Number
 
+  -- | **How many bars this loop is**, and the only place metre reaches a loop.
+  -- |
+  -- | One duty doing three jobs, decided by what the loop already is and said
+  -- | out loud in the ack every time:
+  -- |
+  -- | * **empty** — sizes it, and the next recording closes itself there
+  -- |   instead of waiting for a second press;
+  -- | * **the first loop with no clock** — *declares* what you played. `4` on a
+  -- |   four-bar phrase makes the bar a quarter of it and touches no audio,
+  -- |   which is the only way a clockless session gets a loop shorter than its
+  -- |   first take;
+  -- | * **anything else with material in it** — resizes, and the layers keep
+  -- |   their own lengths inside the new one.
+  -- |
+  -- | The three are one control because they are one question — *how many bars
+  -- | is this* — asked of a loop in three states. Splitting them would make the
+  -- | player decide which verb they meant, which is a decision about the engine
+  -- | rather than about the music.
+  | SetBars Int
+  -- | How often the newest layer sounds, in cycles of its own length. `1` is
+  -- | every time round, which is what `Dense` asks for by another name.
+  | Every Int
+  -- | Which of those cycles it lands on. One-based, and wraps.
+  | PlaceAt Int
+  -- | What a launch waits for, in beats. **Rig-wide**, like the click and the
+  -- | arm threshold — `-1` is a bar and is the default, `0` is none.
+  -- |
+  -- | Beats rather than fractions of a bar so it means the same thing in 3/4 as
+  -- | in 4/4: a quantum of three does not turn "one beat" into a third of a
+  -- | bar, it stays a beat.
+  | Launch Int
   -- | Named, unimplemented, and still occupying its switch. Carries what it
   -- | would be called and what it is waiting for, so a press answers with the
   -- | reason rather than with silence.
@@ -897,6 +928,10 @@ dutyLabel = case _ of
   Rate r -> "x " <> rateWord r
   Place p -> placeWord p
   MultiplyLoop -> "Multiply"
+  SetBars _ -> "Bars"
+  Every _ -> "Every"
+  PlaceAt _ -> "On"
+  Launch _ -> "Launch"
   SpreadLoop _ -> "Spread"
   RotateLoop -> "Shift"
   DenseLoop -> "Dense"
@@ -957,6 +992,14 @@ dutyName = case _ of
   Rate r -> rateWord r <> " speed"
   Place p -> placeWord p <> " in the field"
   MultiplyLoop -> "Extend by whole cycles"
+  SetBars n -> show n <> (if n == 1 then " bar long" else " bars long")
+  Every n -> if n == 1 then "Sounds every time round"
+             else "Sounds once every " <> show n
+  PlaceAt n -> "On slot " <> show n
+  Launch n -> case n of
+    -1 -> "Launch on the bar"
+    0 -> "Launch straight away"
+    b -> "Launch on " <> show b <> (if b == 1 then " beat" else " beats")
   SpreadLoop n -> "Sound one cycle in " <> show n
   RotateLoop -> "Move it one slot later"
   DenseLoop -> "Sound every cycle again"

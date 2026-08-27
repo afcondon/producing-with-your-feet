@@ -75,6 +75,10 @@ rigOf st =
   , click: maybe false _.click st.looper
   , monitor: maybe false _.monitor st.looper
   , armDb: maybe (-36.0) _.armDb st.looper
+  -- The default the daemon boots with, so a rig that has not spoken yet reads
+  -- as "on the bar" rather than as "none" — which would be the one value that
+  -- silently changes behaviour if it were wrong.
+  , launchQ: maybe (-1) _.launchQ st.looper
   }
 
 -- | Hand the controller over to whatever is now in focus.

@@ -91,6 +91,9 @@ type Rig =
   -- | daemon since 2026-08-25 because a control that sets it has to be able to
   -- | show it.
   , armDb :: Number
+  -- | What a launch waits for, in beats: `-1` a bar, `0` none. Rig-wide, so it
+  -- | sits here beside the click and the arm threshold rather than on a loop.
+  , launchQ :: Int
   }
 
 -- | The whole meaning table.
@@ -340,6 +343,20 @@ perform rig subject = case _ of
   -- ask for a multiply and the machine had no word for it.
   LB.MultiplyLoop -> [ Command (cmd i Verb.Multiply) ]
   LB.SpreadLoop n -> [ Command (cmd i (Verb.Spread n)) ]
+
+  -- **The three that make a loop a number of bars.** All per-loop and all going
+  -- through `cmd i` like everything else here; the daemon decides which of the
+  -- three things `len` means from the loop's own state, because it is the only
+  -- one that knows whether the loop is empty, is the anchor, or has a clock.
+  LB.SetBars n -> [ Command (cmd i (Verb.Bars n)) ]
+  LB.Every n -> [ Command (cmd i (Verb.Spread n)) ]
+  LB.PlaceAt n -> [ Command (cmd i (Verb.Place' n)) ]
+
+  -- Rig-wide, so it goes bare rather than through `cmd i` — the same shape as
+  -- the click and the arm threshold, and the daemon ignores a loop prefix on it
+  -- anyway. Sent through `Command` unprefixed so nothing here has to pick a
+  -- loop for a setting that has none.
+  LB.Launch n -> [ Command (Verb.render (Verb.LaunchQ n)) ]
   LB.RotateLoop -> [ Command (cmd i Verb.Rotate) ]
   LB.DenseLoop -> [ Command (cmd i Verb.Dense) ]
   LB.ForgetLength -> [ Command (cmd i Verb.ForgetLength) ]
@@ -505,7 +522,18 @@ show' = case _ of
 -- | trace anywhere is the thing this whole surface exists to prevent.
 describe :: Action -> String
 describe = case _ of
-  Command c -> "→ " <> c
+  -- **Named, not echoed.** This printed the wire, and the wire counts loops
+  -- from zero while every surface a human reads counts from one — so asking
+  -- for four bars on Loop 2 logged `→ 1len4`, which is correct and reads as
+  -- loop one. A log that says the right thing in the wrong dialect is
+  -- indistinguishable from a bug and costs the same to chase.
+  --
+  -- The wire is still shown, because it is what to paste into the console when
+  -- something needs settling — it just no longer leads with a number that
+  -- means something else.
+  Command c -> case Verb.addressed c of
+    Just r -> "loop " <> show (r.loop + 1) <> " · " <> r.verb
+    Nothing -> "→ " <> c
   ShowBank slot -> "showing the " <> show' slot <> " bank"
   Focus i -> "loop " <> show (i + 1)
   Unavailable why -> why

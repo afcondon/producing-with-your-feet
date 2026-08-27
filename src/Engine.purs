@@ -69,7 +69,7 @@ derive instance Eq View
 -- | enough to keep beside the loops permanently, and a control you have to open
 -- | is a control you do not use while both hands are busy. It lives in the
 -- | page's right column now, with the log under it.
-data LooperPanel = PanelTwister | PanelBanks
+data LooperPanel = PanelTwister | PanelBanks | PanelRecipes
 
 derive instance Eq LooperPanel
 

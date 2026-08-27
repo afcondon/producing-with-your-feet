@@ -309,8 +309,9 @@ rule in §11.
   `chance`, and a nudged chance is inaudible until the pass it eats, where a
   nudged *level* you hear at once and correct without thinking. That is what
   forced the level verb (§10). And **the app now withholds a turn** until it is
-  clear it was not part of a press — 60 ms — while a press or release deafens
-  its own encoder for 300 ms afterwards, because the nudge can land on either
+  clear it was not part of a press — 60 ms — while a press deafens its own
+  encoder until the finger comes off it and for 300 ms after that, because the
+  nudge can land on either
   side.
 
   The shape of that is the MC6 withholding a single press until it knows it was
@@ -603,6 +604,183 @@ than a second copy of "what counts as recording".
 **It is what makes Revox safe to use at all.** A destructive pass has no undo,
 so watching it happen is the only feedback there is.
 
+## 9.4 Four pages, cut by when you reach for them
+
+Two pages became four on 2026-08-27, and the cut is the whole of it. The second
+page was not a function, it was a drawer — *everything about the loop in hand* —
+so a fader you ride, a crossfade you set between takes and a mode you choose
+once a session all sat together because they were all about the same loop.
+Sorting them by **when you reach for them** produced four pages, and it filled
+the third page that nobody could think of a tenant for.
+
+| | | |
+|---|---|---|
+| 1 | **Loops** | teal | what is sounding, and opening the write head |
+| 2 | **The set** | violet | the eight against each other — where each sits, whether it runs |
+| 3 | **Shape** | yellow | the loop in hand, while you play it |
+| 4 | **Set up** | blue | the loop in hand, before and between takes |
+
+**The set is the transpose of Shape** — one parameter across every loop, where
+Shape is every parameter of one loop. Pan is the parameter because placing loops
+is inherently comparative: you are listening to where the *others* are, which is
+exactly what a page of one loop cannot help with. Its eight encoders are in the
+same eight positions as the Loops page, so which knob is which loop is learned
+once and only the verb underneath changes.
+
+Four is also what the pager's travel holds at `pageStep = 32`, so the surface is
+now spent rather than reserved. The two blocks that were being kept for the
+per-layer surface are gone as a *reservation* — since the app owns paging
+outright (`Data.Twister.deviceBank`) a page was never a block again anyway.
+
+What the cut turned up, which is the useful part:
+
+- **Arm was two page turns away.** It came off the Loops page on the argument
+  that `ArmLoop` is the mode plus the gesture and the mode was already on the
+  surface as Listen, "one press away". It was one press *and two page turns*,
+  which made the most time-critical gesture in the rig the slowest thing on the
+  controller. Arm is back in the write-head row, which now matches the MC6's own
+  loop page switch for switch — and each of the four wears the colour of the
+  phase it produces.
+- **Multiply could not be asked for by any hand.** On the CC table, so reachable
+  from a web button; on no MC6 bank and no encoder. A verb the vocabulary had
+  and no surface could send. It has a cell on Set up.
+- **The tape's parameters were sliders on a web page.** Revox is the one mode
+  with no undo, and what a pass leaves of what was under it — the number that
+  separates Frippertronics from a tape echo — was the one thing you had to look
+  away to set. Revox, feedback and tone are the bottom row of Set up, together.
+- **There was no way to stop everything by hand.** Stop all and Start all live
+  on the MC6's global row and nowhere else, so with the looper holding this
+  controller the panic button needed a foot. They are on The set.
+- **Four violets in a row said nothing.** Spread, shift, dense and save take all
+  wore one colour, and Clear shared violet with the Revox flag two cells up — a
+  destructive verb and a mode, on a surface whose case for colour is that it is
+  taken in rather than read.
+
+## 9.5 Speed is bipolar, and Reverse was a spelling of its sign
+
+`Data.Looper.Verb.Rate` has said all along that the daemon takes ±0.125 to ±4
+and *the sign is the direction*. The knob only ever sent one sign, so `Reverse`
+had a cell of its own — a second spelling of a number's sign — and, worse, the
+ring could not show which way round a loop was: `toKnob` read `speed`, which is
+a magnitude, while the direction lives in `reverse`. A loop running backwards at
+half speed drew exactly like one running forwards at half speed, and had done
+for as long as the knob existed. Nothing could see it while the knob could only
+ask for one sign.
+
+It is bipolar now — centre stopped, either way out faster, left backwards, which
+is how the Chase Bliss pedals and the Count to 5 do it and reads immediately.
+Unity is the press rather than the centre, which is the trade that bought the
+direction; there are two of them, one each side. The band at the centre is
+`detentWidth` wide and means exactly zero, because an exponential cannot reach
+zero — a dead band is what makes stopped a place the hand can find rather than
+one it approaches.
+
+**Held is not stopped**, and this is the part that is a claim about the engine
+rather than about a knob. A loop at speed zero is still playing: it has not
+given up its place in the phase-locked set and it is not muted, where
+`Transport` silences one and keeps its position. The two look alike from outside
+and are not, so `phaseTone` gives held its own colour rather than borrowing the
+muted one.
+
+**This asks one thing of the daemon**: `sp0` is refused today. Until it is
+accepted the centre band is a request the engine declines — which the ack path
+says out loud, so the knob is honest in the meantime rather than pretending.
+
+## 9.6 Still on the list
+
+- **Retrospective recording.** `ClaimPast` has a cell on the Loops page, a
+  double-press on the MC6's global row and CC 5, and `perform` sends a real
+  `t` — but the daemon does not implement it. It is the one control on the
+  surface that looks like it worked. Either the daemon grows it or the duty
+  becomes `NotYet` on **all three** surfaces at once; a duty that means
+  different things depending on what pressed it is the thing rule 1 forbids.
+- **Start and end trim** still have no verb, so Shape's bottom half is empty on
+  purpose. Empty is honest and a page has no obligation to be full.
+- **Spread wants to be a knob** and cannot be one: the snapshot reports no
+  per-loop spread, so the ring would hold a position nothing could correct. The
+  smallest useful thing the daemon could add.
+
+## 9.7 The bar, and length as a count of it
+
+Built 2026-08-27, daemon and app together. The change everything else rests on
+is one line of `Shared::grid`:
+
+> **The bar comes from Link when there is a clock, and from the first loop when
+> there is not.**
+
+`grid()` was the anchor loop's cycle, and its comment refused Link on the
+grounds that *tempo alone gives a bar's length but not where the bar falls*.
+Both halves were in fact being stored by then — `link_micros`, `link_beat` and
+`link_frame` — and nobody had done the arithmetic. `engine::bar_origin` does it
+now, at the moment an anchor lands, which is the only place the beat position
+and the frame counter are in scope together.
+
+**What that conflation was costing.** While the pulse *was* the first loop's
+length, **no loop could ever be shorter than the first one** — a one-bar kick
+under a four-bar phrase is not a small feature request, it is a thing the model
+had no room for. Separating them makes "a multiple of the first loop" and "a
+division of the first loop" the same operation on one number.
+
+| | |
+|---|---|
+| `Loop::cycles` | how many bars this loop is; `loop_len == cycles * bar` |
+| `len<n>` | sets it, and does one of three things depending on the loop |
+| `s<n>` / `ph<n>` | how often the newest layer sounds, and on which slot |
+| `lq<n>` | what a launch waits for, in beats. Rig-wide |
+
+**`len` does three things and says which.** On an **empty** loop it sizes it. On
+the **first loop with no clock** it *declares* — `len4` on a four-bar phrase
+makes the bar a quarter of it and touches no audio, which is how a clockless
+session gets a loop shorter than its first take. On **anything else** it
+resizes, and the layers keep their own lengths inside the new one. They are one
+control because they are one question — *how many bars is this* — asked of a
+loop in three states; splitting them would make the player decide which verb
+they meant, which is a decision about the engine rather than about the music.
+
+**The second press is gone.** A loop that knew its length before recording
+began knows its close, so `spawn_closer` — one thread, polling every 5 ms —
+closes it. It re-checks state before it acts, and that *is* the cancellation: a
+foot that closes early leaves `PLAYING`, a clear leaves no length, a new take
+moves `rec_from`, and any of those makes the close a no-op. There is no flag to
+forget to clear. The closing press now survives in exactly one place: the first
+take of a clockless session — which is the one you were going to trim anyway.
+
+## 9.8 Length and sparsity came apart
+
+`sparse` set the newest layer's period **and** multiplied the loop's length by
+the same factor. So "how long is this loop" and "how often does the material
+sound in it" were one gesture, and **a four-bar loop whose phrase sounds every
+bar was not reachable at all**.
+
+`s<n>` is absolute now and changes no length. Three knobs on Set up hold the
+three numbers: **bars**, **every**, **on**. Which makes the thing this was
+asked for a matter of turning three knobs — record a bar, make the loop four,
+put the bar on the third of them — and the waveform already drew that picture,
+because `l_period`/`l_phase` have modelled it since the multiply rewrite. What
+was missing was never the mechanism; it was a press fixed at `s2`,
+multiplicative, that also moved the length.
+
+Absolute rather than multiplicative because a knob asks *what should this be*.
+Multiplying is the right shape for a footswitch and the wrong one for a control
+whose position has to be readable off the engine.
+
+## 9.9 Tempo and metre are a readout
+
+They arrive from link-spike, which has them from Ableton. A control here would
+be a second place the rig's tempo is decided, so there isn't one: the Looper
+page's legend shows bpm, metre, the bar the engine is counting in, and what a
+launch is waiting for. The bar is worth showing beside Link's own, because
+without a clock they differ and the difference is never obvious.
+
+**Launch quantise is separate from the bar on purpose.** The bar is what a
+*length* is counted in; `launch_q` is what a *start* waits for. A DAW keeps them
+apart and so does this — "close on a whole bar" and "start on the next beat" are
+both wanted at once, and collapsing them would take away free-length takes over
+a quantised rig. It is in **beats**, so it means the same thing in 3/4 as in
+4/4; `-1` is a bar and is the default, `0` is none. On The set, because that
+page's subject is already all of them — a global on a per-loop page is how the
+old page two became a drawer.
+
 ## 10. What only a knob can do — and which of it is engine work
 
 The per-loop vocabulary the daemon implements is `sp pan xf dec ch s<n>` plus the
@@ -745,6 +923,13 @@ Three things found while building it that were not in the design.
 2. **Are 60 ms and 300 ms the right windows?** Both are guesses from one report
    of the press-nudge, not measurements. If a press still moves a level, raise
    `turnHoldMs` first.
+
+   The 300 was also being counted from the **press**, which meant a press held
+   longer than that disarmed the guard while the finger was still down — so the
+   nudge that comes with letting go landed as a real turn (2026-08-27). On the
+   pager that read as pressing to go home and being paged somewhere else on the
+   way back up, which happens exactly as often as you hold the press a beat.
+   The guard now lasts as long as the finger does, plus the window.
 3. **Should the tape-length knob step like the pager?** A sweep fires ten
    `blank`s in half a second — harmless, since each re-threads an empty tape,
    but imprecise if you want a particular length.

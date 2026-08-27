@@ -3,6 +3,7 @@ module Test.Main where
 import Prelude
 
 import Data.Argonaut.Core (stringify)
+import Data.Int (round)
 import Data.Int.Bits (xor)
 import Data.Array as Array
 import Data.Map as Map
@@ -32,6 +33,7 @@ import Foreign.LooperSocket (isWriting, phaseOf, phaseName, allPhases, LoopPhase
 import Data.Looper.Banks as LB
 import Data.MC6.Diagnostics as Diagnostics
 import Data.Looper.Machine as Machine
+import Data.Looper.Recipes as Recipes
 import Data.Looper.Twister as LoopTw
 import Data.Looper.Verb as LoopVerb
 import Data.Enum as Enum
@@ -942,10 +944,10 @@ main = do
                , muted: false, reverse: false, pan: 64, speed: 1.0, pendulum: false
                , oneShot: false, levelArm: false, firing: false
                , chance: 1.0, skipping: false, fadeMs: 0.0, decayDb: 0.0
-               , volDb: 0.0, revox: false, fbDb: -3.0, toneHz: 6500.0, recEnv: []
+               , volDb: 0.0, cycles: 0, revox: false, fbDb: -3.0, toneHz: 6500.0, recEnv: []
                , pendingAt: -1, shapes: [] }
       withState n s ls = (idle n) { state = s, layers = ls }
-      rigOf ls = { loops: ls, focus: 0, click: false, monitor: false, armDb: -36.0 }
+      rigOf ls = { loops: ls, focus: 0, click: false, monitor: false, armDb: -36.0, launchQ: -1 }
       isCommand = case _ of
         Machine.Command _ -> true
         _ -> false
@@ -2637,12 +2639,30 @@ main = do
   -- knob whose ends fall outside the range has two dead positions that report
   -- a refusal instead of moving. Checked at all 128 positions because the ends
   -- are exactly where an off-by-one lands.
-  assert "every position of the speed knob is a speed the daemon accepts"
+  -- **Bipolar, so every position is a magnitude in range or exactly zero.**
+  -- Zero is the centre band and is the one value the daemon does not take yet;
+  -- it is asserted as *reachable* rather than as accepted, because the point of
+  -- the dead band is that stopped is a place the hand can find.
+  assert "every position of the speed knob is a speed the daemon accepts, or stopped"
     (Array.all
       (\v -> case LoopTw.fromKnob LoopTw.PRate v of
-          LB.Rate r -> r >= 0.125 && r <= 4.0
+          LB.Rate r -> r == 0.0 || (r >= 0.125 && r <= 4.0) || (r <= -0.125 && r >= -4.0)
           _ -> false)
       (Array.range 0 127))
+
+  -- Backwards is the left half and forwards the right, which is the whole
+  -- reason Reverse stopped needing a cell of its own.
+  assert "the speed knob runs backwards below the centre and forwards above it"
+    (Array.all
+      (\v -> case LoopTw.fromKnob LoopTw.PRate v of
+          LB.Rate r -> r < 0.0
+          _ -> false)
+      (Array.range 0 60)
+      && Array.all
+        (\v -> case LoopTw.fromKnob LoopTw.PRate v of
+            LB.Rate r -> r > 0.0
+            _ -> false)
+        (Array.range 68 127))
 
   assert "and of the decay, fade, chance and pan knobs"
     (Array.all
@@ -2661,42 +2681,95 @@ main = do
               _ -> false))
       (Array.range 0 127))
 
-  -- Unity at the centre detent, on the two knobs that have a home worth
-  -- finding by feel, and the ends where the daemon's range ends.
-  assert "the speed knob sits at unity in the middle and stops where the daemon does"
-    (LoopTw.fromKnob LoopTw.PRate 64 == LB.Rate 1.0
-      && LoopTw.fromKnob LoopTw.PRate 0 == LB.Rate 0.125
+  -- **Stopped at the centre detent**, full speed either end, and pan's centre
+  -- where it has always been. Unity is not a position on this knob any more —
+  -- it is the press — which is the trade that bought the direction.
+  assert "the speed knob stops in the middle and reaches full speed both ways"
+    (LoopTw.fromKnob LoopTw.PRate 64 == LB.Rate 0.0
+      && LoopTw.fromKnob LoopTw.PRate 0 == LB.Rate (-4.0)
       && LoopTw.fromKnob LoopTw.PRate 127 == LB.Rate 4.0
       && LoopTw.fromKnob LoopTw.PPlace 64 == LB.Place 64)
+
+  -- The press is the only way back to unity, so it had better be unity.
+  assert "pressing the speed knob asks for unity, forwards"
+    (LoopTw.pressedAt { bank: 2, index: 0 } == Just (Tuple LB.Focused (LB.Rate 1.0)))
 
   -- **The ring is told, never remembered.** This is the property that separates
   -- an encoder from the MC6's scroll counters: what the device shows is the
   -- engine's own value, so whoever moved it — the console, a footswitch, some
   -- other client — the knob agrees within a frame.
+  -- The speed ring lands mid-step rather than at the very end of the travel,
+  -- because the knob is quantised now and a step has a middle. The property
+  -- that matters is the round trip: whatever the engine says, the position the
+  -- ring is put at asks for that same speed back.
   assert "the ring shows the engine's value, at both ends and the middle"
-    (LoopTw.toKnob LoopTw.PRate ((idle 0) { speed = 1.0 }) == 64
-      && LoopTw.toKnob LoopTw.PRate ((idle 0) { speed = 0.125 }) == 0
-      && LoopTw.toKnob LoopTw.PRate ((idle 0) { speed = 4.0 }) == 127
+    (LoopTw.toKnob LoopTw.PRate ((idle 0) { speed = 0.0 }) == 64
+      && LoopTw.fromKnob LoopTw.PRate (LoopTw.toKnob LoopTw.PRate ((idle 0) { speed = 4.0 }))
+           == LB.Rate 4.0
       && LoopTw.toKnob LoopTw.PPlace ((idle 0) { pan = 100 }) == 100
       && LoopTw.toKnob LoopTw.PChance ((idle 0) { chance = 1.0 }) == 127)
+
+  -- **Every step is an octave or a fifth from the one beside it**, which is the
+  -- whole reason the knob steps at all: a continuous speed is a continuous
+  -- transposition, so every position between the useful ones is a loop out of
+  -- tune with the rest of the rig. Checked as a ratio rather than against a
+  -- written-out list, so a rung added to the ladder has to earn its place.
+  assert "the speed ladder moves in fifths and fourths and nothing else"
+    (Array.all
+      (\i -> case Array.index LoopTw.rateLadder i, Array.index LoopTw.rateLadder (i + 1) of
+          Just a, Just b ->
+            let r = b / a
+            in intAbs (round (r * 1000.0) - 1500) <= 4
+                 || intAbs (round (r * 1000.0) - 1333) <= 4
+          _, _ -> false)
+      (Array.range 0 (Array.length LoopTw.rateLadder - 2)))
+
+  -- Unity is on the ladder, and so are the two the MC6's speed bank sends, so
+  -- the knob and the switches cannot land a loop in different keys.
+  assert "the ladder holds unity and the values the speed bank steps to"
+    (Array.all (\r -> Array.elem r LoopTw.rateLadder) [ 0.25, 0.5, 1.0, 1.5, 2.0 ])
+
+  -- Every position is a rung, and every rung is reachable. A step nothing can
+  -- select is a step that is not there.
+  assert "every rung of the ladder can be reached by turning"
+    (Array.all
+      (\r -> Array.elem (LB.Rate r) (map (LoopTw.fromKnob LoopTw.PRate) (Array.range 0 127)))
+      LoopTw.rateSteps)
+
+  -- **The bug this composition was written to end.** `speed` is a magnitude and
+  -- the direction is `reverse`, so a ring read off `speed` alone drew a loop
+  -- running backwards at half speed exactly like one running forwards at half
+  -- speed. It did that for as long as the knob existed and nothing could see
+  -- it, because the knob could only ever ask for one sign.
+  assert "the ring tells the two directions apart"
+    (LoopTw.toKnob LoopTw.PRate ((idle 0) { speed = 2.0, reverse = false })
+       /= LoopTw.toKnob LoopTw.PRate ((idle 0) { speed = 2.0, reverse = true })
+      && LoopTw.toKnob LoopTw.PRate ((idle 0) { speed = 2.0, reverse = true }) < 64
+      && LoopTw.toKnob LoopTw.PRate ((idle 0) { speed = 2.0, reverse = false }) > 64)
 
   -- A knob you cannot put back is a knob you will not turn.
   assert "every knob has a press that puts it home"
     (Array.all
-      (\i -> let c = LoopTw.controlAt { bank: 1, index: i }
+      (\i -> let c = LoopTw.controlAt { bank: 2, index: i }
              in case c.turn of
                   Nothing -> true
                   Just _ -> isJust c.press)
       (Array.range 0 15))
 
-  -- Two pages, and the other two deliberately empty rather than accidentally
-  -- half-wired. The per-layer surface is the tenant they are being kept for.
-  assert "banks three and four carry nothing at all"
+  -- **Four pages now, and the fifth is nothing.** The two spare blocks were
+  -- being kept for the per-layer surface; the four-page cut spent them on the
+  -- set, on shape and on set-up, and page five is off the end of the pager's
+  -- travel rather than reserved.
+  assert "there is no fifth page"
     (Array.all
-      (\i -> LoopTw.pressedAt { bank: 2, index: i } == Nothing
-          && LoopTw.pressedAt { bank: 3, index: i } == Nothing
-          && LoopTw.turnedAt { bank: 2, index: i } 64 == Nothing)
+      (\i -> LoopTw.pressedAt { bank: 4, index: i } == Nothing
+          && LoopTw.turnedAt { bank: 4, index: i } 64 == Nothing)
       (Array.range 0 15))
+
+  -- Every page has its pager in the same corner and nothing else claims one.
+  assert "each of the four pages is described for the card"
+    (Array.length LoopTw.pages == LoopTw.pages'
+      && Array.all (\pg -> Array.length pg.cells == 16) LoopTw.pages)
 
   -- **The round trip is the reason the taper is allowed to bend.**
   --
@@ -2722,9 +2795,15 @@ main = do
       (Array.range 0 127))
 
   -- The bend is where a fader bends: half the travel on the first 12 dB.
-  assert "the level fader spends its top half on the first 12 dB"
+  -- **Half a turn is half the amplitude.** The knee moved from the middle of
+  -- the travel to a quarter of it, twice reported by ear: linear in decibels
+  -- dropped too fast, and 12 dB at half travel still did. Mixing needs more of
+  -- the knob than fading does, because fading is a gesture and mixing is a
+  -- decision.
+  assert "the level fader spends its top three quarters on the first 9 dB"
     (LoopTw.fromKnob LoopTw.PLevel 127 == LB.Level 0.0
-      && LoopTw.fromKnob LoopTw.PLevel 64 == LB.Level (-12.0)
+      && LoopTw.fromKnob LoopTw.PLevel 64 == LB.Level (-6.0)
+      && LoopTw.fromKnob LoopTw.PLevel 32 == LB.Level (-9.0)
       && LoopTw.fromKnob LoopTw.PLevel 0 == LB.Level (-60.0))
 
   -- **Decay counts down from hold**, the same way round as the level, and stops
@@ -2746,7 +2825,7 @@ main = do
     (LoopTw.fromKnob LoopTw.PPlace 63 == LB.Place 64
       && LoopTw.fromKnob LoopTw.PPlace 66 == LB.Place 64
       && LoopTw.fromKnob LoopTw.PPlace 60 == LB.Place 60
-      && LoopTw.fromKnob LoopTw.PRate 63 == LB.Rate 1.0
+      && LoopTw.fromKnob LoopTw.PRate 63 == LB.Rate 0.0
       && LoopTw.fromKnob LoopTw.PChance 63 /= LoopTw.fromKnob LoopTw.PChance 64)
 
   -- **The ring is the value, and on this device that is not a display
@@ -2769,7 +2848,19 @@ main = do
   -- different pages, and which page is a fact this app holds.
   assert "the same encoder is a different control on each page"
     (LoopTw.pressedAt { bank: 0, index: 0 } == Just (Tuple (LB.OnLoop 0) (LB.SelectLoop 0))
-      && LoopTw.turnedAt { bank: 1, index: 0 } 127 == Just (Tuple LB.Focused (LB.Level 0.0)))
+      && LoopTw.pressedAt { bank: 1, index: 0 } == Just (Tuple (LB.OnLoop 0) LB.Transport)
+      && LoopTw.pressedAt { bank: 2, index: 0 } == Just (Tuple LB.Focused (LB.Rate 1.0))
+      && LoopTw.pressedAt { bank: 3, index: 0 } == Just (Tuple LB.Focused LB.GridToggle))
+
+  -- **The set is the transpose of Shape, and its loops sit where the Loops
+  -- page's do.** Same eight positions, same eight loops, different verb — which
+  -- is the whole reason the spatial map only has to be learned once.
+  assert "the set names its loops in the same eight positions as the loops page"
+    (Array.all
+      (\i -> (LoopTw.controlAt { bank: 0, index: i }).subject
+               == (LoopTw.controlAt { bank: 1, index: i }).subject)
+      (Array.range 0 7)
+      && LoopTw.turnedAt { bank: 1, index: 3 } 100 == Just (Tuple (LB.OnLoop 3) (LB.Place 100)))
 
   -- Both pages light sixteen encoders and neither knows which CC block they
   -- land in — that is the caller's problem, because only the caller holds both
@@ -2799,14 +2890,41 @@ main = do
       && LoopTw.fromKnob LoopTw.PLevel 127 == LB.Level 0.0
       && LoopTw.fromKnob LoopTw.PLevel 0 == LB.Level (-60.0))
 
-  -- -30 dB sits below the knee, so it is in the bottom half of the travel and
-  -- not at the middle of it. That is the whole point of the bend: the middle
-  -- belongs to -12, where mixing happens.
+  -- -30 dB sits below the knee, so it is well down the travel and nowhere near
+  -- the middle. That is the whole point of the bend: the middle belongs to
+  -- -6 dB, where mixing happens.
   assert "and the ring reads the level back off the snapshot"
     (LoopTw.toKnob LoopTw.PLevel ((idle 0) { volDb = 0.0 }) == 127
       && LoopTw.toKnob LoopTw.PLevel ((idle 0) { volDb = -60.0 }) == 0
-      && LoopTw.toKnob LoopTw.PLevel ((idle 0) { volDb = -12.0 }) == 64
-      && LoopTw.toKnob LoopTw.PLevel ((idle 0) { volDb = -30.0 }) == 40)
+      && LoopTw.toKnob LoopTw.PLevel ((idle 0) { volDb = -6.0 }) == 64
+      && LoopTw.toKnob LoopTw.PLevel ((idle 0) { volDb = -9.0 }) == 32
+      && LoopTw.toKnob LoopTw.PLevel ((idle 0) { volDb = -30.0 }) < 32)
+
+  -- **A proven inverse, not a second spelling.** Reading a wire string back is
+  -- exactly what `Data.Looper.Verb` exists to prevent, so `addressed` earns its
+  -- place the way `fromKnob`/`toKnob` do: walked over every loop and a spread
+  -- of verbs, and a drift between the two is a failing test rather than a wrong
+  -- label on a log line.
+  assert "the loop a command is addressed to can be read back off it"
+    (Array.all
+      (\i -> Array.all
+        (\v -> LoopVerb.addressed (LoopVerb.at i v)
+                 == Just { loop: i, verb: LoopVerb.render v })
+        [ LoopVerb.Record, LoopVerb.Bars 4, LoopVerb.Spread 3, LoopVerb.Place' 2
+        , LoopVerb.Rate (-0.5), LoopVerb.Level (-12.0), LoopVerb.Revox true ])
+      (Array.range 0 7))
+
+  -- A rig-wide verb carries no loop, and must not be read as carrying loop
+  -- zero — which is what a prefix parser that defaulted would do.
+  assert "a command with no loop on it reports none"
+    (LoopVerb.addressed (LoopVerb.render (LoopVerb.LaunchQ 4)) == Nothing
+      && LoopVerb.addressed (LoopVerb.render (LoopVerb.Click true)) == Nothing)
+
+  -- The log names loops the way every other surface does. This said `→ 1len4`
+  -- for a four-bar Loop 2, which is right and reads as loop one.
+  assert "the log names the loop in the numbering the screen uses"
+    (Machine.describe (Machine.Command (LoopVerb.at 1 (LoopVerb.Bars 4)))
+       == "loop 2 · len4")
 
   assert "the level verb spells as the daemon expects"
     (LoopVerb.render (LoopVerb.Level 0.0) == "vol0.0"
@@ -2837,12 +2955,18 @@ main = do
   -- behind it must be blank rather than half-filled.
   -- The pager counts as a control while having no duty at all — it asks nothing
   -- of the looper, which is the whole reason it is a flag rather than a `Duty`.
+  --
+  -- **A turn counts too**, since the launch quantise: that encoder has a knob
+  -- and no press, which this used to read as an empty cell wearing a name. A
+  -- control is anything a hand can do something to, and what it must describe
+  -- is whichever of the two it has.
   assert "every control on the card describes itself, and every blank stays blank"
     (Array.all
       (\pg -> Array.all
         (\c -> let k = { bank: pg.bank, index: c.index }
-                   has = LoopTw.pressedAt k /= Nothing || (LoopTw.controlAt k).pager
-               in if has then c.name /= "" && isJust c.press
+                   ctl = LoopTw.controlAt k
+                   has = LoopTw.pressedAt k /= Nothing || ctl.turn /= Nothing || ctl.pager
+               in if has then c.name /= "" && (isJust c.press || isJust c.turn)
                   else c.name == "")
         pg.cells)
       LoopTw.pages)
@@ -2854,21 +2978,21 @@ main = do
   assert "pressing the Revox encoder sends rvx1 for the focused loop"
     (let tape = (idle 0) { layers = 1, loopSecs = 8.0, state = "playing" }
          rig = (rigOf [ idle 0, tape ]) { focus = 1 }
-     in case LoopTw.pressedAt { bank: 0, index: 11 } of
+     in case LoopTw.pressedAt { bank: 3, index: 8 } of
           Just (Tuple subj duty) -> Machine.perform rig subj duty == [ Machine.Command "1rvx1" ]
           Nothing -> false)
 
   assert "and again turns it off rather than on"
     (let tape = (idle 0) { layers = 1, loopSecs = 8.0, revox = true }
          rig = rigOf [ tape ]
-     in case LoopTw.pressedAt { bank: 0, index: 11 } of
+     in case LoopTw.pressedAt { bank: 3, index: 8 } of
           Just (Tuple subj duty) -> Machine.perform rig subj duty == [ Machine.Command "0rvx0" ]
           Nothing -> false)
 
   -- Turning the same encoder threads, and does not disturb the mode.
   assert "turning the Revox encoder threads the focused loop"
     (let rig = (rigOf [ idle 0, idle 1 ]) { focus = 1 }
-     in case LoopTw.turnedAt { bank: 0, index: 11 } 34 of
+     in case LoopTw.turnedAt { bank: 3, index: 8 } 34 of
           Just (Tuple subj duty) -> Machine.perform rig subj duty == [ Machine.Command "1blank8.0" ]
           Nothing -> false)
 
@@ -2900,8 +3024,78 @@ main = do
   -- One control, because they are one idea: a tape is a loop of a chosen
   -- length that you play onto, and choosing the length is how you start.
   assert "the Revox encoder carries the mode and the tape together"
-    (let c = LoopTw.controlAt { bank: 0, index: 11 }
+    (let c = LoopTw.controlAt { bank: 3, index: 8 }
      in c.press == Just LB.RevoxToggle && c.turn == Just LoopTw.PTape)
+
+  -- **Arm took the cell Revox left**, so the write-head row is the MC6's own
+  -- loop page switch for switch: record, overdub, stop/go, arm. It was two
+  -- page turns and a mode flip before this, on the one gesture where a few
+  -- hundred milliseconds is a take.
+  assert "arm is one press on the loops page, beside the rest of the write head"
+    (LoopTw.pressedAt { bank: 0, index: 11 } == Just (Tuple LB.Focused LB.ArmLoop))
+
+  -- **The tape's two parameters had no hardware control at all** until Set up:
+  -- sliders on a web page, for the one mode in the rig that has no undo.
+  assert "the tape's feedback and tone are knobs now, and read the engine back"
+    (LoopTw.fromKnob LoopTw.PFeedback 127 == LB.Feedback 0.0
+      && LoopTw.fromKnob LoopTw.PFeedback 0 == LB.Feedback (-24.0)
+      && LoopTw.fromKnob LoopTw.PTone 127 == LB.Tone 20000.0
+      && LoopTw.toKnob LoopTw.PFeedback ((idle 0) { fbDb = 0.0 }) == 127
+      && LoopTw.toKnob LoopTw.PTone ((idle 0) { toneHz = 20000.0 }) == 127)
+
+  -- **Multiply could not be asked for by any hand.** It was on the CC table and
+  -- so reachable from a web button, and on no MC6 bank and no encoder — a verb
+  -- the vocabulary had and no surface could send.
+  -- On Shape rather than Set up: it is not a length *setting*, it is a length
+  -- *performance* — press to open, play across the cycles, press to close, with
+  -- the write head open throughout. Its declarative twin is `bars` on Set up.
+  assert "multiply has a control on the shape page, beside the material verbs"
+    (LoopTw.pressedAt { bank: 2, index: 4 } == Just (Tuple LB.Focused LB.MultiplyLoop))
+
+  -- **Length and how often came apart.** `SpreadLoop` set the period *and* grew
+  -- the loop by the same factor, so a four-bar loop whose phrase sounds every
+  -- bar was not reachable at all. Three knobs, three numbers, one each.
+  assert "bars, every and on are three separate knobs on the set-up page"
+    (LoopTw.turnedAt { bank: 3, index: 4 } 127 == Just (Tuple LB.Focused (LB.SetBars 32))
+      && LoopTw.turnedAt { bank: 3, index: 5 } 0 == Just (Tuple LB.Focused (LB.Every 1))
+      && LoopTw.turnedAt { bank: 3, index: 6 } 0 == Just (Tuple LB.Focused (LB.PlaceAt 1)))
+
+  -- Every step of a stepped knob is reachable and reads itself back, which is
+  -- the property that lets the ring be told rather than remembered.
+  assert "every bar count can be reached and survives the round trip"
+    (Array.all
+      (\n -> LoopTw.fromKnob LoopTw.PBars (LoopTw.toKnob LoopTw.PBars ((idle 0) { cycles = n }))
+               == LB.SetBars n)
+      (Array.range 1 32))
+
+  -- **A bar is what the metre says**, so the ladder spells one as -1 rather
+  -- than as four: four beats is a bar in 4/4 and three quarters of one in 3/4,
+  -- and a setting that is right in one time signature and quietly wrong in
+  -- every other is worse than no setting.
+  assert "the launch ladder carries none, the bar, and beats in between"
+    (Array.elem 0 LoopTw.launchLadder
+      && Array.elem (-1) LoopTw.launchLadder
+      && LoopTw.fromKnob LoopTw.PLaunch 0 == LB.Launch 0
+      && LoopTw.fromKnob LoopTw.PLaunch 127 == LB.Launch (-1))
+
+  -- The one knob on the surface that is not about a loop, which is why its ring
+  -- is a `RigValue` and is filled in by `leds` rather than by `toKnob`.
+  assert "the launch knob is rig-wide and reads the rig, not a loop"
+    (let ring q = map _.ring
+           (Array.filter (\l -> l.index == 8)
+             (LoopTw.leds ((rigOf [ idle 0 ]) { launchQ = q }) 1))
+     in ring 0 /= ring (-1) && ring 4 /= ring 0)
+
+  -- **Held is not stopped.** A loop at speed zero is still in the phase-locked
+  -- set and is not muted; `Transport` silences one and keeps its place. They
+  -- look alike from outside, so the colour says which.
+  assert "a loop held at zero has its own colour, and it is not the muted one"
+    (let playing = (idle 0) { state = "playing", layers = 1, speed = 1.0 }
+         heldOne = playing { speed = 0.0 }
+         mutedOne = playing { muted = true }
+         hueAt st = map _.hue (Array.take 1 (LoopTw.leds (rigOf [ st ]) 0))
+     in hueAt heldOne /= hueAt playing
+          && hueAt heldOne /= hueAt mutedOne)
 
   -- **Revox is a mode you opt into, and it takes undo with it.** Refused by
   -- name rather than silently doing nothing: a knob that stops working is a
@@ -3048,6 +3242,37 @@ main = do
   log ""
   log ("    loop colours: " <> joinWith ", "
     (map (\k -> k.phase <> " " <> k.tone) LoopTw.phaseKey))
+
+  -- **Printed as markdown, because `docs/RECIPES.md` is a copy of this.** The
+  -- recipes are data in `Data.Looper.Recipes`; the modal renders them and this
+  -- prints them, so the file on disk has one author and cannot quietly disagree
+  -- with the app. Regenerate by pasting this section over the body of the doc.
+  log ""
+  log "  Recipes, as markdown for docs/RECIPES.md:"
+  log ""
+  log ("    > " <> Recipes.preamble)
+  for_ Recipes.recipes \r -> do
+    log ""
+    log ("    ## " <> r.name)
+    log ""
+    log ("    " <> r.why)
+    log ""
+    for_ r.steps \st' -> do
+      log ("    - " <> (if st'.at == "" then "" else "**" <> st'.at <> "** ")
+             <> st'.act)
+      for_ st'.expect \e -> log ("      - *" <> e <> "*")
+    for_ r.note \n -> do
+      log ""
+      log ("    > " <> n)
+
+  -- Every step that can report says what right looks like, which is what makes
+  -- the list a test script rather than only a manual. A recipe whose steps are
+  -- all silent is one nobody can tell has gone wrong.
+  assert "every recipe has steps, and most of them say what to expect"
+    (Array.all
+      (\r -> not (Array.null r.steps)
+          && Array.length (Array.filter (\st' -> isJust st'.expect) r.steps) >= 1)
+      Recipes.recipes)
 
   -- Printed, not just asserted about. The map is the thing a person needs when
   -- deciding where to put the next bank, and a test that only says "no

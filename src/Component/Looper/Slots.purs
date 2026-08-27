@@ -100,6 +100,7 @@ import Data.String (joinWith)
 import Halogen (AttrName(..), ElemName(..), Namespace(..))
 import Data.Maybe (Maybe(..), fromMaybe, isNothing)
 import Data.Looper.Banks as LB
+import Data.Looper.Twister as TW
 import Foreign.LooperSocket (LoopState, LayerShape, LooperState)
 import Foreign.LooperSocket as Looper
 import Halogen.HTML as HH
@@ -155,6 +156,7 @@ slot top focus fc idx st =
             [ HH.text (if st.layers == 0 then "" else show st.layers <> plural st.layers " layer") ]
         ]
     , track top st
+    , mix st
     , HH.div [ HP.class_ (HH.ClassName "loop-foot") ]
         [ HH.span_ [ HH.text (lengthWord top st) ]
         -- The resolutions, shown only when they are not the default. A row of
@@ -164,6 +166,54 @@ slot top focus fc idx st =
             (map mark (marks st))
         ]
     ]
+
+-- | **Level and pan, on every slot, always.**
+-- |
+-- | `marks` shows both already and only when they are off their defaults, which
+-- | is the right rule for a *flag* — six slots each announcing "forward, centre,
+-- | free" is a row of noise that hides the one loop somebody reversed. It is
+-- | the wrong rule for the two continuous values you mix with. Those you want
+-- | to compare *across* loops, which a mark that disappears at unity cannot do:
+-- | the question is never "is this one turned down", it is "which of these is
+-- | loudest", and a row where the answer is sometimes blank does not answer it.
+-- |
+-- | So they are drawn rather than written. A bar for the level and a tick on a
+-- | centre-marked track for the pan — the same two things the Twister's first
+-- | two pages are, in the same order, and readable in one sweep down the row.
+-- |
+-- | **The bar is `TW.toKnob`, not a percentage of the decibels.** That is the
+-- | one function that says where a value sits on a 0-127 travel, and it is what
+-- | the encoder ring is drawn from — so the bar on the screen and the ring under
+-- | the hand cannot disagree about the same loop. A second conversion here
+-- | would be a second chance to bend the fader law differently.
+mix :: forall w i. LoopState -> HH.HTML w i
+mix st =
+  HH.div [ HP.class_ (HH.ClassName "loop-mix") ]
+    -- The words survive as the hover, which is where an exact number belongs on
+    -- a control you read by shape: the picture answers "which is loudest" and
+    -- the tooltip answers "how loud, exactly".
+    [ HH.div
+        [ HP.class_ (HH.ClassName "loop-level")
+        , HP.title ("level " <> LB.levelWord st.volDb)
+        ]
+        [ HH.div
+            [ HP.class_ (HH.ClassName "loop-level-fill")
+            , HP.style ("width:" <> pc (TW.toKnob TW.PLevel st) <> "%")
+            ] []
+        ]
+    , HH.div
+        [ HP.class_ (HH.ClassName "loop-pan")
+        , HP.title ("pan " <> panWord st.pan)
+        ]
+        [ HH.div [ HP.class_ (HH.ClassName "loop-pan-centre") ] []
+        , HH.div
+            [ HP.class_ (HH.ClassName "loop-pan-tick")
+            , HP.style ("left:" <> pc st.pan <> "%")
+            ] []
+        ]
+    ]
+  where
+  pc v = show (toNumber (round (toNumber v / 127.0 * 1000.0)) / 10.0)
 
 -- | The layer's shape, mirrored about the middle the way a waveform is read.
 -- |
@@ -379,16 +429,43 @@ legend :: forall w i. LooperState -> Int -> HH.HTML w i
 legend lp focus =
   HH.div [ HP.class_ (HH.ClassName "loops-legend") ]
     [ HH.span_ [ HH.text ("controls follow " <> letter focus) ]
+    -- **Tempo and metre are a readout, not a control**, and that is the whole
+    -- answer to where their controls should live. They arrive from link-spike,
+    -- which gets them from Ableton; a knob here would be a second place the
+    -- rig's tempo is decided, which is the one thing this app is careful never
+    -- to be. So: show them, and never offer to set them.
     , HH.span_
         [ HH.text $
             if lp.linkAnchors == 0 then "no clock"
             else show (round lp.linkTempo) <> " bpm · "
                    <> show (round lp.linkQuantum) <> "/bar"
         ]
+    -- **The bar the engine is actually counting in**, which is not always
+    -- Link's. Without a clock it is the first loop's cycle over however many
+    -- bars that loop has been declared to be — so this is the number lengths
+    -- mean, and it is worth showing beside the one the clock reports because
+    -- they can differ and the difference is never obvious.
+    , if lp.barFrames == 0 then HH.text ""
+      else HH.span_
+             [ HH.text ("bar " <> secs (toNumber lp.barFrames / toNumber lp.sampleRate)
+                          <> (if lp.linkAnchors == 0 then " (from loop 1)" else "")) ]
+    , HH.span_ [ HH.text ("launch " <> launchWord lp.launchQ) ]
     , if lp.linkRejected == 0 then HH.text ""
       else HH.span [ HP.class_ (HH.ClassName "loops-warn") ]
              [ HH.text (show lp.linkRejected <> " clock messages refused") ]
     ]
+
+-- | What a launch waits for, in the words the encoder uses.
+-- |
+-- | `-1` is a bar rather than four beats, because a bar is what the metre says
+-- | it is — three beats in 3/4 — and a setting spelled as a beat count would be
+-- | right in one time signature and quietly wrong in every other.
+launchWord :: Int -> String
+launchWord q = case q of
+  -1 -> "on the bar"
+  0 -> "straight away"
+  1 -> "on the beat"
+  n -> "every " <> show n <> " beats"
 
 -- | A B C on the top row, D E F below — the board's own letters, so the screen
 -- | and the pedal agree without anybody translating.
@@ -532,7 +609,9 @@ marks st = Array.catMaybes
       then Just (Foot ("tape " <> LB.levelWord st.fbDb
              <> (if st.toneHz >= 20000.0 then "" else " · " <> show (round (st.toneHz / 100.0) * 100) <> " Hz")))
       else Nothing
-  , if st.volDb >= 0.0 then Nothing else Just (Live (LB.levelWord st.volDb))
+  -- Level and pan came off this list on 2026-08-27: they are drawn on every
+  -- slot now, by `mix`, and a word saying what the bar directly above it says
+  -- is a word in the way.
   -- Then the two that move on their own. A loop at 1 in 4 or losing 3 dB a pass
   -- is not where you left it, and nothing else on screen would say so.
   , if st.chance >= 1.0 then Nothing else Just (Live (LB.chanceWord st.chance))
@@ -540,7 +619,6 @@ marks st = Array.catMaybes
   -- And then what is merely true.
   , if st.pendulum then Just (Set "swing") else if st.reverse then Just (Set "rev") else Nothing
   , if st.speed == 1.0 then Nothing else Just (Set (speedWord st.speed))
-  , if st.pan == 64 then Nothing else Just (Set (panWord st.pan))
   , if st.quant then Just (Set "grid") else Nothing
   , if st.fadeMs <= 0.0 then Nothing else Just (Set ("~" <> LB.fadeWord st.fadeMs))
   ]
@@ -550,12 +628,22 @@ marks st = Array.catMaybes
 -- | The board says "x 1/2"; so does this. A display that answers a press with
 -- | different words from the switch that caused it makes the player do the
 -- | translation, which is the one job a display is for.
+-- | Every rung of `TW.rateLadder` has a name here, because the ladder is made
+-- | of just ratios and a decimal is the one way to write a just ratio that
+-- | tells you nothing: ×0.67 is a fifth down and reads like a rounding error.
 speedWord :: Number -> String
 speedWord s
+  | s == 0.125 = "×⅛"
+  | s == 0.167 = "×⅙"
   | s == 0.25 = "×¼"
+  | s == 0.333 = "×⅓"
   | s == 0.5 = "×½"
+  | s == 0.667 = "×⅔"
   | s == 1.5 = "×1½"
   | s == 2.0 = "×2"
+  | s == 3.0 = "×3"
+  | s == 4.0 = "×4"
+  | s == 0.0 = "held"
   | otherwise = "×" <> show (toNumber (round (s * 100.0)) / 100.0)
 
 -- | Pan as a word rather than a number: 0-127 is the wire's business.

@@ -1774,6 +1774,8 @@ body {
   border-left: 3px solid transparent;
 }
 
+/* Kept, unused in the ordinary case: `connectionLine` renders nothing at all
+   while the socket is healthy, so this only ever styles the failure. */
 .looper-conn.ok {
   color: var(--fg-muted);
   border-left-color: #4a9a5e;
@@ -1849,14 +1851,37 @@ body {
 
    What is left is one column, and three buttons that open what used to crowd
    it. */
-.looper-head {
-  display: flex; align-items: baseline; justify-content: space-between;
-  gap: 16px; flex-wrap: wrap; margin: 0 0 20px;
+/* ── The status strip ─────────────────────────────────────────────────────
+   What stands where a heading saying LOOPER and a band saying "connected"
+   used to. The nav already names the page and a socket that is open all day
+   is worth nothing; what you actually look up is the rig's state, and it was
+   previously only reachable by opening two panels and reading three encoders.
+
+   Label small and quiet above, value large and dark below — the reading is
+   the thing, the label only says which reading it is. */
+.looper-status {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 24px; flex-wrap: wrap; margin: 0 0 20px;
+  border-bottom: 1px solid #ded9d1; padding-bottom: 14px;
 }
-/* The h2 keeps its type but gives up its bottom margin to the row, or the
-   buttons sit on a baseline twenty pixels above where the title ends. */
-.looper-head h2 { margin: 0; }
-.looper-help-row { display: flex; gap: 6px; }
+.looper-status-row {
+  display: flex; align-items: flex-start; gap: 28px; flex-wrap: wrap;
+}
+.looper-reading { display: flex; flex-direction: column; gap: 2px; }
+.looper-reading-label {
+  font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: #a39a8c; font-weight: 500;
+}
+.looper-reading-value {
+  font-size: 19px; line-height: 1.15; font-weight: 600; color: #2e2b27;
+  letter-spacing: -0.01em; white-space: nowrap;
+}
+/* Only the readings that change what every other one means — no clock, no
+   bar, no daemon. A strip where everything shouts is a strip nobody reads. */
+.looper-reading.is-alarm .looper-reading-value { color: #a8442a; }
+.looper-reading.is-alarm .looper-reading-label { color: #c08a72; }
+
+.looper-help-row { display: flex; gap: 6px; padding-top: 12px; }
 .looper-help-btn {
   font: inherit; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
   padding: 4px 10px; cursor: pointer;
@@ -2022,6 +2047,40 @@ body {
 .twister-map-caveat {
   max-width: 78ch; font-size: 11px; line-height: 1.5; color: #a39a8c;
   font-style: italic; margin: 16px 0 0;
+}
+
+/* ── Recipes ──────────────────────────────────────────────────────────────
+   A sequence you can follow without leaving the page, because leaving the page
+   throttles it and the looper stops answering the Twister. Numbered, because
+   the order is the whole content. */
+.recipes { display: flex; flex-direction: column; gap: 22px; }
+.recipe h4 {
+  margin: 0 0 3px; font-size: 15px; font-weight: 600; letter-spacing: 0.01em;
+}
+.recipe-why {
+  margin: 0 0 8px; font-size: 11.5px; line-height: 1.45; color: #857d70;
+  max-width: 68ch;
+}
+.recipe-steps {
+  margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 5px;
+}
+.recipe-steps li { font-size: 12.5px; line-height: 1.35; }
+/* Which page the control is on, set apart so the eye can run down the column
+   of them without reading the sentences. */
+.recipe-at {
+  display: inline-block; min-width: 52px; font-size: 10px;
+  letter-spacing: 0.06em; text-transform: uppercase; color: #a39a8c;
+}
+.recipe-act { color: #2e2b27; }
+/* Quoted from an ack the daemon really sends — this is what makes the list a
+   test script and not only a manual. */
+.recipe-expect {
+  display: block; margin: 2px 0 0 52px; font-size: 11px; line-height: 1.4;
+  color: #4a9a52; font-style: italic;
+}
+.recipe-note {
+  margin: 8px 0 0; font-size: 11.5px; line-height: 1.5; color: #6b6459;
+  border-left: 2px solid #ded9d1; padding-left: 10px; max-width: 68ch;
 }
 
 /* The pages, as a strip of tabs: which page is showing, and the way to the
@@ -2250,6 +2309,39 @@ body {
   background: #2f2b27; opacity: 0.85; pointer-events: none;
 }
 @media (prefers-reduced-motion: reduce) { .loop-playhead { transition: none !important; } }
+
+/* ── Level and pan, on every slot ─────────────────────────────────────────
+   Drawn rather than written, because the question these two answer is "which
+   of these is loudest" and "where is this one sitting" — comparisons across
+   the row, which a mark that vanishes at unity cannot make. The words survive
+   as the hover. */
+.loop-mix {
+  display: flex; align-items: center; gap: 8px; margin: 5px 0 0;
+}
+.loop-level {
+  flex: 1 1 auto; height: 3px; background: #ebe6df; position: relative;
+}
+.loop-level-fill {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  background: #857d70;
+}
+.loop-pan {
+  flex: 0 0 46px; height: 3px; background: #ebe6df; position: relative;
+}
+/* The one position worth marking, so an off-centre tick reads as off-centre
+   without anything having to be measured. */
+.loop-pan-centre {
+  position: absolute; left: 50%; top: -2px; bottom: -2px;
+  width: 1px; background: #ded9d1;
+}
+.loop-pan-tick {
+  position: absolute; top: -3px; width: 3px; height: 9px;
+  margin-left: -1.5px; background: #857d70;
+}
+/* Selected and playing slots get the accent, so the strip belongs to the slot
+   rather than sitting on top of it. */
+.loop-slot.is-selected .loop-level-fill,
+.loop-slot.is-selected .loop-pan-tick { background: #2e2b27; }
 
 .loop-foot {
   display: flex; justify-content: space-between;

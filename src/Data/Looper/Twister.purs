@@ -59,6 +59,8 @@ module Data.Looper.Twister
   , turnedAt
   , fromKnob
   , toKnob
+  , rateLadder
+  , rateSteps
   , Led
   , leds
   , pager
@@ -68,6 +70,8 @@ module Data.Looper.Twister
   , pageTone
   , pageStep
   , pages'
+  , launchLadder
+  , maxBars
   , Cell
   , Page
   , pages
@@ -81,17 +85,17 @@ import Data.Int (round, toNumber)
 import Data.Looper.Banks (Duty(..), Subject(..), dutyLabel, dutyName, nLoops)
 import Data.Looper.Machine (Rig)
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
-import Data.Number (log, pow) as Number
 import Data.Tuple (Tuple(..))
 import Data.Twister (Knob, encodersPerBank)
-import Foreign.LooperSocket (LoopPhase(..), LoopState, allPhases, phaseName, phaseOf)
+import Foreign.LooperSocket (LayerShape, LoopPhase(..), LoopState, allPhases, phaseName, phaseOf)
 
 -- | A parameter an encoder can hold.
 -- |
--- | Five, and they are exactly the five the daemon takes a number for. There is
--- | deliberately no `PLevel`: the engine has no per-loop volume, and a knob that
--- | moved a value nothing reads would be the worst kind of control — one that
--- | looks like it worked.
+-- | Exactly the parameters the daemon takes a number for, and no others — a
+-- | knob that moved a value nothing reads would be the worst kind of control,
+-- | one that looks like it worked. (This said "five, and there is deliberately
+-- | no `PLevel`" until the engine grew `vol`; the list has grown three times
+-- | since and the rule is what survived.)
 data Param
   = PTape
   | PLayers
@@ -101,6 +105,22 @@ data Param
   | PFade
   | PDecay
   | PChance
+  -- | The tape's two, which had no control on either hardware surface until the
+  -- | four-page layout — only sliders on the web page, while the mode they
+  -- | configure sat on an encoder. Revox is the one mode with no undo, which
+  -- | makes it the worst one to have to look away to adjust.
+  | PFeedback
+  | PTone
+  -- | **Length, in bars, and how the material lands in it.** Three numbers that
+  -- | used to be two gestures: `SpreadLoop` set how often *and* grew the loop,
+  -- | so they could not be set apart. See `Data.Looper.Banks.SetBars` for the
+  -- | three things `PBars` means depending on what the loop already is.
+  | PBars
+  | PEvery
+  | POn
+  -- | What a launch waits for, in beats. **The only parameter here that is not
+  -- | about a loop**, which is why its ring is a `RigValue` — see `RingSource`.
+  | PLaunch
 
 derive instance Eq Param
 
@@ -119,6 +139,12 @@ paramLabel = case _ of
   PFade -> "fade"
   PDecay -> "decay"
   PChance -> "chance"
+  PFeedback -> "leaves"
+  PTone -> "keeps"
+  PBars -> "bars"
+  PEvery -> "every"
+  POn -> "on"
+  PLaunch -> "launch"
 
 -- | The position a knob should be able to find without looking, if it has one.
 -- |
@@ -131,12 +157,12 @@ paramLabel = case _ of
 -- | exactly in the middle, so a pan you meant to be centred is centred rather
 -- | than one off it.
 -- |
--- | Two knobs have a middle worth finding: pan, whose centre is centre, and
--- | speed, whose centre is unity.
+-- | Pan is the only one. Speed had one too, until it was quantised: a knob
+-- | whose steps are wide enough to feel does not need a detent bolted on, and
+-- | its middle step *is* stopped. See `rateOf`.
 homePosition :: Param -> Maybe Int
 homePosition = case _ of
   PPlace -> Just 64
-  PRate -> Just 64
   _ -> Nothing
 
 -- | How far from home still counts as home. Two steps out of 128 — enough to
@@ -159,11 +185,18 @@ paramRange = case _ of
   PTape -> "none to " <> show (round tapeTop) <> " s, threaded empty"
   PLayers -> "none to " <> show maxLayers <> ", one step a layer"
   PLevel -> "silent to full, -12 dB at half travel"
-  PRate -> "×0.125 to ×4, and unity sticks at the middle"
+  PRate -> "×4 back, through stopped, to ×4 forward — in fifths and octaves"
   PPlace -> "hard left to hard right, and centre sticks"
   PFade -> "0 to " <> show (round fadeTop) <> " ms"
   PDecay -> "hold at the top, down to −" <> show (round decayLaw.floorDb) <> " dB a pass"
   PChance -> "never to always"
+  PFeedback -> "a pass leaves nothing to everything, −"
+                 <> show (round (negate feedbackFloor)) <> " dB to 0"
+  PTone -> show (round (toneFloor / 1000.0)) <> " kHz to all of it"
+  PBars -> "1 to " <> show maxBars <> " bars — sizes an empty loop, resizes a full one"
+  PEvery -> "every time round, to once in " <> show maxBars
+  POn -> "which of those it lands on; wraps"
+  PLaunch -> "none, a beat up to eight bars, or the bar"
 
 -- | What lights the encoder's ring.
 -- | **Two constructors, and there used to be three.** `Playhead` drew a loop's
@@ -181,6 +214,14 @@ data RingSource
   -- | rather than about the engine, which is why `leds` fills it in — that is
   -- | the function that knows the page.
   | PageRing
+  -- | A value that belongs to the **rig** rather than to any loop.
+  -- |
+  -- | `Value` reads the snapshot's loop; there was nothing here that could read
+  -- | the rig, because until the launch quantise every ring on this surface was
+  -- | about one loop. Resolved in `leds`, which is where the `Rig` is in scope —
+  -- | `ringOf` takes a `LoopState` and deliberately still does, so the eight
+  -- | loop encoders cannot accidentally start reading something global.
+  | RigValue Param
 
 derive instance Eq RingSource
 
@@ -201,7 +242,12 @@ derive instance Eq Light
 -- | The per-loop booleans an encoder can show. A closed set rather than a
 -- | function in the record, so `Control` stays a value that can be compared and
 -- | tested.
+-- | **The per-loop booleans, and two that are not.** `FClick` and `FMonitor`
+-- | are facts about the rig rather than about a loop, which is why `flagOn`
+-- | cannot answer them from a `LoopState` and `leds` fills them in from the
+-- | `Rig` — the same seam `RigValue` opened for the launch knob.
 data Flag = FReverse | FPendulum | FOneShot | FLevelArm | FGrid | FRevox
+  | FClick | FMonitor
 
 derive instance Eq Flag
 
@@ -213,6 +259,8 @@ flagName = case _ of
   FLevelArm -> "listening"
   FGrid -> "on the grid"
   FRevox -> "a tape"
+  FClick -> "the click is on"
+  FMonitor -> "the input is monitored"
 
 -- | One encoder: what it is about, what a press means, what a turn means, and
 -- | what it shows.
@@ -222,6 +270,11 @@ type Control =
   , turn :: Maybe Param
   , ring :: RingSource
   , light :: Light
+  -- | Whether this control's press is its way *home* — back to the parameter's
+  -- | resting value — rather than an act of its own. Only the card reads it,
+  -- | and only to choose a phrase: "back to unity" says something different
+  -- | from "flip direction" and both are presses on a knob.
+  , home :: Boolean
   -- | **The pager, and the one control that asks nothing of the looper.**
   -- |
   -- | A `Duty` is a thing you can ask of Itajara, and turning a page is not one
@@ -238,7 +291,7 @@ type Control =
 blank :: Control
 blank =
   { subject: Focused, press: Nothing, turn: Nothing
-  , ring: NoRing, light: Dark, pager: false
+  , ring: NoRing, light: Dark, home: false, pager: false
   }
 
 -- | The pager, in the bottom-right corner of every page: the corner a hand can
@@ -284,19 +337,33 @@ toneName = case _ of
 
 -- | What one encoder carries.
 -- |
--- | **Bank 1 is the loops; bank 2 is the loop in hand.** Two pages where the
--- | MC6 family needs seven, and the reason is not switch count: four of those
--- | seven — Config, Quantise, Speed and Pan — exist to choose one number from a
--- | short list, which is a knob.
+-- | **Four pages, cut by the kind of act rather than by the subject.**
 -- |
--- | Banks 3 and 4 are deliberately empty. The obvious tenant is the per-layer
--- | surface, every CC of which is still unimplemented in the engine, and a page
--- | with room in it is better than one that has to be redesigned to admit the
--- | next thing.
+-- | It was two: the loops, and *everything about the loop in hand*. That second
+-- | one was not a function, it was a drawer — a fader you ride, a crossfade you
+-- | set between takes and a mode you choose once a session, all on one page
+-- | because they were all about the same loop. Sorting them by *when you reach
+-- | for them* is what produced these four, and it left the third page nobody
+-- | could think of a tenant for lying in the leftovers.
+-- |
+-- |     Loops    what is sounding, and opening the write head
+-- |     The set  the eight against each other — where each sits, whether it runs
+-- |     Shape    the loop in hand, while you play it
+-- |     Set up   the loop in hand, before and between takes
+-- |
+-- | The set is the **transpose** of Shape: one parameter across every loop
+-- | where Shape is every parameter of one loop. Its eight encoders are in the
+-- | same eight positions as the Loops page, so which knob is which loop is
+-- | learned once and only the verb underneath changes.
+-- |
+-- | Four is also what the pager's travel allows — `pageStep` at 32 puts four
+-- | bands in 127 — so this fills the surface rather than reserving part of it.
 controlAt :: Knob -> Control
 controlAt k = case k.bank of
   0 -> loopsBank k.index
-  1 -> thisLoopBank k.index
+  1 -> theSetBank k.index
+  2 -> shapeBank k.index
+  3 -> setUpBank k.index
   _ -> blank
 
 -- | The eight loops, then the eight verbs that act on whichever is in hand.
@@ -344,97 +411,233 @@ loopsBank i
       8 -> verb RecordLoop Red
       9 -> verb OverdubLoop Orange
       10 -> verb Transport Green
-      -- **Where Arm was.** `ArmLoop` is `lev1` then `r` — the mode plus the
-      -- gesture — and the mode itself sits on page 2 as Listen, one press away.
-      -- A shortcut to something already on the surface is the first thing to
-      -- give up a cell when one is wanted.
+      -- **Arm is back, and it is the fourth member of this row.**
       --
-      -- Named and refused rather than silently absent: the vocabulary has
-      -- `NotYet` for exactly this, so a press answers with what it is waiting
-      -- for instead of doing nothing.
-      -- **Revox: the loop becomes a tape.** Beside the ordinary overdub because
-      -- that is the choice it is — the same gesture by a different mechanism —
-      -- and lit while it is on, because a mode that changes what undo means had
-      -- better be visible from across the room.
-      -- **Press is the mode; turn threads the tape.**
+      -- It came off in favour of Revox on the argument that `ArmLoop` is
+      -- `lev1` then `r` — the mode plus the gesture — and the mode was already
+      -- on the surface as Listen, one press away. That was two page turns away
+      -- as well, which the argument did not count, and it made the most
+      -- time-critical gesture in the rig the slowest thing on the controller.
+      -- Listen keeps its place on Set up, as the mode it is.
       --
-      -- They belong on one control because they are one idea: a tape is a loop
-      -- of a chosen length that you play onto, and choosing the length is how
-      -- you start. Everywhere else in this app a loop gets its length by being
-      -- recorded, which is exactly what Revox does not do.
+      -- The row now matches the MC6's own loop page switch for switch —
+      -- Record, Overdub, Stop/Go, Arm — so the two surfaces stop disagreeing
+      -- about what the write head is. Each wears the colour of the phase it
+      -- produces, which is the phase key doing double duty: red is recording,
+      -- orange is overdubbing, green is playing, violet is armed.
       --
-      -- Turning is refused by the daemon once the loop has anything in it, so
-      -- this cannot resize a take by accident — and the ring still reads the
-      -- loop's real length, which is worth seeing either way.
-      11 ->
-        blank
-          { press = Just RevoxToggle
-          , turn = Just PTape
-          , ring = Value PTape
-          , light = Lit FRevox Violet
-          }
+      -- Revox moved to Set up, beside the two knobs that say what a tape pass
+      -- does. It is a mode, and it is the only mode whose parameters were
+      -- reachable from nowhere but a slider on a web page.
+      11 -> verb ArmLoop Violet
       -- Undo and Redo were two cells doing one job. The stack is an axis, and
       -- this device reports absolute positions, so it is a knob: turn down to
       -- undo, up to redo, ring shows how deep you are. Press still undoes one,
       -- for when it is a gesture rather than a scrub.
       12 -> knob PLayers Undo Blue
-      13 -> verb ClearLoop Violet
+      -- Red rather than violet. It shared violet with the Revox flag that used
+      -- to sit two cells up — a destructive verb and a mode wearing one colour
+      -- on a surface whose whole case for colour is that it is taken in rather
+      -- than read. Record is red as well and they are the two that change what
+      -- is on the tape; nothing else on the page is.
+      13 -> verb ClearLoop Red
       -- The one thing a pedal cannot do, and the one thing a *hand* is worst
       -- placed to remember to do — so it gets a control on both surfaces.
       14 -> verb ClaimPast Yellow
       15 -> pager
       _ -> blank
 
--- | Sixteen controls for the loop in hand: four knobs, then twelve presses.
+-- | **The eight loops against each other**: where each one sits, and whether it
+-- | is running.
 -- |
--- | The three `Step*` duties do not appear anywhere here. They are the MC6's
--- | rendering of the same parameters — a ladder is what a surface that can only
--- | press does with a number — and `perform` defines them in terms of the
--- | values these knobs send, so the two cannot come to disagree.
+-- | The transpose of `shapeBank` — one parameter across every loop, where that
+-- | page is every parameter of one loop. Pan is the parameter because placing
+-- | loops is inherently comparative: you are listening to where the *others*
+-- | are, which is exactly what a page of one loop cannot help you with.
 -- |
--- | **No start or end trim yet.** They belong on this page and the daemon has
--- | no verb for either; a knob that moved nothing would be exactly the failure
--- | this surface exists to avoid, so the row is spent on the second multiply
--- | instead until the engine grows them.
-thisLoopBank :: Int -> Control
-thisLoopBank = case _ of
-  -- The six knobs, level first because it is the one you reach for.
-  0 -> knob PLevel (Level 0.0) Green
-  1 -> knob PPlace (Place 64) Blue
-  2 -> knob PRate (Rate 1.0) Teal
-  3 -> knob PDecay (Decay 0.0) Orange
+-- | **The same eight positions as the Loops page**, deliberately. Loop 3 is the
+-- | same knob on both, so which encoder is which loop is learned once and only
+-- | the verb underneath changes. Turn is pan and press is stop-or-go, so the
+-- | page is a mixer: the two things you do to a set of loops while deciding
+-- | what the set is.
+-- |
+-- | The press-nudge is harmless here for the same reason it is under a level: a
+-- | pan you did not mean is one you hear at once and correct without thinking.
+-- | It would not be harmless under chance.
+theSetBank :: Int -> Control
+theSetBank i
+  | i < nLoops =
+      blank
+      { subject = OnLoop i
+      , press = Just Transport
+      , turn = Just PPlace
+      , ring = Value PPlace
+      , light = Phase
+      }
+  | otherwise = case i of
+      -- **The panic row, and it had no hand-reachable control at all.** Stop
+      -- all and Start all live on the MC6's global row and nowhere else, so
+      -- with the looper holding this controller there was no way to stop
+      -- everything without reaching for a foot.
+      --
+      -- On the bottom row beside the pager rather than directly under the
+      -- loops: these are the only three controls on the page that are not
+      -- *a* loop, and the row the pager already sits on is the page's row for
+      -- things that are about all of it.
+      -- **The rig's own quantise, on the rig's own page.** It was going to go
+      -- on Set up, and Set up is about the loop in hand — a global on a
+      -- per-loop page is how the old page two became a drawer. This page's
+      -- subject is already "all of them".
+      --
+      -- Its ring is a `RigValue`: the only knob on the surface that reads
+      -- something other than a loop.
+      8 -> blank
+            { turn = Just PLaunch
+            , ring = RigValue PLaunch
+            , light = Steady Teal
+            }
+      -- **The click, on the surface at last.** It was on the MC6's global row
+      -- and on a web button and nowhere a hand on this controller could reach —
+      -- which was survivable while the click followed a recorded loop, and is
+      -- not now that it follows the grid and ticks beats before anything has
+      -- been recorded. Counting yourself in is the first move of the first
+      -- take, and it needed a mouse.
+      --
+      -- `Lit` rather than `Steady`, because whether the click is on is a fact
+      -- about the rig you want to see from across the room.
+      9 -> blank { press = Just ClickToggle, light = Lit FClick Teal }
+      10 -> blank { press = Just MonitorToggle, light = Lit FMonitor Blue }
+      12 -> verb StopAll Blue
+      13 -> verb StartAll Green
+      14 -> verb ClearAll Red
+      15 -> pager
+      _ -> blank
 
-  4 -> knob PChance (Chance 1.0) Yellow
-  5 -> knob PFade (Fade 0.0) Green
-  6 -> flagged GridToggle FGrid Teal
+-- | **The loop in hand, while you are playing it.**
+-- |
+-- | Everything here is either continuous or instantly reversible, which is the
+-- | test for belonging on this page rather than on Set up. Spread, shift and
+-- | dense pass it on the vocabulary's own words — *structural, instant and
+-- | reversible; it records nothing* — and Save take passes it because the thing
+-- | you do with a phrase you like is save it while it is still true.
+-- |
+-- | Level is not here and pan is not here: both are per-loop and both have a
+-- | page where all eight are visible at once, which is the better place to set
+-- | either. This page is for what only makes sense one loop at a time.
+-- |
+-- | **No start or end trim yet.** They belong here and the daemon has no verb
+-- | for either; a knob that moved nothing would be exactly the failure this
+-- | surface exists to avoid, so the row stays empty until the engine grows
+-- | them. Empty is honest and a page has no obligation to be full.
+shapeBank :: Int -> Control
+shapeBank = case _ of
+  -- **Speed carries its own direction now**, so Reverse has no cell: the
+  -- daemon takes ±0.125 to ±4 and the sign *is* the direction, which made a
+  -- separate flag a second spelling of a number's sign. Centre is stopped and
+  -- the press is unity — two positions the hand can find, one by feel and one
+  -- by pressing. See `rateOf`.
+  0 -> knob PRate (Rate 1.0) Teal
+  1 -> knob PDecay (Decay 0.0) Orange
+  2 -> knob PChance (Chance 1.0) Yellow
+
+  -- Spread to make room, shift to decide where in it the bar falls, dense as
+  -- the way back. **Presses rather than knobs**, and for a stated reason: the
+  -- snapshot reports no per-loop spread, so a spread knob would hold a position
+  -- nothing could correct — the one thing this surface is not allowed to do.
+  -- It wants to be a knob and cannot be one yet.
+  -- **Multiply, at last on a surface a hand can reach.** It was on the CC table
+  -- and so on a web button, on no MC6 bank and no encoder — a verb the
+  -- vocabulary had and no hand could send. It is here rather than on Set up
+  -- because it is not a length *setting*, it is a length *performance*: press
+  -- once to open, play across as many cycles as you want, press again. The
+  -- write head is open the whole time, which is why pressing it feels like an
+  -- overdub — it is one, that also lengthens the loop.
+  --
+  -- Its declarative twin is `bars` on Set up: name the number instead of
+  -- playing it. Both are worth having — you count when you know and you play
+  -- when you do not.
+  4 -> verb MultiplyLoop Orange
+  5 -> verb RotateLoop Violet
+  6 -> verb DenseLoop Violet
+  -- Blue rather than violet. It sat in a row of four identical violets, and a
+  -- colour four things share says nothing — this one is the Atlantis seam, not
+  -- a structural edit, and it is the only cell here that leaves the rig.
+  7 -> verb SaveTake Blue
+
+  15 -> pager
+  _ -> blank
+
+-- | **The loop in hand, before and between takes.**
+-- |
+-- | The modes and the settings — what a loop *will* do, decided when you are
+-- | not mid-phrase. Fade is here rather than on Shape because a crossfade is a
+-- | property of the join, chosen once and then forgotten; grid and one-shot
+-- | because they change what a press will mean, which is not a thing to
+-- | discover by turning something.
+-- |
+-- | **Listen is the mode Arm is the gesture of.** They were both on the surface
+-- | and the duplication was the reason Arm came off it; keeping the persistent
+-- | flag here and the one-press gesture on the Loops page is the division that
+-- | makes them two things rather than two spellings.
+-- |
+-- | The bottom row is the tape, whole: the mode, what a pass leaves of what was
+-- | under it, and how much top it keeps. Those last two had **no control on
+-- | either hardware surface** — only sliders on a web page, for the one mode in
+-- | the rig that has no undo.
+setUpBank :: Int -> Control
+setUpBank = case _ of
   -- `Free` is not here: `GridToggle` turns the grid off as well as on, and the
   -- third of the three erasures had nowhere else to live.
+  0 -> flagged GridToggle FGrid Teal
+  1 -> flagged OneShot FOneShot Yellow
+  2 -> flagged LevelArm FLevelArm Green
+  -- Back from the MC6-only list. It is a once-a-session mode, which is an
+  -- argument for putting it on the page where once-a-session modes live rather
+  -- than an argument for it having no knob at all.
+  3 -> flagged Pendulum FPendulum Violet
+
+  -- **Length, and how the material lands in it.** Three knobs where there were
+  -- two presses, and the two presses could not be told apart: `SpreadLoop` set
+  -- how often a layer sounded *and* grew the loop by the same factor, so "how
+  -- long is this" and "how often does this sound" were one gesture.
+  --
+  -- Apart, they are the thing this was asked for: record a bar, make the loop
+  -- four, put the bar on the third of them. `bars` is the length, `every` is
+  -- how often, `on` is which slot — and the waveform draws the answer, which is
+  -- a picture of where the sound is rather than a sentence about how often it
+  -- happens.
+  --
+  -- `bars` on an empty loop is the other half: size it first and the recording
+  -- closes itself, so the second press stops being part of the gesture.
+  4 -> knob PBars (SetBars 1) Teal
+  5 -> knob PEvery (Every 1) Violet
+  6 -> knob POn (PlaceAt 1) Violet
+  -- Displaced by those three, and it belongs here anyway: forgetting a length
+  -- is a between-takes decision, and it is the way back from having declared
+  -- one.
   7 -> verb ForgetLength Blue
 
-  -- Spread, shift and dense sit together because they are used together: spread
-  -- to make room, shift to decide where in it the bar falls, dense as the way
-  -- back. **Presses rather than knobs**, and for a stated reason: the snapshot
-  -- reports no per-loop spread, so a spread knob would be holding a position
-  -- nothing could correct — the one thing this surface is not allowed to do.
-  8 -> verb (SpreadLoop 2) Violet
-  9 -> verb RotateLoop Violet
-  10 -> verb DenseLoop Violet
-  -- The Atlantis seam: a phrase becomes Tidal material seconds after it is
-  -- played. It earns a place on the surface you have hands on.
-  11 -> verb SaveTake Violet
+  -- **Press is the mode; turn threads the tape.**
+  --
+  -- They belong on one control because they are one idea: a tape is a loop of a
+  -- chosen length that you play onto, and choosing the length is how you start.
+  -- Everywhere else in this app a loop gets its length by being recorded, which
+  -- is exactly what Revox does not do.
+  --
+  -- Turning is refused by the daemon once the loop has anything in it, so this
+  -- cannot resize a take by accident — and the ring still reads the loop's real
+  -- length, which is worth seeing either way.
+  8 -> blank
+        { press = Just RevoxToggle
+        , turn = Just PTape
+        , ring = Value PTape
+        , light = Lit FRevox Violet
+        }
+  9 -> knob PFeedback (Feedback 0.0) Red
+  10 -> knob PTone (Tone toneCeil) Teal
+  11 -> knob PFade (Fade 0.0) Green
 
-  -- Pendulum is gone: it is a mode you set once a session if at all, and the
-  -- pager had to live in the same corner on every page. It keeps its switch on
-  -- the MC6's config bank and its control on this page's own web card.
-  12 -> flagged Reverse FReverse Red
-  13 -> flagged OneShot FOneShot Yellow
-  -- Press toggles level-arm on this loop. **No turn**: the threshold it listens
-  -- against is rig-wide, not this loop's, and a knob here would be eight knobs
-  -- quietly writing one value. It is a once-a-session calibration, so it lives
-  -- on the page beside the residual latency, where settings of that kind go.
-  14 -> flagged LevelArm FLevelArm Green
   15 -> pager
-
   _ -> blank
 
 verb :: Duty -> Tone -> Control
@@ -444,8 +647,9 @@ flagged :: Duty -> Flag -> Tone -> Control
 flagged d f tone = blank { press = Just d, light = Lit f tone }
 
 knob :: Param -> Duty -> Tone -> Control
-knob p home tone =
-  blank { press = Just home, turn = Just p, ring = Value p, light = Steady tone }
+knob p rest tone =
+  blank { press = Just rest, turn = Just p, ring = Value p
+        , light = Steady tone, home = true }
 
 -- | What a press means, if anything.
 pressedAt :: Knob -> Maybe (Tuple Subject Duty)
@@ -475,7 +679,7 @@ fromKnob p v = case p of
   PTape -> Blank (toNumber (round (toNumber (clamp 0 127 v) / 127.0 * tapeTop)))
   PLayers -> Layers (round (toNumber (clamp 0 127 v) / 127.0 * toNumber maxLayers))
   PLevel -> Level (round1 (levelOf (clamp 0 127 v)))
-  PRate -> Rate (round3 (rateOf (detented p v)))
+  PRate -> Rate (rateOf v)
   PPlace -> Place (detented p (clamp 0 127 v))
   PFade -> Fade (toNumber (round (toNumber (clamp 0 127 v) / 127.0 * fadeTop)))
   -- **Full at the top and counting down**, the same way round as the level.
@@ -485,6 +689,16 @@ fromKnob p v = case p of
   -- and whose effect is destruction is one you turn by accident.
   PDecay -> Decay (round1 (decibelsAt decayLaw (clamp 0 127 v)))
   PChance -> Chance (round3 (toNumber (clamp 0 127 v) / 127.0))
+  PFeedback -> Feedback (round1 (feedbackFloor + toNumber (clamp 0 127 v) / 127.0 * negate feedbackFloor))
+  PTone -> Tone (toNumber (round (toneFloor + toNumber (clamp 0 127 v) / 127.0 * (toneCeil - toneFloor))))
+  PBars -> SetBars (stepOf maxBars v)
+  PEvery -> Every (stepOf maxBars v)
+  -- One-based on the wire, because that is how the daemon counts slots back to
+  -- you — and it wraps *there* rather than being clamped here, since how many
+  -- slots there are depends on `PEvery` and this is deliberately a pure
+  -- function of a position.
+  POn -> PlaceAt (stepOf maxBars v)
+  PLaunch -> Launch (fromMaybe (-1) (Array.index launchLadder (bandOf (Array.length launchLadder) v)))
 
 -- | Where a value sits on the ring — the inverse of `fromKnob`, and the reason
 -- | the device never has to remember anything.
@@ -496,11 +710,24 @@ toKnob p st = clamp 0 127 $ case p of
   PTape -> round (st.loopSecs / tapeTop * 127.0)
   PLayers -> round (toNumber st.layers / toNumber maxLayers * 127.0)
   PLevel -> levelRing st.volDb
-  PRate -> rateRing st.speed
+  -- **Composed, because the snapshot keeps the two halves apart.** `speed` is a
+  -- magnitude and the direction is `reverse`, so reading the ring off `speed`
+  -- alone drew a loop running backwards at half speed exactly like one running
+  -- forwards at half speed. It had been doing that for as long as the knob has
+  -- existed, and it was invisible while the knob could only ask for one sign.
+  PRate -> rateRing (if st.reverse then negate st.speed else st.speed)
   PPlace -> st.pan
   PFade -> round (st.fadeMs / fadeTop * 127.0)
   PDecay -> positionAt decayLaw st.decayDb
   PChance -> round (st.chance * 127.0)
+  PFeedback -> round ((st.fbDb - feedbackFloor) / negate feedbackFloor * 127.0)
+  PTone -> round ((st.toneHz - toneFloor) / (toneCeil - toneFloor) * 127.0)
+  -- Zero means nobody has said, and a loop nobody has measured is one bar.
+  PBars -> stepRing maxBars (max 1 st.cycles)
+  PEvery -> stepRing maxBars (max 1 (newestOf _.period st))
+  POn -> stepRing maxBars (max 1 (newestOf _.phase st + 1))
+  -- Not about a loop; `leds` reads it from the rig. See `RingSource`.
+  PLaunch -> 0
 
 -- | Silence at the bottom of the travel and unity at the top, with a **fader
 -- | law** rather than a straight line.
@@ -561,11 +788,38 @@ positionAt law db
       law.knee
         - round (toNumber law.knee * (negate db - law.kneeDb) / (law.floorDb - law.kneeDb))
 
--- | The level fader: the top half spends itself on the first 12 dB, which is
--- | where mixing happens; the bottom half covers the remaining 48 to silence,
--- | which is where fading out happens.
+-- | The level fader, bent **twice** now, and both times by turning it.
+-- |
+-- | It was linear in decibels: half the travel below -30 dB where nothing is
+-- | audible. Andrew: *"it seems to drop VERY quickly as you turn the knob."*
+-- | So it got a knee at half travel and 12 dB above it — and the same report
+-- | came back: *"dropping to very very quiet even just with half a turn."*
+-- |
+-- | Which it was. Twelve down at half travel is a quarter of the amplitude, and
+-- | the knee was in the wrong place besides: putting it at the middle spends
+-- | half the knob on the top 12 dB and half on the remaining 48, so the useful
+-- | mixing range and the fade-to-nothing range got the same room. Mixing needs
+-- | more of the knob than fading does, because fading is a gesture and mixing
+-- | is a decision.
+-- |
+-- | Three quarters of the travel now spend themselves on the first 9 dB, which
+-- | puts **half a turn at -6 dB** — half the amplitude, the number a fader is
+-- | expected to give you there:
+-- |
+-- | ```
+-- |   127  ────────  0 dB      full
+-- |    96  ────────  -3 dB
+-- |    64  ────────  -6 dB     half travel
+-- |    32  ────────  -9 dB     the knee
+-- |    16  ────────  -35 dB
+-- |     0  ────────  silent
+-- | ```
+-- |
+-- | The bottom quarter is steep on purpose: everything below -9 dB is a loop
+-- | going away, and the whole of that is one gesture rather than a set of
+-- | values you pick between.
 levelLaw :: Law
-levelLaw = { knee: 64, kneeDb: 12.0, floorDb: decayFloor }
+levelLaw = { knee: 32, kneeDb: 9.0, floorDb: decayFloor }
 
 -- | **Decay, and the range is the ladder's rather than the daemon's.**
 -- |
@@ -615,19 +869,155 @@ decayFloor = 60.0
 -- | speed is a texture, while four times is already mostly aliasing — so the
 -- | knob spends more of itself below one than above. The daemon refuses
 -- | anything outside 0.125 to 4 either way, so both ends stop where it stops.
+-- | **Stopped at the centre, the sign is the direction, and it steps.**
+-- |
+-- | The knob ran ×0.125 to ×4 with unity in the middle, and `Reverse` was a
+-- | separate cell. Two things were wrong with that. The ring could not show
+-- | which way round a loop was — see `toKnob` — and the surface spent a cell on
+-- | a fact the parameter already carries: the daemon takes ±0.125 to ±4 and
+-- | *the sign is the direction*, which `Data.Looper.Verb.Rate` has said all
+-- | along. Reverse was a second spelling of a number's sign.
+-- |
+-- | So it is bipolar, which is how the Chase Bliss pedals and the Count to 5 do
+-- | it and it reads immediately: centre is stopped, either way out is faster,
+-- | left is backwards.
+-- |
+-- | **And it steps, for the same reason those pedals do.** A continuous speed
+-- | is a continuous *transposition*, so every position between the useful ones
+-- | is a loop out of tune with the rest of the rig — which on a knob you turn
+-- | while playing is not a setting, it is a wrong note you have to hunt back
+-- | out of. `rateLadder` is every ratio between an eighth and four that is a
+-- | product of octaves and fifths, so any position the knob can reach is in
+-- | key with every other one.
+-- |
+-- | Adjacent steps are alternately a fifth and a fourth, which is the same
+-- | statement: a fourth is a fifth inverted, and the whole ladder is
+-- | `2^a · 3^b`. Nothing here is tempered — these are the just ratios, because
+-- | a resampled loop transposes by exactly the ratio you resampled it at and
+-- | there is nothing to temper against.
+-- |
+-- | **The steps are the detent.** Twenty-three of them across 128 units is five
+-- | and a half units each, which is wide enough to find and to sit in, so the
+-- | centre needs no special case: the middle step is stopped and it is as wide
+-- | as any other.
+-- |
+-- | **This asks one thing of the daemon**: `sp0` is refused today, since `Rate`
+-- | is ±0.125 to ±4 with nothing in between. Until it takes zero the middle
+-- | step is a request the engine declines — which the ack path says out loud,
+-- | rather than the knob pretending.
+-- |
+-- | **Held is not stopped.** A loop at speed zero is still playing: it has not
+-- | given up its place in the phase-locked set and it is not muted, where
+-- | `Transport` silences one and keeps its position. The two look alike from
+-- | outside and are not, so `phaseTone` gives held a colour of its own.
+rateLadder :: Array Number
+rateLadder =
+  [ 0.125, 0.167, 0.25, 0.333, 0.5, 0.667, 1.0, 1.5, 2.0, 3.0, 4.0 ]
+
+-- | The ladder both ways round with stopped in the middle: what the knob can
+-- | reach, left to right.
+rateSteps :: Array Number
+rateSteps =
+  map negate (Array.reverse rateLadder) <> [ 0.0 ] <> rateLadder
+
 rateOf :: Int -> Number
-rateOf v
-  | v <= 64 = Number.pow 2.0 (negate 3.0 * toNumber (64 - v) / 64.0)
-  | otherwise = Number.pow 2.0 (2.0 * toNumber (v - 64) / 63.0)
+rateOf v = fromMaybe 0.0 (Array.index rateSteps (rateBand v))
+
+-- | Which step a position falls in. Equal bands, so no step is easier to reach
+-- | than its neighbours — the ladder is already uneven in ratio and making it
+-- | uneven in travel as well would be two kinds of irregular at once.
+rateBand :: Int -> Int
+rateBand v =
+  clamp 0 (Array.length rateSteps - 1)
+    (clamp 0 127 v * Array.length rateSteps / 128)
 
 rateRing :: Number -> Int
-rateRing s
-  | s <= 0.0 = 0
-  | s <= 1.0 = 64 - round (64.0 * negate (log2 s) / 3.0)
-  | otherwise = 64 + round (63.0 * log2 s / 2.0)
+rateRing s = bandCentre (nearestStep s)
+  where
+  bandCentre i =
+    clamp 0 127
+      (round ((toNumber i + 0.5) * 128.0 / toNumber (Array.length rateSteps)))
+  -- The engine is free to be at a speed no step names — another client, or a
+  -- daemon that rounded — so the ring shows the step it is nearest rather than
+  -- refusing to show anything.
+  nearestStep x =
+    Array.foldl
+      (\best i -> if closer i best then i else best)
+      0
+      (Array.range 0 (Array.length rateSteps - 1))
+    where
+    closer i best = gap i < gap best
+    gap i = numAbs (fromMaybe 0.0 (Array.index rateSteps i) - x)
 
-log2 :: Number -> Number
-log2 x = Number.log x / Number.log 2.0
+-- | **The newest layer's is the loop's**, for the two controls that address one
+-- | layer rather than a loop: `sparse` and its friends in the daemon act on the
+-- | last layer laid down, so the ring has to read the same one or the knob would
+-- | show a number nothing it sends could change.
+newestOf :: (LayerShape -> Int) -> LoopState -> Int
+newestOf f st = maybe 0 f (Array.last st.shapes)
+
+-- | How many bars a loop may be, and how sparsely a layer may sound.
+-- |
+-- | **The encoder's limit rather than the engine's**, and the same number the
+-- | daemon uses. Nothing would struggle with 64 of either; a Midifighter
+-- | encoder over 64 steps is two units a step, and this hardware moves an
+-- | encoder when you press it — which is measured, not guessed. Thirty-two
+-- | gives four units a step and is already the tight end. The console can ask
+-- | for more than a knob can reach, as it can with decay.
+maxBars :: Int
+maxBars = 32
+
+-- | Equal bands across the travel, one per step, and the value is one-based.
+stepOf :: Int -> Int -> Int
+stepOf n v = bandOf n v + 1
+
+-- | Which band a position falls in, for any knob with `n` equal steps.
+bandOf :: Int -> Int -> Int
+bandOf n v = clamp 0 (n - 1) (clamp 0 127 v * n / 128)
+
+-- | The middle of the band a one-based step owns — the inverse of `stepOf`, and
+-- | mid-band so a step is somewhere to sit rather than an edge to fall off.
+stepRing :: Int -> Int -> Int
+stepRing n step =
+  clamp 0 127 (round ((toNumber (clamp 1 n step) - 0.5) * 128.0 / toNumber n))
+
+-- | What a launch can wait for, in beats: none, then the useful subdivisions
+-- | and multiples, then the bar.
+-- |
+-- | **The bar sits at the top rather than among the numbers**, and is spelled
+-- | `-1` rather than `4`, because a bar is what the metre says it is — in 3/4
+-- | it is three beats — and a ladder that spelled it four would be right in one
+-- | time signature and quietly wrong in every other.
+launchLadder :: Array Int
+launchLadder = [ 0, 1, 2, 3, 4, 6, 8, 12, 16, 32, -1 ]
+
+launchRing :: Int -> Int
+launchRing q =
+  let i = fromMaybe (Array.length launchLadder - 1) (Array.elemIndex q launchLadder)
+  in stepRing (Array.length launchLadder) (i + 1)
+
+-- | The slowest magnitude the daemon accepts either side of zero, and so the
+-- | bottom rung of the ladder. Anything under it is stopped.
+rateFloor :: Number
+rateFloor = 0.125
+
+-- | What a tape pass may leave of what was under it, and how much top it keeps.
+-- | Both match the sliders these two knobs replace on the Looper page.
+feedbackFloor :: Number
+feedbackFloor = -24.0
+
+toneFloor :: Number
+toneFloor = 1000.0
+
+toneCeil :: Number
+toneCeil = 20000.0
+
+numAbs :: Number -> Number
+numAbs x = if x < 0.0 then negate x else x
+
+-- | A loop that is turning and not advancing.
+held :: LoopState -> Boolean
+held st = numAbs st.speed < rateFloor
 
 round3 :: Number -> Number
 round3 x = toNumber (round (x * 1000.0)) / 1000.0
@@ -667,10 +1057,17 @@ leds rig bank = do
     -- enters the diff; `pagerRing` is written deliberately elsewhere.
     , ring: case c.ring of
         PageRing -> 0
+        RigValue p -> rigKnob p rig
         _ -> maybe 0 (ringOf c) loop
     , ringHeld: c.pager
     -- The colour is the app's to say, and says the page.
-    , hue: if c.pager then hue (pageTone bank) else maybe (dark c) (hueOf c) loop
+    , hue: if c.pager then hue (pageTone bank)
+           else case c.light of
+             -- The two rig-wide flags, answered from the rig. Everything else
+             -- on this surface is about a loop and reads one.
+             Lit FClick t -> if rig.click then hue t else 0
+             Lit FMonitor t -> if rig.monitor then hue t else 0
+             _ -> maybe (dark c) (hueOf c) loop
     }
   where
   dark c = case c.light of
@@ -681,7 +1078,15 @@ ringOf :: Control -> LoopState -> Int
 ringOf c st = case c.ring of
   NoRing -> 0
   PageRing -> 0
+  RigValue _ -> 0
   Value p -> toKnob p st
+
+-- | Where a rig-wide value stands on its knob. The counterpart of `toKnob` for
+-- | the one parameter that is not about a loop.
+rigKnob :: Param -> Rig -> Int
+rigKnob p rig = case p of
+  PLaunch -> launchRing rig.launchQ
+  _ -> 0
 
 -- | Where the encoder stands for a given page, when the *app* is the one moving
 -- | it.
@@ -726,9 +1131,8 @@ pageTone :: Int -> Tone
 pageTone p = case p `mod` pages' of
   0 -> Teal
   1 -> Violet
-  -- Waiting for the trim-and-shift page. Named now so adding it is a change to
-  -- `pages'` and nothing else.
-  _ -> Yellow
+  2 -> Yellow
+  _ -> Blue
 
 -- | How far the encoder turns for one page.
 -- |
@@ -737,9 +1141,10 @@ pageTone p = case p `mod` pages' of
 -- | brushed the knob.
 -- |
 -- | A fixed width rather than the travel divided by the page count, which is
--- | the point: a third page costs another 32 units of travel instead of making
--- | all three bands narrower. Three pages use 96 of 127 and there is room for a
--- | fourth.
+-- | the point: a page costs another 32 units of travel instead of making every
+-- | band narrower. Four pages start at 0, 32, 64 and 96, so the travel is now
+-- | spent exactly — a fifth would have to make the gesture smaller, which is
+-- | the trade this constant exists to refuse.
 pageStep :: Int
 pageStep = 32
 
@@ -752,11 +1157,15 @@ pageStep = 32
 pageFor :: Int -> Int
 pageFor v = clamp 0 (pages' - 1) (v / pageStep)
 
--- | How many pages the looper surface uses. Two today; the trim-and-shift page
--- | that `DESIGN-TWISTER` wants next simply raises this, and every pager on
--- | every page rescales itself.
+-- | How many pages the looper surface uses.
+-- |
+-- | Four, which is also as many as the pager's travel holds at `pageStep` — so
+-- | the surface is now full rather than reserving room. A fifth would be an
+-- | argument about the band width, not about the device: since the app owns
+-- | paging outright (`Data.Twister.deviceBank`) the four *blocks* stopped being
+-- | the constraint.
 pages' :: Int
-pages' = 2
+pages' = 4
 
 hueOf :: Control -> LoopState -> Int
 hueOf c st = case c.light of
@@ -779,7 +1188,12 @@ phaseTone st = case phaseOf st of
   Overdubbing -> Just Orange
   Multiplying -> Just Yellow
   Armed -> Just Violet
-  Playing -> Just (if st.muted then Blue else Green)
+  -- Three renderings of one phase, because `Playing` says only that the loop is
+  -- turning — muted, skipping and now *held* are all orthogonal to it. Held is
+  -- a loop at speed zero: still in the phase-locked set, still not muted, and
+  -- simply not advancing. It looks like stopped from outside and is not, which
+  -- is the whole reason it has a colour of its own.
+  Playing -> Just (if st.muted then Blue else if held st then Teal else Green)
   -- Empty and idle are not the same thing to a player: one has material in it
   -- and is stopped, the other has nothing. The slot colour says so and this
   -- should too.
@@ -793,6 +1207,11 @@ flagOn f st = case f of
   FLevelArm -> st.levelArm
   FGrid -> st.quant
   FRevox -> st.revox
+  -- Not about a loop; `leds` answers these from the rig. A loop cannot know
+  -- whether the click is on, and pretending it can would put the answer in the
+  -- one place that is guaranteed to be wrong.
+  FClick -> false
+  FMonitor -> false
 
 subjectIndex :: Rig -> Subject -> Int
 subjectIndex rig = case _ of
@@ -832,13 +1251,23 @@ pages :: Array Page
 pages =
   [ { bank: 0
     , name: "Loops"
-    , note: "The eight loops, then eight verbs for whichever is in hand. Every press is at press-down: nothing here waits out a window, because nothing here needs a gesture."
+    , note: "The eight loops, then the write head for whichever is in hand. Every press is at press-down: nothing here waits out a window, because nothing here needs a gesture."
     , cells: cellsOf 0
     }
   , { bank: 1
-    , name: "This loop"
-    , note: "Five knobs and eleven presses, all about the focused loop. The rings are the engine's own values, so whoever moved one — a footswitch, the console, another client — the knob agrees within a frame."
+    , name: "The set"
+    , note: "The same eight knobs, the same eight loops — turn to place one in the field, press to stop or start it. The transpose of Shape: one parameter across every loop, where that page is every parameter of one."
     , cells: cellsOf 1
+    }
+  , { bank: 2
+    , name: "Shape"
+    , note: "The loop in hand, while you play it. Everything here is continuous or instantly reversible; anything you would rather decide between takes is on Set up."
+    , cells: cellsOf 2
+    }
+  , { bank: 3
+    , name: "Set up"
+    , note: "The loop in hand, before and between takes — the modes, the join, and the tape. What a loop will do, decided when you are not mid-phrase."
+    , cells: cellsOf 3
     }
   ]
 
@@ -856,37 +1285,47 @@ cellAt bank index =
     , shows: Just "where it stands IS the page; the colour says so too"
     , tone: toneOf c.light
     }
-  else case c.press, c.turn of
-    -- A loop: the one control that is a place and a value at once.
-    Just (SelectLoop i), _ ->
+  -- **A loop is described by whose it is, not by what is on it.** This matched
+  -- on `SelectLoop` and hard-coded "its level", which was true of the one page
+  -- that had loop encoders. The set page has eight more with a different verb
+  -- and a different knob, and the old shape would have printed them as
+  -- parameters with a way home.
+  else case c.subject of
+    OnLoop i ->
       { index
       , name: "Loop " <> show (i + 1)
-      , press: Just "take it in hand"
-      , turn: Just ("its level — " <> paramRange PLevel)
-      , shows: Just "colour is what it is doing; the ring is how loud it is"
+      , press: case c.press of
+          Just (SelectLoop _) -> Just "take it in hand"
+          mp -> map dutyName mp
+      , turn: map (\p -> paramLabel p <> " — " <> paramRange p) c.turn
+      , shows: Just "colour is what it is doing; the ring is the value under your hand"
       , tone: Nothing
       }
-    -- A knob: the parameter names the control, and the press is its way home.
-    mp, Just p ->
-      { index
-      , name: paramLabel p
-      , press: map (\d -> "back to " <> dutyName d) mp
-      , turn: Just (paramRange p)
-      , shows: Just "the engine's own value"
-      , tone: toneOf c.light
-      }
-    Just d, Nothing ->
-      { index
-      , name: dutyLabel d
-      , press: Just (dutyName d)
-      , turn: Nothing
-      , shows: case c.light of
-          Lit f _ -> Just ("lit when " <> flagName f)
-          _ -> Nothing
-      , tone: toneOf c.light
-      }
-    Nothing, Nothing ->
-      { index, name: "", press: Nothing, turn: Nothing, shows: Nothing, tone: Nothing }
+    Focused -> case c.press, c.turn of
+      -- A knob: the parameter names the control. Whether the press is its way
+      -- home or an act of its own is `c.home`, because on this surface it is
+      -- now both — speed's press is unity, and speed's press could as easily
+      -- have been a direction flip.
+      mp, Just p ->
+        { index
+        , name: paramLabel p
+        , press: map (\d -> (if c.home then "back to " else "") <> dutyName d) mp
+        , turn: Just (paramRange p)
+        , shows: Just "the engine's own value"
+        , tone: toneOf c.light
+        }
+      Just d, Nothing ->
+        { index
+        , name: dutyLabel d
+        , press: Just (dutyName d)
+        , turn: Nothing
+        , shows: case c.light of
+            Lit f _ -> Just ("lit when " <> flagName f)
+            _ -> Nothing
+        , tone: toneOf c.light
+        }
+      Nothing, Nothing ->
+        { index, name: "", press: Nothing, turn: Nothing, shows: Nothing, tone: Nothing }
 
 toneOf :: Light -> Maybe String
 toneOf = case _ of
@@ -919,6 +1358,6 @@ stub =
   , muted: false, reverse: false, pan: 64, speed: 1.0, pendulum: false
   , oneShot: false, levelArm: false, firing: false
   , chance: 1.0, skipping: false, fadeMs: 0.0, decayDb: 0.0, volDb: 0.0
-  , revox: false, fbDb: -3.0, toneHz: 6500.0, recEnv: []
+  , cycles: 0, revox: false, fbDb: -3.0, toneHz: 6500.0, recEnv: []
   , pendingAt: -1, shapes: []
   }

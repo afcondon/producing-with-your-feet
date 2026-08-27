@@ -3230,15 +3230,21 @@ handleTwisterMsg = case _ of
         H.liftAff (delay (Milliseconds turnHoldMs))
         handleAction (FlushTwisterTurn knob)
 
+  -- **No timer here, and that was the bug.** The press armed the guard and
+  -- started a 300 ms clock to disarm it — so holding an encoder down for longer
+  -- than that unguarded it *while the finger was still on it*, and the nudge
+  -- that comes with letting go landed as a real turn. On the pager that meant
+  -- pressing to go home and being paged somewhere else on the way up, which is
+  -- exactly as often as you hold the press a beat, which is always.
+  --
+  -- The guard now lasts as long as the finger does: armed here, disarmed only
+  -- by the release below, plus its window.
   EncoderPress knob -> do
     H.modify_ \s -> s
       { twisterPending = Map.delete (knobCC knob) s.twisterPending
       , twisterGuard = Set.insert (knobCC knob) s.twisterGuard
       }
     handleEncoderPress knob
-    void $ H.fork do
-      H.liftAff (delay (Milliseconds pressGuardMs))
-      handleAction (ClearTwisterGuard knob)
 
   -- The release carries the same nudge risk as the press and no meaning of its
   -- own, so it re-arms the guard rather than being ignored: letting go of an
@@ -3271,7 +3277,10 @@ handleTwisterMsg = case _ of
 turnHoldMs :: Number
 turnHoldMs = 60.0
 
--- | How long an encoder stays deaf after a press or a release.
+-- | How long an encoder stays deaf **after the finger comes off**.
+-- |
+-- | It used to be counted from the press as well, which meant a press held for
+-- | longer than this went unguarded before it was over. See `EncoderPress`.
 pressGuardMs :: Number
 pressGuardMs = 300.0
 

@@ -50,11 +50,12 @@ import Prelude
 import Component.Looper.Board (render) as BoardSim
 import Component.Looper.Slots as Slots
 import Component.Looper.TwisterMap as TwisterMap
+import Data.Looper.Recipes as Recipes
 import Data.Array as Array
 import Data.Int as Int
 import Data.Looper as Looper
 import Data.Looper.Banks as LoopBanks
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), maybe)
 import Engine (LogLine, LooperPanel(..))
 import Foreign.LooperSocket (LooperState, SocketStatus)
 import Foreign.LooperSocket as LooperSocket
@@ -122,15 +123,12 @@ render
   -> HH.HTML w i
 render h ports state =
   HH.div [ HP.class_ (HH.ClassName "looper-view") ]
-    [ HH.div [ HP.class_ (HH.ClassName "looper-head") ]
-        [ HH.h2_ [ HH.text "Looper" ]
-        -- Two things you look up. The board used to be a third and is now a
-        -- fixture in the right column — see `boardCard`.
-        , HH.div [ HP.class_ (HH.ClassName "looper-help-row") ]
-            [ panelBtn PanelTwister "Twister"
-            , panelBtn PanelBanks "MC6 banks"
-            ]
-        ]
+    -- **No heading, and no "connected" line in the ordinary case.** The nav
+    -- above already says LOOPER, and a band across the page saying the socket
+    -- is open is a band that is right all day and tells you nothing on the one
+    -- day it matters. Both are gone; what stands there instead is the rig's
+    -- state, which is the thing you look up.
+    [ statusStrip
     , connectionLine
     , audioLine
     , HH.div [ HP.class_ (HH.ClassName "looper-body") ]
@@ -173,6 +171,45 @@ render h ports state =
         [ TwisterMap.render ports.twister state.twisterPage state.twisterHeardBank h.showTwisterPage ]
     Just PanelBanks ->
       modal "" "MC6 banks" [ footswitchCard, loopFamilyCard ]
+    -- **In the app rather than on paper, and that is the whole reason it
+    -- exists.** Following a written sequence means looking away from the
+    -- browser, and Chrome throttles a background tab — the looper stops
+    -- handling Twister messages and every control reads as broken. A recipe you
+    -- can follow without leaving the page is not a convenience.
+    Just PanelRecipes ->
+      modal "" "Recipes — what to press, and what should happen"
+        [ HH.div [ HP.class_ (HH.ClassName "recipes") ]
+            ( [ HH.p [ HP.class_ (HH.ClassName "recipes-preamble") ]
+                  [ HH.text Recipes.preamble ] ]
+                <> map recipeCard Recipes.recipes
+            )
+        ]
+
+  -- | One recipe: why you would want it, the moves in order, and what each
+  -- | move should say back.
+  recipeCard r =
+    HH.div [ HP.class_ (HH.ClassName "recipe") ]
+      ( [ HH.h4_ [ HH.text r.name ]
+        , HH.p [ HP.class_ (HH.ClassName "recipe-why") ] [ HH.text r.why ]
+        , HH.ol [ HP.class_ (HH.ClassName "recipe-steps") ] (map recipeStep r.steps)
+        ]
+          <> case r.note of
+               Nothing -> []
+               Just n -> [ HH.p [ HP.class_ (HH.ClassName "recipe-note") ] [ HH.text n ] ]
+      )
+
+  recipeStep s =
+    HH.li_
+      ( [ if s.at == "" then HH.text ""
+          else HH.span [ HP.class_ (HH.ClassName "recipe-at") ] [ HH.text s.at ]
+        , HH.span [ HP.class_ (HH.ClassName "recipe-act") ] [ HH.text s.act ]
+        ]
+          <> case s.expect of
+               Nothing -> []
+               -- Quoted from an ack the daemon really sends, which is what makes
+               -- this a test script as well as a manual.
+               Just e -> [ HH.span [ HP.class_ (HH.ClassName "recipe-expect") ] [ HH.text e ] ]
+      )
 
   -- | The board, permanently.
   -- |
@@ -300,11 +337,78 @@ render h ports state =
   -- pushes thirty times a second, so anything approaching a second is already
   -- wrong and the player deserves to be told rather than to work it out from a
   -- playhead that has stopped moving.
+  -- | **The one place to look.** Bold, and at the top, because the question it
+  -- | answers is not "what is this loop doing" — the slots answer that — but
+  -- | "what is the rig set to", which was previously only answerable by opening
+  -- | two panels and reading three encoders.
+  -- |
+  -- | Some of it repeats what a slot says. That is the point: a value you have
+  -- | to go and find is a value you check once and then assume, and every one
+  -- | of these is a thing that being wrong about costs a take.
+  statusStrip =
+    HH.div [ HP.class_ (HH.ClassName "looper-status") ]
+      [ HH.div [ HP.class_ (HH.ClassName "looper-status-row") ] readings
+      , HH.div [ HP.class_ (HH.ClassName "looper-help-row") ]
+          [ panelBtn PanelRecipes "Recipes"
+          , panelBtn PanelTwister "Twister"
+          , panelBtn PanelBanks "MC6 banks"
+          ]
+      ]
+
+  readings = case state.looper of
+    Nothing -> [ reading "rig" "no daemon" true ]
+    Just lp ->
+      let focused = Array.index lp.loops state.looperFocus
+          bars = maybe 0 _.cycles focused
+      in
+        -- Tempo and metre first, because everything else is counted in them —
+        -- and marked as an alarm when absent, since "no clock" is the one
+        -- reading here that changes what every other one means.
+        [ reading "tempo"
+            (if lp.linkAnchors == 0 then "no clock"
+             else show (Int.round lp.linkTempo) <> " bpm")
+            (lp.linkAnchors == 0)
+        , reading "metre"
+            (if lp.linkAnchors == 0 then "—" else show (Int.round lp.linkQuantum) <> "/4")
+            false
+        , reading "bar"
+            (if lp.barFrames == 0 then "none yet"
+             else secs (Int.toNumber lp.barFrames / Int.toNumber lp.sampleRate)
+                    <> (if lp.linkAnchors == 0 then " · from loop 1" else ""))
+            (lp.barFrames == 0)
+        -- **One-based, like every other surface.** The wire counts loops from
+        -- zero and this does not; the two met in the log once and cost an hour.
+        , reading "selected" ("loop " <> show (state.looperFocus + 1)) false
+        , reading "length" (if bars == 0 then "not set"
+                            else show bars <> (if bars == 1 then " bar" else " bars")) false
+        , reading "launch" (launchWords lp.launchQ) false
+        , reading "grid" (if maybe false _.quant focused then "on" else "off") false
+        ]
+
+  reading label value alarm =
+    HH.div [ HP.class_ (HH.ClassName ("looper-reading" <> if alarm then " is-alarm" else "")) ]
+      [ HH.span [ HP.class_ (HH.ClassName "looper-reading-label") ] [ HH.text label ]
+      , HH.span [ HP.class_ (HH.ClassName "looper-reading-value") ] [ HH.text value ]
+      ]
+
+  -- In beats, because that is what the setting is; a bar is spelled as a bar
+  -- rather than as four, since in 3/4 it is three.
+  launchWords q = case q of
+    -1 -> "the bar"
+    0 -> "free"
+    1 -> "1 beat"
+    n -> show n <> " beats"
+
+  secs n = show (Int.toNumber (Int.round (n * 100.0)) / 100.0) <> " s"
+
+  -- **Silent when it is right**, which is the same rule the Twister card's
+  -- status line follows. A green band saying the socket is open is correct all
+  -- day and worth nothing; the strip above carries a `no daemon` reading for
+  -- the case that matters, and this speaks only to say what to do about it.
   connectionLine =
     let stale = state.looperSnapshotAge > 1000.0
-    in HH.p
-      [ HP.class_ (HH.ClassName ("looper-conn" <>
-          if st.connected && not stale then " ok" else " down")) ]
+    in if st.connected && not stale then HH.text "" else HH.p
+      [ HP.class_ (HH.ClassName "looper-conn down") ]
       [ HH.text $
           if st.connected && stale then
             "Connected, but the picture is "
