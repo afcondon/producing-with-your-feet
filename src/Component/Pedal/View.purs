@@ -116,7 +116,14 @@ render state =
                 HH.div [ HP.class_ (H.ClassName "pedal-view") ]
                   [ renderHeader def.meta.name def.meta.brand ps
                   , HH.div [ HP.class_ (H.ClassName "pedal-view-fallback") ]
-                      [ HH.text "Donut view not yet available for this pedal." ]
+                      -- Dispatch by id, as Hedra already does. Itajara's face was
+                      -- removed rather than never written, and "not yet
+                      -- available" would read as a promise instead of a
+                      -- decision — see `Pedals.Itajara.layout`.
+                      [ HH.text (if def.meta.id == PedalId "itajara"
+                                   then "Itajara has no donut. Its surface is the Looper page, \
+                                        \drawn from the daemon rather than from what the app sent."
+                                   else "Donut view not yet available for this pedal.") ]
                   , renderBackButton
                   ]
           _, _ ->

@@ -64,7 +64,7 @@ import Effect.Exception as Exception
 import Config.Decode as Decode
 import Data.Either (Either(..))
 import Data.String.CodeUnits as SCU
-import Engine (AppState, EngineState, MC6Assignment, PedalState, View(..), getValue, initAppState, initEngineFromPedals, pedalsOnChannel)
+import Engine (AppState, EngineState, LooperPanel, MC6Assignment, PedalState, View(..), getValue, initAppState, initEngineFromPedals, pedalsOnChannel)
 import Config.Preset as CPreset
 import Engine.Storage as Storage
 import Engine.Twister as Twister
@@ -116,6 +116,7 @@ data Action
   | FlushTwisterTurn Knob
   | ClearTwisterGuard Knob
   | ShowTwisterPage Int
+  | ShowLooperPanel (Maybe LooperPanel)
   | SetArmThreshold String
   | SetFeedback String
   | SetTone String
@@ -447,12 +448,13 @@ renderFolderBackup state =
 -- | which is the same rule the Twister and the MC6 relay follow and the reason
 -- | `Machine.perform` can stay the only place a command is decided.
 renderLooperView :: forall m. MonadAff m => AppState -> H.ComponentHTML Action Slots m
-renderLooperView state = LooperPage.render handlers ports pedalFace state
+renderLooperView state = LooperPage.render handlers ports state
   where
   handlers =
     { setFace: SetLooperFace
     , simulate: SimulateSwitch
     , showTwisterPage: ShowTwisterPage
+    , openPanel: ShowLooperPanel
     -- A CC, not a command. The page names the control it pressed and this turns
     -- it into the message the MC6 would have sent, so a screen button and a
     -- footswitch are indistinguishable by the time anything acts on them.
@@ -473,16 +475,6 @@ renderLooperView state = LooperPage.render handlers ports pedalFace state
     { mc6: isJust state.connections.mc6Output
     , twister: isJust state.connections.twisterOutput
     }
-
-  pedalFace =
-    HH.slot (Proxy :: _ "pedal") unit PedalView.component
-      { engine: state.engine
-      , pedalId: Looper.itajaraId
-      , registry: state.registry
-      }
-      HandlePedal
-
-
 renderConnectView :: forall m. MonadAff m => AppState -> H.ComponentHTML Action Slots m
 renderConnectView state =
   HH.div [ HP.class_ (H.ClassName "connect-view") ]
@@ -1507,6 +1499,8 @@ handleAction = case _ of
     for_ (parseTwisterMsg bytes) handleTwisterMsg
 
   ShowTwisterPage bank -> showTwisterPage bank
+
+  ShowLooperPanel which -> H.modify_ _ { looperPanel = which }
 
   -- Through the machine like everything else, even though it is a slider on a
   -- page rather than a press: `perform` is the only route to the socket, and a

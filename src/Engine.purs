@@ -3,6 +3,7 @@ module Engine
   , EngineState
   , MidiConnections
   , View(..)
+  , LooperPanel(..)
   , AppState
   , MC6Assignment
   , initEngineFromPedals
@@ -52,6 +53,20 @@ type EngineState = Map PedalId PedalState
 data View = GridView | DetailView PedalId | PedalView PedalId | OverviewView | BoardsView | ControlsView | LooperView | FilesView | ConnectView
 
 derive instance Eq View
+
+-- | Which of the Looper page's reference panels is open, if any.
+-- |
+-- | **They are panels rather than page furniture because they are read, not
+-- | used.** The bindings card, the MC6 bank tables and the board simulator are
+-- | each consulted once and then in the way — and the page they were crowding
+-- | is the one surface that has to be legible while both hands are busy.
+-- |
+-- | `Board` is deliberately not modal (see `Component.Looper.Page`): learning
+-- | the machine by clicking it is worth nothing if the loops are behind a
+-- | backdrop while you do it.
+data LooperPanel = PanelBoard | PanelTwister | PanelBanks
+
+derive instance Eq LooperPanel
 
 type MidiConnections =
   { access :: Maybe MIDIAccess
@@ -249,6 +264,10 @@ type AppState =
   -- | board drives; the old transport is kept because it can drive the engine
   -- | by hand, which is how the six-slot display gets something to show.
   , looperShowsSlots :: Boolean
+  -- | The open reference panel, or nothing. One at a time on purpose: they are
+  -- | things you look up, and two of them open at once is the clutter they were
+  -- | moved off the page to end.
+  , looperPanel :: Maybe LooperPanel
   -- | Which of the six looper banks the MC6 is *showing*.
   -- |
   -- | Not asked for and not remembered from a bank change we commanded: taken
@@ -410,6 +429,7 @@ initAppState =
   , looperAckSeq: 0
   , mc6ProbeBankNum: 10
   , looperShowsSlots: true
+  , looperPanel: Nothing
   , looperBankShown: Just LooperBanks.LoopBank
   , looperProgramStatus: Nothing
   , midiTest: Nothing

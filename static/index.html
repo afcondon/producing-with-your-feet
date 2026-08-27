@@ -1839,35 +1839,90 @@ body {
   margin-left: auto;
 }
 
-/* Transport and readout on the left, the pedal face on the right — the looper
-   is a live surface, so the two things you look at while playing sit side by
-   side rather than one scrolled off the bottom. */
-/* Readouts left, pedal right. The left column is capped — the state table and
-   the bank listing are narrow by nature — so the surplus goes to the face,
-   which is the thing you actually operate. */
-.looper-columns {
-  display: grid;
-  grid-template-columns: minmax(300px, 380px) minmax(360px, 1fr);
-  gap: 40px;
-  align-items: start;
-}
+/* ── The page head, and the three things you look up ───────────────────────
+   The Itajara donut used to sit in a right-hand column here — the Hylograph
+   pedal face, handsome and describing a machine this page had outgrown: it
+   drew twelve CC knobs while the surface underneath had become eight loops,
+   a tape mode and a Twister. It was removed 2026-08-27 rather than updated,
+   because the loops ARE the display; a second picture of the same engine can
+   only be a slower one that sometimes disagrees.
 
-@media (max-width: 900px) {
-  .looper-columns { grid-template-columns: 1fr; }
-  .looper-right { position: static; }
+   What is left is one column, and three buttons that open what used to crowd
+   it. */
+.looper-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap; margin: 0 0 20px;
 }
-
-.looper-right {
-  position: sticky;
-  top: 16px;
+/* The h2 keeps its type but gives up its bottom margin to the row, or the
+   buttons sit on a baseline twenty pixels above where the title ends. */
+.looper-head h2 { margin: 0; }
+.looper-help-row { display: flex; gap: 6px; }
+.looper-help-btn {
+  font: inherit; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 4px 10px; cursor: pointer;
+  border: 1px solid #ccc5ba; background: #fff; color: #6d675f;
 }
+.looper-help-btn:hover { border-color: #3a7d6c; color: #2e2b27; }
+.looper-help-btn.on { background: #2e2b27; border-color: #2e2b27; color: #fff; }
 
-/* The pedal view brings its own centring and its own escape hatch. Here the
-   page is the destination, so the container should not add another inset and
-   "Back to Grid" has nothing to go back from. `display: none` rather than
-   `visibility` so it leaves the tab order too. */
-.looper-right .pedal-view-container { padding: 0; }
-.looper-right .pedal-view-back { display: none; }
+/* ── Panels ────────────────────────────────────────────────────────────────
+   Two kinds, and the difference is load-bearing. The Twister card and the MC6
+   bank tables are READ: modal is right, because nothing is happening behind
+   them worth watching. The board simulator is DRIVEN — the way to learn what a
+   switch does is to press it and watch a loop go red — so it docks in a corner
+   with no backdrop and the page under it stays live and legible. */
+.looper-panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 8px 12px; border-bottom: 1px solid #ded9d1;
+}
+.looper-panel-title {
+  font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase;
+  color: #3a3733; font-weight: 600;
+}
+.looper-panel-close {
+  font: inherit; font-size: 20px; line-height: 1; padding: 0 4px;
+  background: none; border: none; color: #9a948b; cursor: pointer;
+}
+.looper-panel-close:hover { color: #2e2b27; }
+
+.looper-modal-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+}
+.looper-modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.35); }
+.looper-modal {
+  position: relative; background: #fff; border: 1px solid #ded9d1;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+  max-width: 860px; width: 92%; max-height: 84vh;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.looper-modal-body { padding: 12px 16px; overflow-y: auto; }
+/* Inside the panel the cards are the content, not sections of a page. */
+.looper-modal-body .looper-footswitch { border: 0; padding: 0; margin: 0 0 18px; }
+.looper-modal-body .looper-footswitch:last-child { margin-bottom: 0; }
+
+/* The dock. Narrow on purpose: at page width the twelve switches were three
+   columns of near-empty box with a word in the corner, which is the white
+   space that made this worth moving. At 300px the same grid is dense. */
+.looper-dock {
+  position: fixed; right: 18px; bottom: 18px; z-index: 900; width: 300px;
+  background: #fbfaf8; border: 1px solid #ccc5ba;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.18);
+}
+.looper-dock .board-sim { border: 0; margin: 0; padding: 10px; background: transparent; }
+.looper-dock .board-sim-head { margin-bottom: 6px; }
+.looper-dock .board-sim-rows { gap: 4px; }
+.looper-dock .board-sim-row { gap: 4px; }
+.looper-dock .board-sim-rows > .board-sim-row:nth-child(3) { margin-top: 6px; }
+.looper-dock .board-sim-tap { min-height: 0; padding: 3px 5px; gap: 0; }
+.looper-dock .board-sim-key.is-blank { min-height: 0; padding: 6px 0; }
+.looper-dock .board-sim-label { font-size: 11px; line-height: 1.1; }
+.looper-dock .board-sim-letter { font-size: 9px; }
+.looper-dock .board-sim-extra { font-size: 9px; padding: 0 4px; }
+
+@media (max-width: 700px) {
+  .looper-dock { right: 8px; left: 8px; bottom: 8px; width: auto; }
+}
 
 /* The MC6 starter bank, and the button that writes it. Sits below the
    transport because you program it once and then rarely look again. */
@@ -1901,21 +1956,13 @@ body {
    Folded shut by default, and laid out four-by-four because that is how the
    device is laid out — any other arrangement would be a second mapping to hold
    in your head while using the first. */
-.twister-map {
-  margin: 28px 0 8px; border-top: 1px solid #ded9d1; padding-top: 14px;
-}
-.twister-map > summary {
-  cursor: pointer; font-size: 13px; letter-spacing: 0.06em;
-  text-transform: uppercase; color: #6b6459; list-style: none;
-  display: flex; align-items: baseline; gap: 12px;
-}
-.twister-map > summary::-webkit-details-marker { display: none; }
-.twister-map > summary::before { content: "▸ "; color: #a39a8c; }
-.twister-map[open] > summary::before { content: "▾ "; }
+/* No longer its own disclosure — the panel that holds it is the disclosure,
+   and a card you have to open twice is a card you do not open. */
+.twister-map { margin: 0; }
 .twister-map-status {
-  font-size: 11px; letter-spacing: 0.04em; text-transform: none; color: #a39a8c;
+  font-size: 11px; letter-spacing: 0.04em; color: #a39a8c; margin: 0 0 14px;
 }
-.twister-map-body { padding-top: 16px; }
+.twister-map-body { padding-top: 0; }
 .twister-map-intro, .twister-map-caveat {
   max-width: 62ch; font-size: 13px; line-height: 1.55; color: #6b6459;
   margin: 0 0 18px;
@@ -4059,6 +4106,6 @@ body {
   <!-- Stamped by tools/bundle.sh with the bundle's own mtime. Without it a
        reload can serve yesterday's app and say nothing, which has cost this
        project whole afternoons more than once. -->
-  <script src="./index.js?v=1787814005"></script>
+  <script src="./index.js?v=1787815554"></script>
 </body>
 </html>

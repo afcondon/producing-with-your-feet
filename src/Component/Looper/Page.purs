@@ -55,6 +55,7 @@ import Data.Int as Int
 import Data.Looper as Looper
 import Data.Looper.Banks as LoopBanks
 import Data.Maybe (Maybe(..))
+import Engine (LooperPanel(..))
 import Foreign.LooperSocket (LooperState, SocketStatus)
 import Foreign.LooperSocket as LooperSocket
 import Halogen.HTML as HH
@@ -72,6 +73,7 @@ type State r =
   , looperSnapshotAge :: Number
   , looperFocus :: Int
   , looperShowsSlots :: Boolean
+  , looperPanel :: Maybe LooperPanel
   , looperBankShown :: Maybe LoopBanks.BankSlot
   , looperLastAction :: Maybe String
   , looperProgramStatus :: Maybe String
@@ -102,6 +104,7 @@ type Handlers i =
   { setFace :: Boolean -> i
   , simulate :: LoopBanks.BankSlot -> Int -> LoopBanks.Gesture -> i
   , showTwisterPage :: Int -> i
+  , openPanel :: Maybe LooperPanel -> i
   , gesture :: Int -> i
   , setClick :: Boolean -> i
   , setArm :: String -> i
@@ -115,23 +118,26 @@ render
   :: forall w i r
    . Handlers i
   -> Ports
-  -> HH.HTML w i
   -> Record (State r)
   -> HH.HTML w i
-render h ports pedalFace state =
+render h ports state =
   HH.div [ HP.class_ (HH.ClassName "looper-view") ]
-    [ HH.h2_ [ HH.text "Looper" ]
+    [ HH.div [ HP.class_ (HH.ClassName "looper-head") ]
+        [ HH.h2_ [ HH.text "Looper" ]
+        -- Three things you look up, and none of them things you do. They were
+        -- all on the page until 2026-08-27, between you and the loops.
+        , HH.div [ HP.class_ (HH.ClassName "looper-help-row") ]
+            [ panelBtn PanelBoard "Board"
+            , panelBtn PanelTwister "Twister"
+            , panelBtn PanelBanks "MC6 banks"
+            ]
+        ]
     , connectionLine
     , audioLine
     , faceToggle
     , case state.looper of
         Just lp | state.looperShowsSlots -> Slots.render lp state.looperFocus (LoopBanks.face state.looperBankShown)
         _ -> HH.text ""
-    -- The board, on screen, with every switch live. Present always rather than
-    -- behind a debug flag: knowing what the pedal is showing is useful when
-    -- nothing is broken, and a panel you have to turn on is a panel that is off
-    -- when you need it.
-    , BoardSim.render h.simulate (LoopBanks.face state.looperBankShown)
     -- What the last press did, in words. Present for refusals as much as for
     -- commands: the machine names every gap it meets rather than swallowing
     -- the press, and a footswitch that silently does nothing is the failure
@@ -139,25 +145,67 @@ render h ports pedalFace state =
     , case state.looperLastAction of
         Nothing -> HH.text ""
         Just msg -> HH.p [ HP.class_ (HH.ClassName "looper-lastaction") ] [ HH.text msg ]
-    , HH.div [ HP.class_ (HH.ClassName "looper-columns") ]
-        [ HH.div [ HP.class_ (HH.ClassName "looper-left") ]
-            [ case state.looper of
-                Just lp | not state.looperShowsSlots -> HH.div_ [ transport lp, readout lp ]
-                _ -> HH.text ""
-            , footswitchCard
-            ]
-        -- The pedal face, on the page it belongs to rather than in the board
-        -- grid. Same component the board uses, so the knobs, the drag handling
-        -- and the value routing are the ones already in service elsewhere.
-        , HH.div [ HP.class_ (HH.ClassName "looper-right") ] [ pedalFace ]
-        ]
-    -- The Twister's layout, at the bottom because it is a reference rather than
-    -- a control: you read it once, learn the page, and stop looking. Folded
-    -- shut by default for the same reason.
-    , TwisterMap.render ports.twister state.twisterPage state.twisterHeardBank h.showTwisterPage
+    , case state.looper of
+        Just lp | not state.looperShowsSlots -> HH.div_ [ transport lp, readout lp ]
+        _ -> HH.text ""
+    , panel
     ]
   where
   st = state.looperStatus
+
+  panelBtn which label =
+    HH.button
+      [ HP.class_ (HH.ClassName
+          ("looper-help-btn" <> if state.looperPanel == Just which then " on" else ""))
+      , HE.onClick \_ -> h.openPanel (if state.looperPanel == Just which then Nothing else Just which)
+      ]
+      [ HH.text label ]
+
+  panel = case state.looperPanel of
+    Nothing -> HH.text ""
+    -- **Docked, not modal, and that is the whole point of it.** The way to
+    -- learn what a switch does is to press it and watch a loop go red; behind a
+    -- backdrop there is nothing to watch. So this floats in a corner, the page
+    -- underneath stays live, and it is small enough that the twelve switches
+    -- stop being three page-widths of white space with a word in the corner.
+    Just PanelBoard ->
+      HH.div [ HP.class_ (HH.ClassName "looper-dock") ]
+        [ dockHead "The board, live"
+        , BoardSim.render h.simulate (LoopBanks.face state.looperBankShown)
+        ]
+    Just PanelTwister ->
+      modal "Midifighter Twister — what each encoder does"
+        [ TwisterMap.render ports.twister state.twisterPage state.twisterHeardBank h.showTwisterPage ]
+    Just PanelBanks ->
+      modal "MC6 banks" [ footswitchCard, loopFamilyCard ]
+
+  dockHead title =
+    HH.div [ HP.class_ (HH.ClassName "looper-panel-head") ]
+      [ HH.span [ HP.class_ (HH.ClassName "looper-panel-title") ] [ HH.text title ]
+      , closeBtn
+      ]
+
+  closeBtn =
+    HH.button
+      [ HP.class_ (HH.ClassName "looper-panel-close")
+      , HE.onClick \_ -> h.openPanel Nothing
+      ]
+      [ HH.text "\x00D7" ]
+
+  -- Backdrop closes it, because a reference you cannot dismiss with the hand
+  -- that opened it is a reference you stop opening.
+  modal title body =
+    HH.div [ HP.class_ (HH.ClassName "looper-modal-overlay") ]
+      [ HH.div
+          [ HP.class_ (HH.ClassName "looper-modal-backdrop")
+          , HE.onClick \_ -> h.openPanel Nothing
+          ]
+          []
+      , HH.div [ HP.class_ (HH.ClassName "looper-modal") ]
+          [ dockHead title
+          , HH.div [ HP.class_ (HH.ClassName "looper-modal-body") ] body
+          ]
+      ]
 
   -- Two faces, not two pages. The old transport is the only thing that can
   -- drive the engine by hand, which is exactly what the six-slot display needs

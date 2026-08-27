@@ -1,4 +1,4 @@
--- | The Twister's layout, printed at the bottom of the Looper page.
+-- | The Twister's layout, printed in the Looper page's bindings panel.
 -- |
 -- | **Every word of it comes from `Data.Looper.Twister`.** Nothing here knows
 -- | what any encoder does; it knows how to draw a four-by-four grid of things
@@ -28,20 +28,29 @@ import Halogen.HTML.Properties as HP
 
 -- | The card. Takes whether a Twister output is selected, which page the device
 -- | last spoke from, and what to do about wanting a different one.
+-- |
+-- | **No longer its own disclosure.** It was a `<details>` folded shut at the
+-- | foot of the page; it now lives in a panel that is itself the disclosure, and
+-- | a card you have to open twice is a card you do not open.
 render :: forall w i. Boolean -> Int -> Maybe Int -> (Int -> i) -> HH.HTML w i
 render connected showing heard goTo =
-  HH.details [ HP.class_ (HH.ClassName "twister-map") ]
-    [ HH.summary_
-        [ HH.text "Midifighter Twister — what each encoder does"
-        , HH.span [ HP.class_ (HH.ClassName "twister-map-status") ]
+  HH.div [ HP.class_ (HH.ClassName "twister-map") ]
+    [ HH.div [ HP.class_ (HH.ClassName "twister-map-body") ]
+        [ HH.p [ HP.class_ (HH.ClassName "twister-map-status") ]
             [ HH.text (status connected showing heard) ]
-        ]
-    , HH.div [ HP.class_ (HH.ClassName "twister-map-body") ]
-        [ HH.p [ HP.class_ (HH.ClassName "twister-map-intro") ]
+        , HH.p [ HP.class_ (HH.ClassName "twister-map-intro") ]
+            -- **Corrected 2026-08-27.** This used to say the side buttons switch
+            -- the page. They did for an afternoon; the pager is the bottom-right
+            -- encoder now and the side buttons went back to walking between
+            -- pedals (DESIGN-TWISTER §9.1). Exactly the failure this module's own
+            -- header warns about — a legend is right when written and wrong in
+            -- the one place nobody thinks to check.
             [ HH.text
-                "Each encoder is a knob and a button. The device holds the page \
-                \itself — the side buttons switch it and every message afterwards \
-                \says which page it came from, so nothing here has to be told."
+                "Each encoder is a knob and a button. The bottom-right encoder is \
+                \the pager: turn it for the next page, press it to come home. \
+                \Every message the device sends says which page it came from, so \
+                \the card and the controller cannot disagree for longer than one \
+                \turn of a knob."
             ]
         , HH.div [ HP.class_ (HH.ClassName "twister-pages") ]
             (map (page showing goTo) TW.pages)

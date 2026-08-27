@@ -142,9 +142,21 @@ main = do
   let allHaveSections = Array.all (\p -> not (Array.null p.sections)) hardwarePedals
   assert "All hardware pedals have sections" allHaveSections
 
-  -- Itajara still has to bring a layout, or the Looper page renders nothing.
-  assert "Itajara has a layout"
-    (Array.any (\p -> p.meta.id == PedalId "itajara" && isJust p.layout) Registry.pedals)
+  -- **Itajara must NOT bring a layout**, which is the reverse of what this
+  -- asserted until 2026-08-27.
+  --
+  -- It had one, and the assertion was right at the time: the Looper page drew
+  -- the donut and would have rendered nothing without it. The page now draws
+  -- eight loops from the daemon's snapshot, and a second face built from the CC
+  -- values the app *sent* would be the slower of two pictures of one engine —
+  -- the failure the snapshot-only rule exists to prevent. So the layout is gone
+  -- and this test guards the decision rather than the old shape.
+  --
+  -- The pedal itself stays registered, and the two assertions either side of
+  -- this one are the ones that matter for that: thirteen pedals, and channel 13
+  -- Itajara's alone.
+  assert "Itajara has no layout — its surface is the Looper page"
+    (Array.any (\p -> p.meta.id == PedalId "itajara" && isNothing p.layout) Registry.pedals)
 
   -- findPedal works (via registry)
   let reg = CRegistry.mkRegistry Registry.pedals [] { pedalOutput: { match: "" }, twisterInput: { match: "" }, twisterOutput: { match: "" }, mc6Input: { match: "" } }
