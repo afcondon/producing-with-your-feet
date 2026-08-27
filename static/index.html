@@ -1890,13 +1890,24 @@ body {
   display: flex; align-items: center; justify-content: center;
 }
 .looper-modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.35); }
+/* Wider and taller than it was, and with no title bar: the panel is opened to
+   read a grid, and every band across the top is a row of that grid pushed under
+   a scrollbar. */
 .looper-modal {
   position: relative; background: #fff; border: 1px solid #ded9d1;
   box-shadow: 0 8px 32px rgba(0,0,0,0.18);
-  max-width: 860px; width: 92%; max-height: 84vh;
+  max-width: 1180px; width: 94%; max-height: 92vh;
   display: flex; flex-direction: column; overflow: hidden;
 }
-.looper-modal-body { padding: 12px 16px; overflow-y: auto; }
+.looper-modal-body { padding: 18px 20px 16px; overflow-y: auto; }
+/* Floats over the body rather than sitting in a bar of its own. The right
+   padding above leaves it somewhere to be without overlapping anything. */
+.looper-modal-close {
+  position: absolute; top: 6px; right: 8px; z-index: 1;
+  font: inherit; font-size: 22px; line-height: 1; padding: 2px 6px;
+  background: rgba(255,255,255,0.85); border: none; color: #a39a8c; cursor: pointer;
+}
+.looper-modal-close:hover { color: #2e2b27; }
 /* Inside the panel the cards are the content, not sections of a page. */
 .looper-modal-body .looper-footswitch { border: 0; padding: 0; margin: 0 0 18px; }
 .looper-modal-body .looper-footswitch:last-child { margin-bottom: 0; }
@@ -1997,18 +2008,22 @@ body {
 /* No longer its own disclosure — the panel that holds it is the disclosure,
    and a card you have to open twice is a card you do not open. */
 .twister-map { margin: 0; }
+/* Only rendered when the app and the device disagree, or there is no device —
+   so it is a warning, and looks like one. */
 .twister-map-status {
-  font-size: 11px; letter-spacing: 0.04em; color: #a39a8c; margin: 0 0 14px;
+  font-size: 12px; color: #8a5a2b; background: #fdf6ec;
+  border-left: 3px solid #d9a441; padding: 6px 10px; margin: 0 0 14px;
 }
 .twister-map-body { padding-top: 0; }
-.twister-map-intro, .twister-map-caveat {
-  max-width: 62ch; font-size: 13px; line-height: 1.55; color: #6b6459;
-  margin: 0 0 18px;
+.twister-map-caveat {
+  max-width: 78ch; font-size: 11px; line-height: 1.5; color: #a39a8c;
+  font-style: italic; margin: 16px 0 0;
 }
-.twister-map-caveat { margin: 18px 0 0; font-style: italic; }
 
 .twister-pages { display: flex; flex-wrap: wrap; gap: 32px; align-items: start; }
-.twister-page { flex: 1 1 380px; min-width: 340px; }
+/* Two pages side by side inside a 1180px panel. Wider cells wrap less, and
+   wrapping is what made the grid tall enough to need scrolling. */
+.twister-page { flex: 1 1 460px; min-width: 430px; }
 .twister-page h4 {
   margin: 0 0 4px; font-size: 15px; font-weight: 600; letter-spacing: 0.01em;
   display: flex; align-items: baseline; gap: 10px;
@@ -2029,9 +2044,12 @@ body {
 }
 .twister-page-go:hover { background: #ebe6df; }
 
+/* Tightened with the preamble. These are the last prose on the card and they
+   earn their place — they say what a page is FOR, which no cell can — but at
+   52ch they wrapped to four lines each and that is four rows of grid gone. */
 .twister-page-note {
-  margin: 0 0 12px; font-size: 12px; line-height: 1.5; color: #857d70;
-  max-width: 52ch;
+  margin: 0 0 8px; font-size: 11.5px; line-height: 1.45; color: #857d70;
+  max-width: 68ch;
 }
 
 /* Four across, four down. Cells keep a common height here — unlike the loop
@@ -2074,7 +2092,7 @@ body {
 .tone-violet  { background: #8a5fb0; }
 .tone-off     { background: #efece7; }
 
-.twister-phases { margin-top: 22px; }
+.twister-phases { margin-top: 14px; }
 .twister-phases h4 {
   margin: 0 0 8px; font-size: 12px; font-weight: 600;
   letter-spacing: 0.06em; text-transform: uppercase; color: #6b6459;
@@ -4107,6 +4125,6 @@ body {
   <!-- Stamped by tools/bundle.sh with the bundle's own mtime. Without it a
        reload can serve yesterday's app and say nothing, which has cost this
        project whole afternoons more than once. -->
-  <script src="./index.js?v=1787816328"></script>
+  <script src="./index.js?v=1787817767"></script>
 </body>
 </html>

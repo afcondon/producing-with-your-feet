@@ -182,7 +182,7 @@ render h ports state =
   -- | said the same six things less usefully, because you could not press it.
   boardCard =
     HH.div [ HP.class_ (HH.ClassName "looper-side-card") ]
-      [ cardHead "The board, live" Nothing
+      [ cardHead "The board, live"
       , BoardSim.render h.simulate (LoopBanks.face state.looperBankShown)
       ]
 
@@ -194,7 +194,7 @@ render h ports state =
   -- | those away by the time you look up.
   logCard =
     HH.div [ HP.class_ (HH.ClassName "looper-side-card") ]
-      [ cardHead "What happened" Nothing
+      [ cardHead "What happened"
       , if Array.null state.looperLog
           then HH.p [ HP.class_ (HH.ClassName "looper-log-empty") ]
                  [ HH.text "Nothing pressed yet." ]
@@ -214,24 +214,23 @@ render h ports state =
                else []
       )
 
-  -- One head for both kinds. The side cards pass `Nothing` because there is
-  -- nothing to close: they are the page, not something laid over it.
-  cardHead title mClose =
+  -- The side cards' head. They are the page, not something laid over it, so
+  -- there is nothing to close and no button here.
+  cardHead title =
     HH.div [ HP.class_ (HH.ClassName "looper-panel-head") ]
-      ( [ HH.span [ HP.class_ (HH.ClassName "looper-panel-title") ] [ HH.text title ] ]
-          <> case mClose of
-               Nothing -> []
-               Just act ->
-                 [ HH.button
-                     [ HP.class_ (HH.ClassName "looper-panel-close")
-                     , HE.onClick \_ -> act
-                     ]
-                     [ HH.text "\x00D7" ]
-                 ]
-      )
+      [ HH.span [ HP.class_ (HH.ClassName "looper-panel-title") ] [ HH.text title ] ]
 
-  -- Backdrop closes it, because a reference you cannot dismiss with the hand
-  -- that opened it is a reference you stop opening.
+  -- | A reference panel, laid over the page.
+  -- |
+  -- | **No title bar, since 2026-08-27.** It cost a whole band across the top
+  -- | to name a panel you had just clicked a button to open, and what it pushed
+  -- | below the fold was the grid you opened it for. Both bodies carry their own
+  -- | headings, so nothing here was the only label for anything.
+  -- |
+  -- | The close moves to a floating corner button and the backdrop still
+  -- | dismisses — a reference you cannot get rid of with the hand that opened it
+  -- | is a reference you stop opening. `title` survives as the accessible name
+  -- | rather than as furniture.
   modal title body =
     HH.div [ HP.class_ (HH.ClassName "looper-modal-overlay") ]
       [ HH.div
@@ -239,8 +238,17 @@ render h ports state =
           , HE.onClick \_ -> h.openPanel Nothing
           ]
           []
-      , HH.div [ HP.class_ (HH.ClassName "looper-modal") ]
-          [ cardHead title (Just (h.openPanel Nothing))
+      , HH.div
+          [ HP.class_ (HH.ClassName "looper-modal")
+          , HP.attr (HH.AttrName "role") "dialog"
+          , HP.attr (HH.AttrName "aria-label") title
+          ]
+          [ HH.button
+              [ HP.class_ (HH.ClassName "looper-modal-close")
+              , HP.attr (HH.AttrName "aria-label") "Close"
+              , HE.onClick \_ -> h.openPanel Nothing
+              ]
+              [ HH.text "\x00D7" ]
           , HH.div [ HP.class_ (HH.ClassName "looper-modal-body") ] body
           ]
       ]

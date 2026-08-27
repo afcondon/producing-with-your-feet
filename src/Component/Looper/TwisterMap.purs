@@ -36,52 +36,63 @@ render :: forall w i. Boolean -> Int -> Maybe Int -> (Int -> i) -> HH.HTML w i
 render connected showing heard goTo =
   HH.div [ HP.class_ (HH.ClassName "twister-map") ]
     [ HH.div [ HP.class_ (HH.ClassName "twister-map-body") ]
-        [ HH.p [ HP.class_ (HH.ClassName "twister-map-status") ]
-            [ HH.text (status connected showing heard) ]
-        , HH.p [ HP.class_ (HH.ClassName "twister-map-intro") ]
-            -- **Corrected 2026-08-27.** This used to say the side buttons switch
-            -- the page. They did for an afternoon; the pager is the bottom-right
-            -- encoder now and the side buttons went back to walking between
-            -- pedals (DESIGN-TWISTER §9.1). Exactly the failure this module's own
-            -- header warns about — a legend is right when written and wrong in
-            -- the one place nobody thinks to check.
-            [ HH.text
-                "Each encoder is a knob and a button. The bottom-right encoder is \
-                \the pager: turn it for the next page, press it to come home. \
-                \Every message the device sends says which page it came from, so \
-                \the card and the controller cannot disagree for longer than one \
-                \turn of a knob."
-            ]
-        , HH.div [ HP.class_ (HH.ClassName "twister-pages") ]
-            (map (page showing goTo) TW.pages)
-        , phases
-        , HH.p [ HP.class_ (HH.ClassName "twister-map-caveat") ]
-            [ HH.text
-                "Pages 3 and 4 are deliberately empty; the per-layer surface is \
-                \the tenant they are being kept for. The colours are what the app \
-                \asks the device for and have not been checked against it."
-            ]
-        ]
+        ( -- **The preamble is gone, and losing it was the point.** There was a
+          -- paragraph explaining that each encoder is a knob and a button, and
+          -- a line saying which page was showing. Both were true and neither
+          -- was worth what it cost: the card is opened mid-take to answer
+          -- "what does this knob do", and a quarter of the panel spent on
+          -- prose you have already read is a quarter of the grid you now have
+          -- to scroll to.
+          --
+          -- The page badges say which page is showing better than a sentence
+          -- did — HERE is on one of them — so nothing was lost with it.
+          exception
+            <> [ HH.div [ HP.class_ (HH.ClassName "twister-pages") ]
+                   (map (page showing goTo) TW.pages)
+               , phases
+               , HH.p [ HP.class_ (HH.ClassName "twister-map-caveat") ]
+                   -- Kept, and kept short. Pages 3 and 4 being empty is a fact
+                   -- you can see; the colours being unverified is not, and a
+                   -- legend that presented an intention as an observation would
+                   -- be the thing to blame when a knob is the wrong colour.
+                   [ HH.text "Pages 3 and 4 are kept for the per-layer surface. \
+                             \The colours are what the app asks for, not what \
+                             \anyone has seen the device do." ]
+               ]
+        )
     ]
+  where
+  -- Printed only when it has something to say. In the ordinary case the badge
+  -- on the page heading already says where we are, so a line repeating it is a
+  -- line in the way.
+  exception = case status connected showing heard of
+    Nothing -> []
+    Just msg ->
+      [ HH.p [ HP.class_ (HH.ClassName "twister-map-status") ] [ HH.text msg ] ]
 
--- | Where the device last spoke from.
+-- | Anything worth interrupting the card to say. `Nothing` in the ordinary
+-- | case, which is most of the time.
 -- |
 -- | **Read off the wire, never tracked.** Every encoder message carries its
--- | page, so this cannot be wrong for longer than one turn of a knob — which is
--- | the reason it is worth printing at all. Silent until the device says
--- | something: the app has no way to ask, and guessing "page 1" would be
--- | inventing the one fact this line exists to report.
-status :: Boolean -> Int -> Maybe Int -> String
-status false _ _ = "no Twister output selected"
-status true showing heard =
-  "showing page " <> show (showing + 1)
-    <> case heard of
-        -- The two facts only ever differ when the device will not take a bank
-        -- change, and that is worth saying out loud rather than hiding: it is
-        -- the difference between "the encoders mean the other page" and "the
-        -- device is somewhere else and the lights have followed it there".
-        Just b | b /= showing -> " — the device is on its own page " <> show (b + 1)
-        _ -> ""
+-- | page, so a disagreement here cannot be wrong for longer than one turn of a
+-- | knob — which is the reason it is worth printing at all.
+-- |
+-- | It used to print in every case, including "showing page 1", which is the
+-- | one thing the page headings already say with a badge. Now it speaks only
+-- | when the app and the device are in different places, or when there is no
+-- | device: the two states where reading the card and reaching for a knob would
+-- | give different answers.
+status :: Boolean -> Int -> Maybe Int -> Maybe String
+status false _ _ = Just "No Twister output selected — nothing here is reaching a device."
+status true showing heard = case heard of
+  -- The two facts only ever differ when the device will not take a bank
+  -- change, and that is worth saying out loud rather than hiding: it is the
+  -- difference between "the encoders mean the other page" and "the device is
+  -- somewhere else and the lights have followed it there".
+  Just b | b /= showing ->
+    Just ("The device is on its own page " <> show (b + 1)
+            <> ", not page " <> show (showing + 1) <> ".")
+  _ -> Nothing
 
 page :: forall w i. Int -> (Int -> i) -> TW.Page -> HH.HTML w i
 page showing goTo p =
