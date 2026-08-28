@@ -34,6 +34,7 @@ import Data.Looper.Banks as LB
 import Data.MC6.Diagnostics as Diagnostics
 import Data.Looper.Machine as Machine
 import Data.Looper.Recipes as Recipes
+import Data.Looper.Sheet as Sheet
 import Data.Looper.Twister as LoopTw
 import Data.Looper.Verb as LoopVerb
 import Data.Enum as Enum
@@ -2850,7 +2851,7 @@ main = do
     (LoopTw.pressedAt { bank: 0, index: 0 } == Just (Tuple (LB.OnLoop 0) (LB.SelectLoop 0))
       && LoopTw.pressedAt { bank: 1, index: 0 } == Just (Tuple (LB.OnLoop 0) LB.Transport)
       && LoopTw.pressedAt { bank: 2, index: 0 } == Just (Tuple LB.Focused (LB.Rate 1.0))
-      && LoopTw.pressedAt { bank: 3, index: 0 } == Just (Tuple LB.Focused LB.GridToggle))
+      && LoopTw.pressedAt { bank: 3, index: 0 } == Just (Tuple LB.Focused LB.OneShot))
 
   -- **The set is the transpose of Shape, and its loops sit where the Loops
   -- page's do.** Same eight positions, same eight loops, different verb — which
@@ -3048,17 +3049,73 @@ main = do
   -- the vocabulary had and no surface could send.
   -- On Shape rather than Set up: it is not a length *setting*, it is a length
   -- *performance* — press to open, play across the cycles, press to close, with
-  -- the write head open throughout. Its declarative twin is `bars` on Set up.
-  assert "multiply has a control on the shape page, beside the material verbs"
-    (LoopTw.pressedAt { bank: 2, index: 4 } == Just (Tuple LB.Focused LB.MultiplyLoop))
+  -- the write head open throughout. Its declarative twin is the bars knob on
+  -- the Loops page.
+  assert "multiply has a control on the shape page, at the head of its shape row"
+    (LoopTw.pressedAt { bank: 2, index: 8 } == Just (Tuple LB.Focused LB.MultiplyLoop))
 
   -- **Length and how often came apart.** `SpreadLoop` set the period *and* grew
   -- the loop by the same factor, so a four-bar loop whose phrase sounds every
-  -- bar was not reachable at all. Three knobs, three numbers, one each.
-  assert "bars, every and on are three separate knobs on the set-up page"
-    (LoopTw.turnedAt { bank: 3, index: 4 } 127 == Just (Tuple LB.Focused (LB.SetBars 32))
-      && LoopTw.turnedAt { bank: 3, index: 5 } 0 == Just (Tuple LB.Focused (LB.Every 1))
-      && LoopTw.turnedAt { bank: 3, index: 6 } 0 == Just (Tuple LB.Focused (LB.PlaceAt 1)))
+  -- bar was not reachable at all. Three knobs, three numbers, one each — and
+  -- now on two pages, because they turned out to be about different moments:
+  -- the length is what a take needs before it starts, the other two are what
+  -- you do to it afterwards.
+  assert "bars, every and slot are three separate knobs"
+    (LoopTw.turnedAt { bank: 0, index: 9 } 127 == Just (Tuple LB.Focused (LB.SetBars 32))
+      && LoopTw.turnedAt { bank: 2, index: 5 } 0 == Just (Tuple LB.Focused (LB.Every 1))
+      && LoopTw.turnedAt { bank: 2, index: 6 } 0 == Just (Tuple LB.Focused (LB.PlaceAt 1)))
+
+  -- **`slot` is meaningless without `every`**, so they have to be reachable
+  -- without a page turn between them. This pins the adjacency rather than the
+  -- indices, which is the fact that matters: whichever cells they end up in,
+  -- they end up next to each other.
+  assert "every and slot are neighbours"
+    (case (LoopTw.controlAt { bank: 2, index: 5 }).turn
+        , (LoopTw.controlAt { bank: 2, index: 6 }).turn of
+       Just LoopTw.PEvery, Just LoopTw.POn -> true
+       _, _ -> false)
+
+  -- **The grid and the length are one encoder on the Loops page**, which is
+  -- what let Overdub's cell go: press to wait for the bar, turn for how many
+  -- bars, and a first take needs no other page.
+  assert "the grid encoder carries the quantise and the bar count together"
+    (let c = LoopTw.controlAt { bank: 0, index: 9 }
+     in c.press == Just LB.GridToggle && c.turn == Just LoopTw.PBars
+          && c.ring == LoopTw.Value LoopTw.PBars)
+
+  -- **A knob that absorbed another control says so in its name.** The cell read
+  -- `bars` and the grid was a line further down under `press`, which reads as
+  -- the grid having been deleted rather than moved. Derived from the two halves
+  -- and gated on `home`, so a knob whose press is only its way back — speed,
+  -- layers, decay — keeps its plain name.
+  assert "a knob carrying a mode is named after both, and one that is not is not"
+    (named 0 9 == "bars/Grid"
+      && named 3 8 == "tape/Revox"
+      && named 2 0 == "speed"
+      && named 0 13 == "layers")
+
+  -- **Overdub was Record with a refusal bolted on.** `onOverdub` and `onRecord`
+  -- send the same `r` in every case that reaches the wire; the only difference
+  -- is that Overdub declines an empty loop. Worth a switch on the MC6, where a
+  -- foot cannot see what it is writing to. Not worth an encoder here, and this
+  -- pins the equivalence rather than the absence — if the two ever stop meaning
+  -- the same thing on a loop with material in it, the cell has to come back.
+  assert "record on a loop with layers in it is what overdub was"
+    (let full = (idle 0) { layers = 2, loopSecs = 4.0, state = "playing" }
+         rig = rigOf [ full ]
+     in Machine.perform rig LB.Focused LB.RecordLoop
+          == Machine.perform rig LB.Focused LB.OverdubLoop
+       && Array.all (\i -> (LoopTw.controlAt { bank: 0, index: i }).press
+                             /= Just LB.OverdubLoop)
+            (Array.range 0 15))
+
+  -- **The erasure is the same corner on both pages a hand learns as one row.**
+  -- Clear sat at 13 and Clear All at 14, which is the kind of near-miss that
+  -- only shows up when the hand is somewhere else and the eyes are elsewhere
+  -- again.
+  assert "clear and clear all are the same encoder, furthest from the pager"
+    (LoopTw.pressedAt { bank: 0, index: 12 } == Just (Tuple LB.Focused LB.ClearLoop)
+      && LoopTw.pressedAt { bank: 1, index: 12 } == Just (Tuple LB.Focused LB.ClearAll))
 
   -- Every step of a stepped knob is reachable and reads itself back, which is
   -- the property that lets the ring be told rather than remembered.
@@ -3265,6 +3322,56 @@ main = do
       log ""
       log ("    > " <> n)
 
+  -- **The printed sheet is the same tables again**, which is the only reason it
+  -- is allowed to exist: a third rendering of a layout is a third thing to keep
+  -- true unless it is generated, and then it is free. These check that it says
+  -- everything the surfaces say, rather than checking any particular markup —
+  -- how it looks on paper is not a thing a test can know.
+  assert "the sheet names every control and every recipe"
+    (let doc = Sheet.sheet
+     in Array.all (\pg -> Array.all
+            (\c -> c.name == "" || String.contains (String.Pattern (Sheet.escape c.name)) doc)
+            pg.cells)
+          LoopTw.pages
+        && Array.all (\r -> String.contains (String.Pattern (Sheet.escape r.name)) doc)
+             Recipes.recipes
+        && Array.all (\r -> Array.all
+              (\st' -> String.contains (String.Pattern (Sheet.escape st'.act)) doc)
+              r.steps)
+             Recipes.recipes)
+
+  -- Pages are numbered from one everywhere a person reads them, and the sheet
+  -- is nothing but a thing a person reads. A `bank` printed raw would be the
+  -- loop-numbering bug again, on paper this time.
+  assert "the sheet counts its pages from one"
+    (String.contains (String.Pattern "Page 4 — Set up") Sheet.sheet
+      && not (String.contains (String.Pattern "Page 0") Sheet.sheet))
+
+  -- The colours are a claim about the device and the sheet has to make the same
+  -- claim, or matching paper to a lit encoder is guesswork. One rule per tone,
+  -- emitted from `swatch` rather than typed into the stylesheet.
+  assert "every tone has ink on the sheet"
+    (Array.all
+      (\t -> String.contains
+               (String.Pattern (".tone-" <> LoopTw.toneName t <> "{background:"
+                                  <> LoopTw.swatch t <> "}"))
+               Sheet.sheet)
+      [ LoopTw.Red, LoopTw.Orange, LoopTw.Yellow, LoopTw.Green
+      , LoopTw.Teal, LoopTw.Blue, LoopTw.Violet ])
+
+  -- Nothing in the tables is hostile, but a name that closed a tag early would
+  -- silently lose everything after it — the worst failure a printed reference
+  -- has, because paper cannot say it went wrong.
+  assert "the sheet escapes what could close a tag"
+    (Sheet.escape "a<b>&\"c\"" == "a&lt;b&gt;&amp;&quot;c&quot;"
+      && Sheet.escape "level — silent to full" == "level — silent to full")
+
+  -- **Eight identical paragraphs is not a reference, it is a wall.** The loop
+  -- encoders describe themselves word for word alike — that is the property the
+  -- surface is built on — so the detail grid folds a run of them into one.
+  assert "the sheet prints the eight loops once, as a range"
+    (String.contains (String.Pattern "Loop 1 – Loop 8") Sheet.sheet)
+
   -- Every step that can report says what right looks like, which is what makes
   -- the list a test script rather than only a manual. A recipe whose steps are
   -- all silent is one nobody can tell has gone wrong.
@@ -3286,6 +3393,12 @@ main = do
   log ""
   log "Done."
   where
+  -- The card's own word for a cell, by position. Read from `pages` rather than
+  -- from `controlAt`, because the name is a fact about the card.
+  named bank index =
+    maybe "" (\pg -> maybe "" _.name (Array.find (\c -> c.index == index) pg.cells))
+      (Array.find (\pg -> pg.bank == bank) LoopTw.pages)
+
   unsafeMV :: Int -> _
   unsafeMV n = case makeMidiValue n of
     Just mv -> mv

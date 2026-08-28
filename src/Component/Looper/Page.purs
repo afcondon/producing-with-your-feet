@@ -113,6 +113,9 @@ type Handlers i =
   , setTone :: String -> i
   , programLooperBank :: i
   , programLoopBanks :: i
+  -- | Open the printable sheet. No argument: what goes on it is generated from
+  -- | the same tables this page draws from, so there is nothing to pass.
+  , printSheet :: i
   }
 
 render
@@ -352,6 +355,18 @@ render h ports state =
           [ panelBtn PanelRecipes "Recipes"
           , panelBtn PanelTwister "Twister"
           , panelBtn PanelBanks "MC6 banks"
+          -- **Not a panel, so not a `panelBtn`.** The other three lay a
+          -- reference over this page; this one opens a document in another tab
+          -- so the reference can be on paper beside the rig while this tab
+          -- keeps focus — which it has to, because a background tab stops
+          -- handling Twister messages.
+          , HH.button
+              [ HP.class_ (HH.ClassName "looper-help-btn is-print")
+              , HP.title "The four pages and the recipes, in a new tab, laid \
+                         \out for A4. Print it or save it as a PDF from there."
+              , HE.onClick \_ -> h.printSheet
+              ]
+              [ HH.text "Print sheet" ]
           ]
       ]
 

@@ -49,6 +49,7 @@ module Data.Looper.Twister
   , Tone(..)
   , toneName
   , hue
+  , swatch
   , Light(..)
   , Flag(..)
   , flagName
@@ -140,10 +141,10 @@ paramLabel = case _ of
   PDecay -> "decay"
   PChance -> "chance"
   PFeedback -> "leaves"
-  PTone -> "keeps"
+  PTone -> "lo-pass"
   PBars -> "bars"
   PEvery -> "every"
-  POn -> "on"
+  POn -> "slot"
   PLaunch -> "launch"
 
 -- | The position a knob should be able to find without looking, if it has one.
@@ -195,7 +196,7 @@ paramRange = case _ of
   PTone -> show (round (toneFloor / 1000.0)) <> " kHz to all of it"
   PBars -> "1 to " <> show maxBars <> " bars — sizes an empty loop, resizes a full one"
   PEvery -> "every time round, to once in " <> show maxBars
-  POn -> "which of those it lands on; wraps"
+  POn -> "which slot of the every, counting from one; wraps"
   PLaunch -> "none, a beat up to eight bars, or the bar"
 
 -- | What lights the encoder's ring.
@@ -325,6 +326,29 @@ hue = case _ of
   Blue -> 12
   Violet -> 100
 
+-- | The same seven tones as ink.
+-- |
+-- | **A second rendering of one enumeration, not a second table.** `hue` is a
+-- | position on the device's colour wheel and this is a hex triple; there is no
+-- | arithmetic between them, and there could not be — nobody has yet compared
+-- | either with what the encoder actually does (`DESIGN-TWISTER` §12). What the
+-- | shared `Tone` buys is that a colour cannot exist on the device and be
+-- | missing from the printed sheet, which is the failure that matters.
+-- |
+-- | These are the values in `static/index.html`'s `.tone-*` rules, and the one
+-- | place they are written down for anything that has to draw them itself. The
+-- | printed sheet emits its own stylesheet from here rather than reaching for
+-- | the app's.
+swatch :: Tone -> String
+swatch = case _ of
+  Red -> "#c0392b"
+  Orange -> "#d97b28"
+  Yellow -> "#d9b526"
+  Green -> "#4a9a52"
+  Teal -> "#3a9d92"
+  Blue -> "#3a72b8"
+  Violet -> "#8a5fb0"
+
 toneName :: Tone -> String
 toneName = case _ of
   Red -> "red"
@@ -346,10 +370,19 @@ toneName = case _ of
 -- | for them* is what produced these four, and it left the third page nobody
 -- | could think of a tenant for lying in the leftovers.
 -- |
--- |     Loops    what is sounding, and opening the write head
+-- |     Loops    what is sounding, and the whole write head — open it, say
+-- |              what it lands on, say how long it will be
 -- |     The set  the eight against each other — where each sits, whether it runs
 -- |     Shape    the loop in hand, while you play it
 -- |     Set up   the loop in hand, before and between takes
+-- |
+-- | The line between the last two is *when you would reach for it*, and it was
+-- | drawn wrong twice: pendulum, `every` and `slot` were filed as settings
+-- | because they are chosen deliberately, when what makes something a setting
+-- | is that you would not touch it mid-phrase. All three moved to Shape. Grid
+-- | and bars went the other way for a different reason — not because they are
+-- | performed, but because they are what a take needs *before* it starts, and
+-- | needing another page to start a take is the worst kind of back-and-forth.
 -- |
 -- | The set is the **transpose** of Shape: one parameter across every loop
 -- | where Shape is every parameter of one loop. Its eight encoders are in the
@@ -409,7 +442,40 @@ loopsBank i
       }
   | otherwise = case i of
       8 -> verb RecordLoop Red
-      9 -> verb OverdubLoop Orange
+      -- **Overdub is gone from this surface, and it was never a second act.**
+      --
+      -- Read `Machine.onOverdub` beside `onRecord`: both send `r`, in every
+      -- case that reaches the wire. What Overdub adds is a *refusal* — it
+      -- declines an empty loop with "record it first" — and what it costs is
+      -- the cell. Record on a loop with layers in it already opens the write
+      -- head over them, which is what an overdub is. Two switches whose only
+      -- difference is that one of them sometimes says no is one switch and a
+      -- worse label.
+      --
+      -- It stays in the vocabulary and on the MC6, where a foot cannot see the
+      -- loop it is about to write to and the refusal is worth having.
+      --
+      -- **What takes the cell is the grid, and the length with it**: press for
+      -- quantise, turn for how many bars. They belong on one control for the
+      -- same reason Revox and the tape do — a take that waits for the bar and a
+      -- take that is a known number of bars are one idea, and this is the pair
+      -- you set *before* Record. With them here the first loop can be made
+      -- without leaving the page, which is what this page is for.
+      --
+      -- The press nudges the encoder, as every press on this device does. The
+      -- guard in `Component.App.handleEncoderTurn` withholds a turn for as long
+      -- as the finger is down, which is the same protection the level under
+      -- each loop relies on.
+      --
+      -- `Free` has no cell anywhere: `GridToggle` turns the grid off as well as
+      -- on, and a second control for the off half would be a switch that can
+      -- only disagree with this one.
+      9 -> blank
+            { press = Just GridToggle
+            , turn = Just PBars
+            , ring = Value PBars
+            , light = Lit FGrid Teal
+            }
       10 -> verb Transport Green
       -- **Arm is back, and it is the fourth member of this row.**
       --
@@ -420,27 +486,33 @@ loopsBank i
       -- time-critical gesture in the rig the slowest thing on the controller.
       -- Listen keeps its place on Set up, as the mode it is.
       --
-      -- The row now matches the MC6's own loop page switch for switch —
-      -- Record, Overdub, Stop/Go, Arm — so the two surfaces stop disagreeing
-      -- about what the write head is. Each wears the colour of the phase it
-      -- produces, which is the phase key doing double duty: red is recording,
-      -- orange is overdubbing, green is playing, violet is armed.
+      -- The row is the write head, whole: open it (Record), say what it will
+      -- land on (Grid and bars), stop or start what is under it (Stop/Go), or
+      -- let the playing open it (Arm). Each verb wears the colour of the phase
+      -- it produces, which is the phase key doing double duty: red is
+      -- recording, green is playing, violet is armed.
       --
       -- Revox moved to Set up, beside the two knobs that say what a tape pass
       -- does. It is a mode, and it is the only mode whose parameters were
       -- reachable from nowhere but a slider on a web page.
       11 -> verb ArmLoop Violet
+      -- **The bottom-left corner is the erasure, on this page and on the set.**
+      --
+      -- Clear sat at 13 and Clear All one cell along at 14, so the two
+      -- destructive controls were in different places on two pages whose bottom
+      -- rows a hand learns as one. They are the same gesture at two scales;
+      -- they are the same corner now, and it is the corner furthest from the
+      -- pager — the knob a hand reaches for most, and the one it is most likely
+      -- to miss.
+      --
+      -- Red, and it is the only red on the page beside Record. Those are the
+      -- two that change what is on the tape; nothing else here does.
+      12 -> verb ClearLoop Red
       -- Undo and Redo were two cells doing one job. The stack is an axis, and
       -- this device reports absolute positions, so it is a knob: turn down to
       -- undo, up to redo, ring shows how deep you are. Press still undoes one,
       -- for when it is a gesture rather than a scrub.
-      12 -> knob PLayers Undo Blue
-      -- Red rather than violet. It shared violet with the Revox flag that used
-      -- to sit two cells up — a destructive verb and a mode wearing one colour
-      -- on a surface whose whole case for colour is that it is taken in rather
-      -- than read. Record is red as well and they are the two that change what
-      -- is on the tape; nothing else on the page is.
-      13 -> verb ClearLoop Red
+      13 -> knob PLayers Undo Blue
       -- The one thing a pedal cannot do, and the one thing a *hand* is worst
       -- placed to remember to do — so it gets a control on both surfaces.
       14 -> verb ClaimPast Yellow
@@ -507,9 +579,13 @@ theSetBank i
       -- about the rig you want to see from across the room.
       9 -> blank { press = Just ClickToggle, light = Lit FClick Teal }
       10 -> blank { press = Just MonitorToggle, light = Lit FMonitor Blue }
-      12 -> verb StopAll Blue
-      13 -> verb StartAll Green
-      14 -> verb ClearAll Red
+      -- Clear All in the same corner as Clear on the Loops page, for the
+      -- reason given there: two pages whose bottom rows a hand learns as one
+      -- should not put the erasure in two places, and the far corner is the one
+      -- to miss towards.
+      12 -> verb ClearAll Red
+      13 -> verb StopAll Blue
+      14 -> verb StartAll Green
       15 -> pager
       _ -> blank
 
@@ -521,6 +597,18 @@ theSetBank i
 -- | reversible; it records nothing* — and Save take passes it because the thing
 -- | you do with a phrase you like is save it while it is still true.
 -- |
+-- | **Three rows, each a sentence**, which is what the rearrangement bought:
+-- |
+-- |     how it runs       speed, pendulum, decay
+-- |     how often         chance, every, slot, and dense as the way back
+-- |     its shape         multiply, rotate, save take
+-- |
+-- | The middle row is the one that was scattered: chance sat here while `every`
+-- | and `slot` sat on Set up, so the random way of thinning a loop and the
+-- | regular way of thinning it were on two pages though they answer one
+-- | question. Pendulum came from the same place, for the same kind of reason —
+-- | it was filed as a mode when it is a thing you do mid-phrase.
+-- |
 -- | Level is not here and pan is not here: both are per-loop and both have a
 -- | page where all eight are visible at once, which is the better place to set
 -- | either. This page is for what only makes sense one loop at a time.
@@ -531,20 +619,42 @@ theSetBank i
 -- | them. Empty is honest and a page has no obligation to be full.
 shapeBank :: Int -> Control
 shapeBank = case _ of
-  -- **Speed carries its own direction now**, so Reverse has no cell: the
-  -- daemon takes ±0.125 to ±4 and the sign *is* the direction, which made a
-  -- separate flag a second spelling of a number's sign. Centre is stopped and
-  -- the press is unity — two positions the hand can find, one by feel and one
-  -- by pressing. See `rateOf`.
+  -- **Row one: how it runs.**
+  --
+  -- Speed carries its own direction, so Reverse has no cell: the daemon takes
+  -- ±0.125 to ±4 and the sign *is* the direction, which made a separate flag a
+  -- second spelling of a number's sign. Centre is stopped and the press is
+  -- unity — two positions the hand can find, one by feel and one by pressing.
+  -- See `rateOf`.
   0 -> knob PRate (Rate 1.0) Teal
-  1 -> knob PDecay (Decay 0.0) Orange
-  2 -> knob PChance (Chance 1.0) Yellow
+  -- **Pendulum, beside the speed it is about.** It was on Set up among the
+  -- modes, on the argument that it is chosen once a session. So is a speed, and
+  -- nobody put that on Set up: what actually decides the page is whether you
+  -- would reach for it *mid-phrase*, and turning a loop round and back is the
+  -- most mid-phrase thing in the rig. It is also instantly reversible, which is
+  -- this page's test.
+  1 -> flagged Pendulum FPendulum Violet
+  2 -> knob PDecay (Decay 0.0) Orange
 
-  -- Spread to make room, shift to decide where in it the bar falls, dense as
-  -- the way back. **Presses rather than knobs**, and for a stated reason: the
-  -- snapshot reports no per-loop spread, so a spread knob would hold a position
-  -- nothing could correct — the one thing this surface is not allowed to do.
-  -- It wants to be a knob and cannot be one yet.
+  -- **Row two: how often it sounds**, from the least deliberate to the most,
+  -- and then the way back.
+  --
+  -- Chance is a coin at every pass; `every` is a period; `slot` is which of
+  -- that period's places the layer lands on; Dense undoes all of it. They were
+  -- scattered across two pages — chance here, `every` and `slot` on Set up —
+  -- which put the random one and the regular one on different knobs in
+  -- different rooms while they answer the same question.
+  --
+  -- `slot` is meaningless without `every` and has to sit next to it: with a
+  -- period of one there is one slot, and the daemon says so rather than
+  -- pretending.
+  4 -> knob PChance (Chance 1.0) Yellow
+  5 -> knob PEvery (Every 1) Violet
+  6 -> knob POn (PlaceAt 1) Violet
+  7 -> verb DenseLoop Violet
+
+  -- **Row three: its shape.**
+  --
   -- **Multiply, at last on a surface a hand can reach.** It was on the CC table
   -- and so on a web button, on no MC6 bank and no encoder — a verb the
   -- vocabulary had and no hand could send. It is here rather than on Set up
@@ -553,27 +663,24 @@ shapeBank = case _ of
   -- write head is open the whole time, which is why pressing it feels like an
   -- overdub — it is one, that also lengthens the loop.
   --
-  -- Its declarative twin is `bars` on Set up: name the number instead of
-  -- playing it. Both are worth having — you count when you know and you play
-  -- when you do not.
-  4 -> verb MultiplyLoop Orange
-  5 -> verb RotateLoop Violet
-  6 -> verb DenseLoop Violet
+  -- Its declarative twin is the bars knob on the Loops page: name the number
+  -- instead of playing it. Both are worth having — you count when you know and
+  -- you play when you do not.
+  8 -> verb MultiplyLoop Orange
+  9 -> verb RotateLoop Violet
   -- Blue rather than violet. It sat in a row of four identical violets, and a
   -- colour four things share says nothing — this one is the Atlantis seam, not
   -- a structural edit, and it is the only cell here that leaves the rig.
-  7 -> verb SaveTake Blue
+  10 -> verb SaveTake Blue
 
   15 -> pager
   _ -> blank
 
 -- | **The loop in hand, before and between takes.**
 -- |
--- | The modes and the settings — what a loop *will* do, decided when you are
--- | not mid-phrase. Fade is here rather than on Shape because a crossfade is a
--- | property of the join, chosen once and then forgotten; grid and one-shot
--- | because they change what a press will mean, which is not a thing to
--- | discover by turning something.
+-- | The modes and the tape — what a loop *will* do, decided when you are not
+-- | mid-phrase. The test is the same one Shape applies from the other side: if
+-- | you would reach for it while playing, it is not here.
 -- |
 -- | **Listen is the mode Arm is the gesture of.** They were both on the surface
 -- | and the duplication was the reason Arm came off it; keeping the persistent
@@ -584,38 +691,22 @@ shapeBank = case _ of
 -- | under it, and how much top it keeps. Those last two had **no control on
 -- | either hardware surface** — only sliders on a web page, for the one mode in
 -- | the rig that has no undo.
+-- |
+-- | **It is a thin page now**, and deliberately so. Grid and bars went to the
+-- | Loops page so the first take can be made without leaving it; pendulum,
+-- | `every` and `slot` went to Shape, where the things you do mid-phrase live.
+-- | What is left is what you genuinely set once. A page with seven controls on
+-- | it is not a page that has failed — it is the four-page cut doing what it
+-- | was for, which was to stop this one being a drawer.
 setUpBank :: Int -> Control
 setUpBank = case _ of
-  -- `Free` is not here: `GridToggle` turns the grid off as well as on, and the
-  -- third of the three erasures had nowhere else to live.
-  0 -> flagged GridToggle FGrid Teal
-  1 -> flagged OneShot FOneShot Yellow
-  2 -> flagged LevelArm FLevelArm Green
-  -- Back from the MC6-only list. It is a once-a-session mode, which is an
-  -- argument for putting it on the page where once-a-session modes live rather
-  -- than an argument for it having no knob at all.
-  3 -> flagged Pendulum FPendulum Violet
-
-  -- **Length, and how the material lands in it.** Three knobs where there were
-  -- two presses, and the two presses could not be told apart: `SpreadLoop` set
-  -- how often a layer sounded *and* grew the loop by the same factor, so "how
-  -- long is this" and "how often does this sound" were one gesture.
-  --
-  -- Apart, they are the thing this was asked for: record a bar, make the loop
-  -- four, put the bar on the third of them. `bars` is the length, `every` is
-  -- how often, `on` is which slot — and the waveform draws the answer, which is
-  -- a picture of where the sound is rather than a sentence about how often it
-  -- happens.
-  --
-  -- `bars` on an empty loop is the other half: size it first and the recording
-  -- closes itself, so the second press stops being part of the gesture.
-  4 -> knob PBars (SetBars 1) Teal
-  5 -> knob PEvery (Every 1) Violet
-  6 -> knob POn (PlaceAt 1) Violet
-  -- Displaced by those three, and it belongs here anyway: forgetting a length
-  -- is a between-takes decision, and it is the way back from having declared
-  -- one.
-  7 -> verb ForgetLength Blue
+  0 -> flagged OneShot FOneShot Yellow
+  1 -> flagged LevelArm FLevelArm Green
+  -- The way back from having declared a length, and forgetting one is a
+  -- between-takes decision even though declaring it is not. Its knob is on the
+  -- Loops page and its undo is here, which is the one seam this rearrangement
+  -- leaves — an uncommon act, one page turn away.
+  2 -> verb ForgetLength Blue
 
   -- **Press is the mode; turn threads the tape.**
   --
@@ -1251,7 +1342,7 @@ pages :: Array Page
 pages =
   [ { bank: 0
     , name: "Loops"
-    , note: "The eight loops, then the write head for whichever is in hand. Every press is at press-down: nothing here waits out a window, because nothing here needs a gesture."
+    , note: "The eight loops, then the write head for whichever is in hand — including the grid it lands on and how many bars it will be, so a take can be made without leaving this page. Every press is at press-down: nothing here waits out a window, because nothing here needs a gesture."
     , cells: cellsOf 0
     }
   , { bank: 1
@@ -1261,12 +1352,12 @@ pages =
     }
   , { bank: 2
     , name: "Shape"
-    , note: "The loop in hand, while you play it. Everything here is continuous or instantly reversible; anything you would rather decide between takes is on Set up."
+    , note: "The loop in hand, while you play it, in three rows: how it runs, how often it sounds, and its shape. Everything here is continuous or instantly reversible; anything you would rather decide between takes is on Set up."
     , cells: cellsOf 2
     }
   , { bank: 3
     , name: "Set up"
-    , note: "The loop in hand, before and between takes — the modes, the join, and the tape. What a loop will do, decided when you are not mid-phrase."
+    , note: "The loop in hand, before and between takes — the two modes and the tape. What a loop will do, decided when you are not mid-phrase. A short page on purpose: everything you would reach for mid-phrase has gone to Shape, and the grid and the length have gone to the Loops page."
     , cells: cellsOf 3
     }
   ]
@@ -1308,10 +1399,34 @@ cellAt bank index =
       -- have been a direction flip.
       mp, Just p ->
         { index
-        , name: paramLabel p
+        -- **A knob that also carries a mode is named after both.**
+        --
+        -- Andrew, looking at the printed sheet: *"I was quite puzzled as to
+        -- where grid had gone even though I had agreed to the combination."*
+        -- The cell said `bars`, because a knob is named after its parameter,
+        -- and the grid was one line down under `press` where a scan does not
+        -- reach. A control that has quietly absorbed another one has to say so
+        -- in the largest type on the card, or the absorbed one reads as
+        -- deleted.
+        --
+        -- Derived from the two halves rather than written out, and the test for
+        -- which knobs get it is `home`: a press that puts a parameter back
+        -- where it started is not a second control, it is the knob's own way
+        -- home. That leaves exactly the two that carry a mode — bars with the
+        -- grid, and the tape with Revox — and a third would name itself.
+        , name: case mp of
+            Just d | not c.home -> paramLabel p <> "/" <> dutyLabel d
+            _ -> paramLabel p
         , press: map (\d -> (if c.home then "back to " else "") <> dutyName d) mp
         , turn: Just (paramRange p)
-        , shows: Just "the engine's own value"
+        -- **The flag as well, where there is one.** Two of these carry a mode
+        -- on the press and a value on the turn — the tape, and now the grid —
+        -- and this said only "the engine's own value", which described the ring
+        -- and quietly dropped the light. A card that omits what a colour means
+        -- is a card you have to test against the hardware to read.
+        , shows: Just $ "the engine's own value" <> case c.light of
+            Lit f _ -> ", and lit when " <> flagName f
+            _ -> ""
         , tone: toneOf c.light
         }
       Just d, Nothing ->

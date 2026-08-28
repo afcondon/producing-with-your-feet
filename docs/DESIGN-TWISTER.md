@@ -615,7 +615,7 @@ the third page that nobody could think of a tenant for.
 
 | | | |
 |---|---|---|
-| 1 | **Loops** | teal | what is sounding, and opening the write head |
+| 1 | **Loops** | teal | what is sounding, and the whole write head |
 | 2 | **The set** | violet | the eight against each other — where each sits, whether it runs |
 | 3 | **Shape** | yellow | the loop in hand, while you play it |
 | 4 | **Set up** | blue | the loop in hand, before and between takes |
@@ -643,7 +643,7 @@ What the cut turned up, which is the useful part:
   phase it produces.
 - **Multiply could not be asked for by any hand.** On the CC table, so reachable
   from a web button; on no MC6 bank and no encoder. A verb the vocabulary had
-  and no surface could send. It has a cell on Set up.
+  and no surface could send. It has a cell on Shape.
 - **The tape's parameters were sliders on a web page.** Revox is the one mode
   with no undo, and what a pass leaves of what was under it — the number that
   separates Frippertronics from a tape echo — was the one thing you had to look
@@ -655,6 +655,127 @@ What the cut turned up, which is the useful part:
   wore one colour, and Clear shared violet with the Revox flag two cells up — a
   destructive verb and a mode, on a surface whose case for colour is that it is
   taken in rather than read.
+
+## 9.4.1 The second cut, from reading the printout
+
+The four pages were designed and then *printed*, and reading them side by side
+on paper — before any of it was tested — found seven things the design could not
+see from inside. That is worth recording as a method: a layout is a spatial
+argument, and a spatial argument is much easier to check on a page than in a
+table of case branches.
+
+- **Clear and Clear All were in different cells.** Loops had Clear at 13 and The
+  set had Clear All at 14, on two pages whose bottom rows a hand learns as one
+  row. Both are at 12 now, the corner furthest from the pager — which is the
+  knob the hand reaches for most and therefore the one it misses from.
+- **Overdub was Record with a refusal bolted on.** `Machine.onOverdub` and
+  `onRecord` send the same `r` in every case that reaches the wire; Overdub's
+  only distinct behaviour is declining an *empty* loop with "record it first".
+  On the MC6 that refusal earns its switch, because a foot cannot see what it is
+  about to write to. On a surface where the loop's colour is under your hand, it
+  is a second switch whose only difference is that it sometimes says no. The
+  cell went to the grid.
+- **The freed cell took the grid and the bar count together** — press for
+  quantise, turn for how many bars. That was the point of freeing it: the first
+  take needed Grid and bars from Set up and Record from Loops, so making a loop
+  meant two page turns before the count-in. It is now one page. The pair belongs
+  on one encoder for the same reason Revox and the tape do: a take that waits
+  for the bar and a take that is a known number of bars are one idea.
+- **`every` belongs beside `chance`.** They are the two ways of thinning a loop
+  — one random, one periodic — and they were on different pages. Shape's middle
+  row is now chance, every, slot, dense: how often it sounds, from the least
+  deliberate to the most, and then the way back.
+- **Pendulum was filed as a mode.** It sat on Set up because it is chosen
+  deliberately; so is a speed, and nobody put that on Set up. What makes
+  something a setting is that you would not touch it *mid-phrase*, and turning a
+  loop round and back is the most mid-phrase thing in the rig. It is beside
+  speed now.
+- **A knob that absorbed another control has to say so.** The grid/bars cell
+  was named `bars`, with the grid a line further down under `press` — where a
+  scan does not reach. Andrew, on the printout: *"I was quite puzzled as to
+  where grid had gone even though I had agreed to the combination."* The card
+  now derives such a name from both halves, gated on whether the press is the
+  knob's way *home*: that leaves exactly the two mode-carrying knobs,
+  `bars/Grid` and `tape/Revox`, and a third would name itself.
+- **`keeps` was a bad name and `on` was worse.** `keeps` is a low-pass corner
+  and is called `lo-pass`. `on` is which slot of the `every` period a layer
+  lands on, and is called `slot` — which is the daemon's own word in the ack
+  ("layer 1 is on slot 3 of 4"), so the knob and the reply now agree.
+
+What is left on Set up is seven controls: one-shot, listen, forget-length, and
+the tape row. **A thin page is not a failed page** — it is the four-page cut
+doing what it was for, which was to stop this one being a drawer.
+
+## 9.4.2 The sheet
+
+Reading the printout is what found §9.4.1, so printing got a button:
+**Print sheet** opens a self-contained document in its own tab — the four boards
+at a glance, a page of detail for each, then the recipes — and the browser's own
+dialog makes paper or a PDF of it. `Data.Looper.Sheet` builds it as a pure
+`String` from `pages` and `Recipes.recipes`; `Foreign.Sheet` writes it into a
+blank window.
+
+Three things about the shape of that, none of them incidental:
+
+- **Its own tab, not a print stylesheet over the app.** A print view of the app
+  is a print view you have to be *looking at*, and Chrome throttles a background
+  tab until the looper stops handling Twister messages. The whole reason for
+  paper is that the app keeps focus.
+- **A pure `String`, so the suite reads it.** The tests check that every control
+  name, every recipe and every step appears, that pages are numbered from one,
+  and that each tone's ink is emitted from `swatch` — none of which would be
+  reachable if the document were built in the DOM.
+- **A blocked pop-up is reported.** `openSheet` returns whether a window
+  actually opened, and a refusal lands in the log the player is already
+  watching. Nothing throws when a pop-up is blocked, which is the exact shape of
+  the silent failures this project keeps finding in its own ack path.
+
+The colours are the one duplication: `swatch` holds the seven hexes for anything
+that has to draw them itself, and `static/index.html` has the same seven for the
+app's own swatches, because a document in another tab cannot reach that
+stylesheet. The shared `Tone` guarantees a colour cannot go *missing* from
+either — not that they agree on which one.
+
+## 9.4.3 Two fields for one fact, again
+
+The four-page cut was tested, and the second run of the first recipe failed
+where the first run had worked. Andrew: *"clear must subtly reset something. It
+doesn't stop recording at the bar limit on subsequent recordings."*
+
+It did, and the engine was not the thing that was wrong. `Loop::cleared` zeroed
+`loop_len` and left `cycles` alone, which was harmless for as long as a bar
+count could only come from a recording — the two were made and destroyed in the
+same moment. `len<n>` broke that by sizing an *empty* loop, so a cleared slot
+said "no length" and "four bars" at once. Every call site inside the engine
+checks the length first and bails, so nothing there misbehaved.
+
+The damage was on the surface, and it needed the whole chain to be visible:
+
+1. the Twister's bars ring is drawn from `cycles`, so a cleared loop read four;
+2. the app **writes ring positions back to the device**, so the encoder
+   physically sat at four bars on a loop that had none;
+3. turning it "to four" therefore moved nothing, emitted no CC and sent no
+   `len4`;
+4. the next take recorded open-ended, and looked like a broken self-close.
+
+That last step is why it presented as an engine fault. A probe against the live
+daemon settled it in one run — two rounds of `0c`, `0g1`, `0len4`, `0r`, both
+committing at 8.000 s exactly — which said the engine was fine and the command
+had never arrived.
+
+**The lesson is the same one `sized-but-empty` taught, read the other way
+round.** There, `loop_len > 0` stopped meaning "has material". Here, `cycles > 0`
+stopped meaning "has a length". Two fields describing one fact must be born and
+die together, and the test that guards it asserts *agreement* rather than
+behaviour: a cleared loop is indistinguishable from a fresh one on every field
+that describes a length. `close_at` and `rec_len` were reset with them — both
+describe a recording that is no longer going to happen.
+
+The reason clear reaches all of this at all is worth stating: on this surface
+the device holds no value of its own, so **anything the engine forgets, the
+encoder is told to forget too.** That is the property that makes a nudge
+harmless, and it is the same property that turned a stale field into a control
+that could not be operated.
 
 ## 9.5 Speed is bipolar, and Reverse was a spelling of its sign
 
@@ -752,10 +873,13 @@ the same factor. So "how long is this loop" and "how often does the material
 sound in it" were one gesture, and **a four-bar loop whose phrase sounds every
 bar was not reachable at all**.
 
-`s<n>` is absolute now and changes no length. Three knobs on Set up hold the
-three numbers: **bars**, **every**, **on**. Which makes the thing this was
-asked for a matter of turning three knobs — record a bar, make the loop four,
-put the bar on the third of them — and the waveform already drew that picture,
+`s<n>` is absolute now and changes no length. Three knobs hold the three
+numbers: **bars** on the Loops page, **every** and **slot** on Shape. They are
+on two pages because they turned out to be about two different moments — a
+length is what a take needs *before* it starts, the other two are what you do to
+it afterwards. Which makes the thing this was asked for a matter of turning
+three knobs — record a bar, make the loop four, put the bar on the third of
+them — and the waveform already drew that picture,
 because `l_period`/`l_phase` have modelled it since the multiply rewrite. What
 was missing was never the mechanism; it was a press fixed at `s2`,
 multiplicative, that also moved the length.

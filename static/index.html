@@ -1889,6 +1889,13 @@ body {
 }
 .looper-help-btn:hover { border-color: #3a7d6c; color: #2e2b27; }
 .looper-help-btn.on { background: #2e2b27; border-color: #2e2b27; color: #fff; }
+/* The one in this row that is not a panel: it opens a document in another tab
+   rather than laying one over this page. Set apart so a hand does not reach for
+   it expecting the others' behaviour, and pushed to the end of the row. */
+.looper-help-btn.is-print {
+  margin-left: auto; border-style: dashed; color: #6d675f;
+}
+.looper-help-btn.is-print:hover { border-style: solid; }
 
 /* ── Panels ────────────────────────────────────────────────────────────────
    Two kinds, and the difference is load-bearing. The Twister card and the MC6
@@ -2141,7 +2148,12 @@ body {
 }
 
 /* The tones are what the app ASKS the device for. Nobody has compared them
-   with what it does, which is why the card says so in words as well. */
+   with what it does, which is why the card says so in words as well.
+
+   These seven hexes are also in `Data.Looper.Twister.swatch`, which is where
+   the printed sheet gets them — a document opened in its own tab cannot reach
+   this stylesheet. Keep the two in step; the shared `Tone` guarantees that a
+   colour cannot go missing from either, not that they agree on which one. */
 .twister-swatch {
   width: 10px; height: 10px; border-radius: 50%; display: inline-block;
   flex: 0 0 auto; border: 1px solid rgba(0,0,0,0.15);
@@ -4221,6 +4233,6 @@ body {
   <!-- Stamped by tools/bundle.sh with the bundle's own mtime. Without it a
        reload can serve yesterday's app and say nothing, which has cost this
        project whole afternoons more than once. -->
-  <script src="./index.js?v=1787819135"></script>
+  <script src="./index.js?v=1787902622"></script>
 </body>
 </html>

@@ -6,30 +6,60 @@ through on the rig every time the surface changes cannot. Every expected ack
 below is quoted from a real one — if a run disagrees with this file, one of the
 two is a bug and the run is usually right.
 
-Next round this becomes a modal in the app. It has to: following a written
-sequence means looking away from the browser, and **a background tab is a dead
-looper** — Chrome throttles it and Twister messages stop being handled, which
-reads exactly like a control that has stopped working.
+It is also a modal in the app, and it had to be: following a written sequence
+means looking away from the browser, and **a background tab is a dead looper**
+— Chrome throttles it and Twister messages stop being handled, which reads
+exactly like a control that has stopped working. Both come from the same
+module, so they cannot disagree.
+
+And there is a third rendering, for paper: **Print sheet** on the Looper page
+opens a self-contained document in a new tab — the four boards at a glance, a
+page of detail for each, then these recipes — laid out for A4, which the
+browser's own dialog turns into paper or a PDF. It is generated from
+`Data.Looper.Twister.pages` and `Data.Looper.Recipes` like everything else here,
+so reprint it whenever a control moves rather than annotating the old one.
 
 ## The board
 
-```
-Page 1 · Loops              Page 2 · The set
- Loop1 Loop2 Loop3 Loop4     Loop1..4   turn = pan, press = stop/go
- Loop5 Loop6 Loop7 Loop8     Loop5..8
- Rec   Ovr   Stop  Arm       launch Click Monitor ·
- layers Clear Capt  PAGE     StopAll StartAll ClearAll PAGE
+<!-- GENERATED from `Data.Looper.Twister.pages`, like the recipes below: paste
+     it from `spago test`, which prints it. Every word of it comes from
+     `controlAt`, so a control that moves takes its own description with it. -->
 
-Page 3 · Shape              Page 4 · Set up
- speed decay chance ·        Grid  OneShot Listen Pendulum
- Mult  Shift Dense  Save     bars  every   on     Length
- ·     ·     ·      ·        tape  leaves  keeps  fade
- ·     ·     ·      PAGE     ·     ·       ·      PAGE
+```
+Page 1 — Loops
+  Loop 1            Loop 2            Loop 3            Loop 4
+  Loop 5            Loop 6            Loop 7            Loop 8
+  Record            bars/Grid         Stop/Go           Arm
+  Clear             layers            Capture           page
+
+Page 2 — The set
+  Loop 1            Loop 2            Loop 3            Loop 4
+  Loop 5            Loop 6            Loop 7            Loop 8
+  launch            Click             Monitor           ·
+  Clear All         Stop All          Start All         page
+
+Page 3 — Shape
+  speed             Pendulum          decay             ·
+  chance            every             slot              Dense
+  Multiply          Shift             Save              ·
+  ·                 ·                 ·                 page
+
+Page 4 — Set up
+  One Shot          Listen            Length            ·
+  ·                 ·                 ·                 ·
+  tape/Revox        leaves            lo-pass           fade
+  ·                 ·                 ·                 page
+
+loop colours: armed violet, recordingFirst red, overdubbing orange, multiplying yellow, playing green, idle blue
 ```
 
 The pager is the bottom-right encoder and reads an **absolute position**: 0–31
 is page 1, 32–63 page 2, 64–95 page 3, 96–127 page 4. A quarter turn a page.
 Press it to go home to Loops.
+
+Two cells carry a mode on the press and a value on the turn, and are named after
+both halves: **bars/Grid** on page 1 and **tape/Revox** on page 4. Each is lit
+when its mode is on.
 
 ## The two facts everything else rests on
 
@@ -39,7 +69,8 @@ once anything has been recorded, and Link's only until then — because Link kno
 a bar's length far better than a looper can, and knows where the downbeat is
 only as well as a UDP hop allows.
 
-**A loop's length is a count of bars.** `bars` on Set up. That is what makes a
+**A loop's length is a count of bars.** The `bars` knob on the Loops page —
+turn it before the take and the recording closes itself. That is what makes a
 loop shorter than the first one possible at all, which is the whole of the
 kick-after-the-song idea.
 
@@ -61,23 +92,23 @@ The ordinary way in when Link is running and you want to sit on Ableton's grid. 
 - **Page 2** press Click
 - it ticks four to the bar, downbeat louder
   - *a click before anything is recorded — that is the point of it*
-- **Page 4** press Grid so it lights
-- **Page 4** turn bars to 4
+- **Page 1** press bars/Grid so it lights
+- **Page 1** turn bars/Grid to 4
   - *loop 0 is set to 4 bars (8.000 s); record and it closes itself.*
 - **Page 1** press Record, count yourself in
   - *loop 0 starts on the grid in 0.88 s*
 - play four bars and touch nothing
   - *loop 0 committed: 8.000 s, 1 layer playing.*
 
-> **Arm is a trap here with Grid on.** It waits for a sound and then for the next bar line, so playing just after a line costs almost a whole bar and the attack with it. Record and count in — that is what the click is for.
+> **Arm is a trap here with Grid on.** It waits for a sound and then for the next bar line, so playing just after a line costs almost a whole bar and the attack with it. Record and count in — that is what the click is for. **Running it a second time?** Clear forgets the grid flag AND the bar count, so both of those steps are needed every time round, not only the first.
 
 ## A four-bar first loop, where your note is the downbeat
 
 The same length, started by playing rather than by counting. Use it when Link is giving you a tempo rather than a performance.
 
 - **Page 1** press Loop 1
-- **Page 4** leave Grid OFF
-- **Page 4** turn bars to 4
+- **Page 1** leave bars/Grid unlit
+- **Page 1** turn bars/Grid to 4
   - *loop 0 is set to 4 bars (8.000 s); record and it closes itself.*
 - **Page 1** press Arm
 - play — the take starts on your note
@@ -90,8 +121,8 @@ The same length, started by playing rather than by counting. Use it when Link is
 The kick after the song. A loop SHORTER than the first one, which is the thing the old model could not express at all — the pulse was loop one's length, so one cycle meant four bars.
 
 - **Page 1** press Loop 2
-- **Page 4** press Grid — it is per loop, so loop 2 needs its own
-- **Page 4** turn bars to 1
+- **Page 1** press bars/Grid — the grid is per loop, so loop 2 needs its own
+- **Page 1** turn bars/Grid to 1
   - *loop 1 is set to 1 bar (2.000 s); record and it closes itself.*
 - **Page 1** press Record
   - *loop 1 committed: 2.000 s, 1 layer playing.*
@@ -101,11 +132,11 @@ The kick after the song. A loop SHORTER than the first one, which is the thing t
 One phrase placed in a longer loop rather than repeated through it. The layer keeps its own length throughout — only where it lands moves.
 
 - record a one-bar loop as above
-- **Page 4** turn bars to 4
+- **Page 1** turn bars/Grid to 4
   - *loop 1 is 4 bars (8.000 s); its layers keep their own lengths.*
-- **Page 4** turn every to 4
+- **Page 3** turn every to 4
   - *layer 1 sounds once every 4, on slot 1.*
-- **Page 4** turn on to 3
+- **Page 3** turn slot to 3
   - *layer 1 is on slot 3 of 4.*
 
 > Watch the waveform rather than the words: the bar moves to the third of four empty ones. That picture is why this is three knobs and not a sentence about how often something happens.
@@ -129,10 +160,15 @@ Only reachable with Link off. With a clock, bars resizes instead — and the ack
 
 - **Page 1** press Record, play, press Record again
   - *the one place a closing press still survives*
-- **Page 4** turn bars to 4
+- **Page 1** turn bars/Grid to 4
   - *loop 0 is 4 bars — the bar is now 2.000 s. Nothing was moved.*
 
 > No audio changed. The pulse is a quarter of what you played, so a one-bar loop 2 is now possible.
+PASS - the sheet names every control and every recipe
+PASS - the sheet counts its pages from one
+PASS - every tone has ink on the sheet
+PASS - the sheet escapes what could close a tag
+PASS - the sheet prints the eight loops once, as a range
 PASS - every recipe has steps, and most of them say what to expect
 
 ## When something looks broken

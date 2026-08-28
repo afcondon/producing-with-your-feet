@@ -68,10 +68,12 @@ import Engine (AppState, EngineState, LooperPanel, MC6Assignment, PedalState, Vi
 import Config.Preset as CPreset
 import Engine.Storage as Storage
 import Engine.Twister as Twister
+import Data.Looper.Sheet as LoopSheet
 import Foreign.FileIO as FileIO
 import Foreign.FolderBackup as FolderBackup
 import Foreign.LooperSocket as LooperSocket
 import Foreign.Remote as Remote
+import Foreign.Sheet as Sheet
 import Data.MC6.Wire as Wire
 import Foreign.Unload as Unload
 import Foreign.WebMIDI as MIDI
@@ -104,6 +106,8 @@ data Action
   | ReadMC6Banks
   | ProgramLooperBank
   | ProgramLoopBanks
+  -- | Open the printable board-and-recipes sheet in a new tab.
+  | PrintSheet
   | ProgramWholeMap
   | SetLooperFace Boolean
   | SetView View
@@ -469,6 +473,7 @@ renderLooperView state = LooperPage.render handlers ports state
     , setTone: SetTone
     , programLooperBank: ProgramLooperBank
     , programLoopBanks: ProgramLoopBanks
+    , printSheet: PrintSheet
     }
 
   ports =
@@ -1326,6 +1331,16 @@ handleAction = case _ of
   -- |
   -- | Blank switches are written too, so a bank that used to be something else
   -- | is left with no stragglers from that life.
+  -- **The one action here that tells you when it did nothing.** A blocked
+  -- popup is silent — nothing throws and no tab appears — so `openSheet`
+  -- answers whether a window opened and the refusal lands in the log the player
+  -- is already watching, rather than in a console nobody has open.
+  PrintSheet -> do
+    opened <- liftEffect (Sheet.openSheet LoopSheet.sheet)
+    unless opened $ H.modify_ (pushLooperLog
+      "the sheet could not open — the browser blocked the pop-up; allow pop-ups \
+      \for this page and press it again")
+
   ProgramLoopBanks -> do
     st <- H.get
     case st.connections.mc6Output of
