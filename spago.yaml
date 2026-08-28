@@ -33,6 +33,15 @@ package:
     - web-uievents: ">=5.0.0 <6.0.0"
   build:
     strict: true
+  # **The outfile lives here so it cannot be forgotten on the command line.**
+  # `spago bundle` without `-p` builds, prints a success line, and only then
+  # refuses — the workspace has two packages — leaving `static/index.js`
+  # untouched while every symptom reads as "the change had no effect".
+  # With this stanza the whole command is `spago bundle -p producing-with-your-feet`.
+  bundle:
+    module: Main
+    outfile: static/index.js
+    platform: browser
   publish:
     license: MIT
     version: 0.1.0

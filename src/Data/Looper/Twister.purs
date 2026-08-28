@@ -512,7 +512,20 @@ loopsBank i
       -- this device reports absolute positions, so it is a knob: turn down to
       -- undo, up to redo, ring shows how deep you are. Press still undoes one,
       -- for when it is a gesture rather than a scrub.
-      13 -> knob PLayers Undo Blue
+      --
+      -- **`home = false`, and that is the whole of why this cell was
+      -- unfindable.** Every other `knob` press puts its parameter back where it
+      -- rests — unity, hold, one bar — so the card prints "back to <duty>" and
+      -- names the cell after the parameter alone. This press does not: `Undo`
+      -- is an act, not a resting value, and it is the only exception in the
+      -- table. Called home, it printed as `layers`, and Undo — the most-wanted
+      -- verb on the surface — appeared nowhere on the card at all.
+      --
+      -- Andrew: *"you had some advice a while back about using undo… but where
+      -- is undo on the Twister?"* Exactly here, and nothing said so. It prints
+      -- as `layers/Undo` now, by the same rule that made `bars/Grid` — the rule
+      -- was already right and this cell was lying to it.
+      13 -> (knob PLayers Undo Blue) { home = false }
       -- The one thing a pedal cannot do, and the one thing a *hand* is worst
       -- placed to remember to do — so it gets a control on both surfaces.
       14 -> verb ClaimPast Yellow
@@ -579,6 +592,19 @@ theSetBank i
       -- about the rig you want to see from across the room.
       9 -> blank { press = Just ClickToggle, light = Lit FClick Teal }
       10 -> blank { press = Just MonitorToggle, light = Lit FMonitor Blue }
+      -- **The tempo, taken from the loop in hand.**
+      --
+      -- On this page rather than beside the bars knob, and the row is the
+      -- argument: launch, click and monitor are the facts about the *rig*, and
+      -- so is the tempo. Its subject is a loop only in the sense that the loop
+      -- is where the two numbers live — a length in frames and a length in bars
+      -- are a tempo between them.
+      --
+      -- Yellow, and it is the only yellow here. Every other press on this page
+      -- acts on this rig and stops there; this one reaches Ableton, the
+      -- modular's tempo-relative rates and anything else on the Link session,
+      -- which is worth a colour nothing shares.
+      11 -> verb TakeTempo Yellow
       -- Clear All in the same corner as Clear on the Loops page, for the
       -- reason given there: two pages whose bottom rows a hand learns as one
       -- should not put the erasure in two places, and the far corner is the one

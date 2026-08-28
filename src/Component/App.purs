@@ -2063,7 +2063,8 @@ handleAction = case _ of
       -- twice, and comparing strings would silently swallow the second.
       for_ snap \lp ->
         when (lp.ackSeq /= cur.looperAckSeq && lp.ack /= "") do
-          H.modify_ (pushLooperLog lp.ack <<< _ { looperAckSeq = lp.ackSeq })
+          H.modify_ (pushLooperLog (lp.ack <> ackGap cur.looperAckSeq lp.ackSeq)
+                       <<< _ { looperAckSeq = lp.ackSeq })
       -- The daemon's `k` and `m` flip rather than set, so the app's idea of
       -- them could drift from the engine's after one dropped command and never
       -- recover. It reports both in every snapshot, so take its word: for the
@@ -2551,6 +2552,32 @@ runGesture = LooperControl.runGesture looperShowBank
 -- |
 -- | **Forked, so audio never waits on the display.** The loop closes and plays
 -- | on the engine's own schedule; this either lands or does not.
+-- | How many acks happened between two polls that nobody will ever see.
+-- |
+-- | **The snapshot carries only the newest ack**, and a fan-out duty sends
+-- | eight commands in under a millisecond. Clear All therefore produces eight
+-- | acks, the poll catches whichever happened to be current, and the other
+-- | seven are gone — leaving one line that looks like a *result*: `loop 2
+-- | cleared.` under eight lines reading `loop 1 · c` … `loop 8 · c`. It reads
+-- | as the wrong loop having been cleared, and it cost a bug report.
+-- |
+-- | The counter was already there and was only ever asked whether it had
+-- | changed, never by how much. Both numbers are in hand; the difference is the
+-- | thing worth saying.
+-- |
+-- | Silent for the first ack of a session — `looperAckSeq` starts at zero and
+-- | the daemon's has been counting since it booted, so the gap there is its
+-- | whole history rather than anything we missed. Silent too if the daemon's
+-- | counter went backwards, which means it restarted and there is nothing to
+-- | report but a reconnection.
+ackGap :: Int -> Int -> String
+ackGap seen now
+  | seen <= 0 = ""
+  | now <= seen = ""
+  | now - seen <= 1 = ""
+  | otherwise =
+      " (and " <> show (now - seen - 1) <> " more the poll did not catch)"
+
 looperShowBank :: forall o m. MonadAff m => LoopBanks.BankSlot -> H.HalogenM AppState Action Slots o m Unit
 looperShowBank slot = do
   st <- H.get
@@ -3347,7 +3374,12 @@ handleEncoderPress knob = do
       -- there for going anywhere else.
       then showTwisterPage 0
       else for_ (LoopTwister.pressedAt (onPage st knob)) \(Tuple subject duty) -> do
-      traverse_ (runAction 0.0) (Machine.perform (rigOf st) subject duty)
+      -- **`performPress`, and only here.** This is the one path in the app that
+      -- can produce an `OnLoop` subject from a deliberate press — the encoder
+      -- decoder is the only producer of that subject at all, and its other
+      -- consumer is `handleEncoderTurn`, where taking focus would let a nudge
+      -- steal it. See `Machine.performPress`.
+      traverse_ (runAction 0.0) (Machine.performPress (rigOf st) subject duty)
       -- The lights follow the *snapshot*, and the snapshot has not caught up
       -- yet — the poll does that within a frame. Nothing is refreshed here on
       -- purpose: drawing what we just asked for would be the app showing its

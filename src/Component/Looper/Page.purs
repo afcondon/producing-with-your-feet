@@ -51,6 +51,7 @@ import Component.Looper.Board (render) as BoardSim
 import Component.Looper.Slots as Slots
 import Component.Looper.TwisterMap as TwisterMap
 import Data.Looper.Recipes as Recipes
+import Data.Looper.Twister as TW
 import Data.Array as Array
 import Data.Int as Int
 import Data.Looper as Looper
@@ -398,7 +399,29 @@ render h ports state =
                             else show bars <> (if bars == 1 then " bar" else " bars")) false
         , reading "launch" (launchWords lp.launchQ) false
         , reading "grid" (if maybe false _.quant focused then "on" else "off") false
+        , twisterReading
         ]
+
+  -- | **Which page the Twister is on, on the screen as well as under the hand.**
+  -- |
+  -- | The controller says it twice — the pager's ring position and its colour —
+  -- | and both are on the device, which is no help at all when the thing you
+  -- | are looking at is the screen. The eight loop encoders are deliberately in
+  -- | the same eight positions on the Loops page and the Set page so the map is
+  -- | learned once, and the cost of that is a page you can be on without
+  -- | noticing: press Loop 8 on the Set page and it stops or starts rather than
+  -- | selecting. That produced a bug report, and this is half the answer to it
+  -- | (the other half is that acting on a loop now takes it in hand).
+  -- |
+  -- | The name comes from `TW.pages`, so a renamed page renames itself here.
+  -- | Not an alarm: being on the Set page is an ordinary place to be. It earns
+  -- | its space by being the one fact on this strip that is about the *hand*
+  -- | rather than the rig.
+  twisterReading =
+    let name = maybe "—" _.name
+                 (Array.find (\pg -> pg.bank == state.twisterPage) TW.pages)
+    in reading "twister"
+         ("page " <> show (state.twisterPage + 1) <> " · " <> name) false
 
   reading label value alarm =
     HH.div [ HP.class_ (HH.ClassName ("looper-reading" <> if alarm then " is-alarm" else "")) ]

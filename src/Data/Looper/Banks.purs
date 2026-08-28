@@ -763,6 +763,21 @@ data Duty
   -- | Let go of the length that `Undo` deliberately kept. The third of the
   -- | three erasures, and the one that is a between-takes decision.
   | ForgetLength
+  -- | **Take the session tempo from this loop.**
+  -- |
+  -- | The other half of `SetBars`. That duty has three jobs and the ack says
+  -- | which one you got — size an empty loop, declare the bar count of a
+  -- | clockless anchor, resize something with material in it — and *declaring*
+  -- | was reachable only with no clock, because with one there was nothing to
+  -- | tell. There is now: link-spike answers `/link/set-tempo`.
+  -- |
+  -- | **The only duty in this vocabulary whose effect leaves the rig.**
+  -- | Everything else here addresses a loop or the daemon; this one reaches
+  -- | Ableton, purerl-tidal and the modular's tempo-relative rates, because
+  -- | Link is a session rather than a clock we read. That is a reason for it to
+  -- | be a deliberate press rather than a knob, not a reason to leave the click
+  -- | fighting what you played.
+  | TakeTempo
   -- | Input monitoring. Global in the engine, like the click.
   | MonitorToggle
 
@@ -936,6 +951,7 @@ dutyLabel = case _ of
   RotateLoop -> "Shift"
   DenseLoop -> "Dense"
   ForgetLength -> "Length"
+  TakeTempo -> "Tempo"
   MonitorToggle -> "Monitor"
   -- The value goes in `dutyName`, not here. Eight characters cannot hold
   -- "Chance 3 in 4", and these three never reach an MC6 switch anyway — they
@@ -1004,6 +1020,7 @@ dutyName = case _ of
   RotateLoop -> "Move it one slot later"
   DenseLoop -> "Sound every cycle again"
   ForgetLength -> "Let go of the length"
+  TakeTempo -> "Take the tempo from this loop"
   MonitorToggle -> "Input monitoring"
   Click on -> "Click " <> onOff on
   Monitor on -> "Monitoring " <> onOff on

@@ -2616,6 +2616,38 @@ main = do
     (Machine.perform (rig8 { focus = 0 }) (LB.OnLoop 5) (LB.Place 100)
       == [ Machine.Command "5pan100" ])
 
+  -- **Acting on a loop takes it in hand; brushing one does not.**
+  --
+  -- The Set page presses stop/go on the same eight encoders that select on the
+  -- Loops page, so pressing Loop 8 there left the focus wherever it was and the
+  -- next Clear went somewhere else — with the log naming loop 8 eight lines
+  -- above the ack. The press now says which loop you mean.
+  --
+  -- The second half is the one that matters more: a *turn* must not. This
+  -- hardware moves an encoder when you press it, so a nudge of loop 5's pan
+  -- that stole the focus would be worse than the bug being fixed.
+  assert "a press on a loop takes it in hand, and a turn on one does not"
+    (Machine.performPress (rig8 { focus = 0 }) (LB.OnLoop 7) LB.Transport
+       == [ Machine.Focus 7, Machine.Unavailable "loop 8 has nothing to play" ]
+      && Machine.performPress (rig8 { focus = 0 }) (LB.OnLoop 5) (LB.Place 100)
+        == [ Machine.Focus 5, Machine.Command "5pan100" ]
+      -- The turn path never reaches `performPress`, and this is the property
+      -- that keeps it worth not reaching.
+      && Machine.perform (rig8 { focus = 0 }) (LB.OnLoop 5) (LB.Place 100)
+        == [ Machine.Command "5pan100" ])
+
+  -- Selecting already focused, so it must not be focused twice — and every
+  -- duty that reaches `SelectLoop` by recursion is covered by the same check.
+  assert "selecting a loop focuses it exactly once"
+    (Machine.performPress (rig8 { focus = 0 }) (LB.OnLoop 3) (LB.SelectLoop 3)
+      == [ Machine.Focus 3, Machine.Handled "loop 4" ])
+
+  -- Nothing whose subject is the focused loop can move the focus, or every
+  -- knob on the Shape page would be a selector.
+  assert "a duty about whatever is focused never moves the focus"
+    (Machine.performPress (rig8 { focus = 5 }) LB.Focused (LB.Place 100)
+      == [ Machine.Command "5pan100" ])
+
   assert "and a duty with no loop of its own goes to the focused one"
     (Machine.perform (rig8 { focus = 5 }) LB.Focused (LB.Place 100)
       == [ Machine.Command "5pan100" ])
@@ -3083,6 +3115,21 @@ main = do
      in c.press == Just LB.GridToggle && c.turn == Just LoopTw.PBars
           && c.ring == LoopTw.Value LoopTw.PBars)
 
+  -- **The tempo comes from a loop and lands on the session.**
+  --
+  -- Addressed to a loop like everything else — the loop is where the two
+  -- numbers are — and the whole chain has to end in `bpm` on the focused one,
+  -- because a bare `bpm` would take the tempo from whatever the daemon happens
+  -- to have selected, which is the field nothing in this app writes.
+  assert "the tempo press asks the focused loop for it, and says which"
+    (let full = (idle 0) { layers = 1, loopSecs = 8.0, cycles = 4, state = "playing" }
+         rig = (rigOf [ idle 0, full ]) { focus = 1 }
+     in case LoopTw.pressedAt { bank: 1, index: 11 } of
+          Just (Tuple subj duty) ->
+            duty == LB.TakeTempo
+              && Machine.perform rig subj duty == [ Machine.Command "1bpm" ]
+          Nothing -> false)
+
   -- **A knob that absorbed another control says so in its name.** The cell read
   -- `bars` and the grid was a line further down under `press`, which reads as
   -- the grid having been deleted rather than moved. Derived from the two halves
@@ -3092,7 +3139,13 @@ main = do
     (named 0 9 == "bars/Grid"
       && named 3 8 == "tape/Revox"
       && named 2 0 == "speed"
-      && named 0 13 == "layers")
+      -- **The exception that proves the rule was right.** Every other `knob`
+      -- press puts its parameter back where it rests, so the card prints the
+      -- parameter alone. This one is an act — the stack has no resting value —
+      -- and calling it home hid the most-wanted verb on the surface behind the
+      -- word "layers".
+      && named 0 13 == "layers/Undo"
+      && named 3 11 == "fade")
 
   -- **Overdub was Record with a refusal bolted on.** `onOverdub` and `onRecord`
   -- send the same `r` in every case that reaches the wire; the only difference

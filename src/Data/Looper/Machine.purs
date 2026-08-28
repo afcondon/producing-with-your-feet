@@ -39,6 +39,7 @@ module Data.Looper.Machine
   , Rig
   , act
   , perform
+  , performPress
   , describe
   ) where
 
@@ -154,6 +155,45 @@ missing slot i = Unavailable (show' slot <> " switch " <> show i <> " has nothin
 -- | below goes through `cmd i`, which is `Verb.at` — there is deliberately no
 -- | path here that sends an unprefixed per-loop verb, because the daemon then
 -- | applies it to a selection nothing in this app writes.
+-- | **Anything you do to a loop takes it in hand.**
+-- |
+-- | `SelectLoop` deliberately does nothing *to* a loop — you must be able to
+-- | look at one without acting on it — and for a while the converse was left
+-- | unstated, which turned out to be a trap. The Twister's Loops page and its
+-- | Set page put the same eight loops on the same eight encoders so the spatial
+-- | map is learned once; one of them selects on a press and the other stops or
+-- | starts. So you can press Loop 8, watch the log name loop 8, and then clear
+-- | loop 3, because the header never moved and nothing said why.
+-- |
+-- | Andrew, having done exactly that: *"perhaps it's just user error that I
+-- | didn't realise I was on page 2 or perhaps it's too easy to make that
+-- | mistake."* It is too easy, and this is the half of the rule that was
+-- | missing: acting on a loop is the plainest possible statement that it is the
+-- | loop you mean.
+-- |
+-- | Only for an `OnLoop` subject, so the knobs and verbs that already address
+-- | whatever is focused change nothing — and skipped when the body already
+-- | focuses, which is `SelectLoop` and every duty that reaches it by recursion.
+-- |
+-- | **A press and not a turn, and the test told me so.** The first version put
+-- | this inside `perform` itself, which meant a *pan* on loop 5 also took loop
+-- | 5 in hand — and the suite caught it, because a turn addressing its own loop
+-- | while the focus is elsewhere is a property with a test of its own. It would
+-- | have been strictly worse than the bug it fixed: this hardware moves an
+-- | encoder when you press it (measured, not guessed), so a brush of loop 5's
+-- | level would have stolen the focus and pointed the next Clear at it. A
+-- | press is a statement; a turn is sometimes an accident.
+performPress :: Rig -> Subject -> LB.Duty -> Array Action
+performPress rig subject duty =
+  let out = perform rig subject duty
+  in case subject of
+       LB.OnLoop n | not (Array.any isFocus out) -> Array.cons (Focus n) out
+       _ -> out
+  where
+  isFocus = case _ of
+    Focus _ -> true
+    _ -> false
+
 perform :: Rig -> Subject -> LB.Duty -> Array Action
 perform rig subject = case _ of
   -- **Selecting a loop does nothing to it.** The MC6 opens its page from the
@@ -360,6 +400,11 @@ perform rig subject = case _ of
   LB.RotateLoop -> [ Command (cmd i Verb.Rotate) ]
   LB.DenseLoop -> [ Command (cmd i Verb.Dense) ]
   LB.ForgetLength -> [ Command (cmd i Verb.ForgetLength) ]
+  -- Addressed to a loop like everything else, though what it changes is the
+  -- session. The loop is where the two numbers are — its length in frames and
+  -- its length in bars — and those two numbers *are* a tempo; the daemon does
+  -- the arithmetic because only it knows the sample rate and the metre.
+  LB.TakeTempo -> [ Command (cmd i Verb.TakeTempo) ]
 
   LB.NotYet what why -> [ Unavailable (what <> ": " <> why) ]
   -- No longer names the bank it came from: a duty has no bank, and the two

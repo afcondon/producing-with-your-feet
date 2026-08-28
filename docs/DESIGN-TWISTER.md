@@ -777,6 +777,76 @@ encoder is told to forget too.** That is the property that makes a nudge
 harmless, and it is the same property that turned a stale field into a control
 that could not be operated.
 
+## 9.4.4 The click comes to you
+
+*"Why wouldn't our looper change the Link speed? If I record a few bars as a
+basis and I'm a bit off with my timing vs the click, and I trim the end, we can
+just change the BPM."* — and the answer was that it should, and that most of the
+plumbing was already there.
+
+link-spike answers `/link/set-tempo` on UDP 57122 and propagates to every peer.
+Itajara had no outbound OSC at all — it listens for anchors on 57125 and
+otherwise only ever receives — so this is `link::set_tempo`, a UDP send, and one
+exact-match arm in `dispatch`: **`<n>bpm`, take the session tempo from loop n.**
+
+### Why this is not warping
+
+**No audio moves.** `loop_len` is frames; loops play at frame rate and stay
+phase-locked to each other whatever a bar is. What a bar length reaches is the
+click, quantised launches and closes, `set_bars` arithmetic — and the rest of
+the Link session. This is the principle the bar model already runs on, at rig
+scale: *move the grid to the audio, never the audio to the grid.* It is the
+opposite of the Ableton move, and it is what a floor looper has always done.
+
+It also takes the **average** over the bars, not the timing within them. Play
+four bars a little long and the click comes to you; play them unevenly and they
+stay uneven, which is the point.
+
+### The half that was missing
+
+The first attempt needed three gestures — record free, declare the bar count,
+take the tempo — and the middle one could not be made. `set_bars` has three
+behaviours and *declaring* is reachable only with no clock; with one, it
+**resizes**, which would have snapped the 8.129 s take to 8.000 and cut exactly
+the overhang the whole exercise is about.
+
+The real gap was upstream: **`commit` set a length and never a bar count.**
+`cycles` is zero for every freely recorded loop, and zero reads as one
+everywhere, so an eight-second take showed "1 bar" on the encoder. Committing
+now rounds `len / bar` to the nearest, at least one, whenever there is a clock —
+which is honest on its own terms, fixes the bars ring for free takes, and
+reduces the whole recipe to **Arm, play, press Tempo**.
+
+Only with a clock. Without one the first loop *is* the pulse and its whole
+length is one cycle, which is what `loop_grid` depends on.
+
+### What it cost to find the guard
+
+The first live run put the whole rig on **29.56 bpm**. The take was four bars and
+`cycles` was zero, so it was read as one bar — and 29.56 is inside Link's
+20..999, so the range check passed and the number went out to Ableton and the
+modular.
+
+That is the failure this rig is built to avoid: not a wrong answer that looks
+wrong, a wrong answer that looks ordinary. The range check cannot catch it, because
+one quarter of a plausible tempo is also a plausible tempo. So `bpm` refuses
+outright when `cycles` is zero — a loop nobody has counted may not define the
+tempo — rather than falling back on the `.max(1)` that every other reader of
+that field uses. It is the same lesson as `close_at`: **a default that is right
+for a readout is not automatically right for a command.**
+
+### What it costs when other loops exist
+
+Nothing to them: they are frames, they do not move, and they stay in relation to
+each other. What moves is the click and everything downstream of Link, so loops
+recorded against the old click are now out with the click and still in with each
+other. Sometimes that is exactly the intent. The ack counts them and says so
+rather than deciding.
+
+Cell: page 2, index 11, beside launch / click / monitor — the row that is
+already the facts about the rig. Yellow, and the only yellow on that page:
+every other press there acts on this rig and stops, and this one leaves it.
+
 ## 9.5 Speed is bipolar, and Reverse was a spelling of its sign
 
 `Data.Looper.Verb.Rate` has said all along that the daemon takes ±0.125 to ±4

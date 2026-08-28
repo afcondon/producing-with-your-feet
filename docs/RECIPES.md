@@ -30,12 +30,12 @@ Page 1 — Loops
   Loop 1            Loop 2            Loop 3            Loop 4
   Loop 5            Loop 6            Loop 7            Loop 8
   Record            bars/Grid         Stop/Go           Arm
-  Clear             layers            Capture           page
+  Clear             layers/Undo       Capture           page
 
 Page 2 — The set
   Loop 1            Loop 2            Loop 3            Loop 4
   Loop 5            Loop 6            Loop 7            Loop 8
-  launch            Click             Monitor           ·
+  launch            Click             Monitor           Tempo
   Clear All         Stop All          Start All         page
 
 Page 3 — Shape
@@ -70,7 +70,10 @@ a bar's length far better than a looper can, and knows where the downbeat is
 only as well as a UDP hop allows.
 
 **A loop's length is a count of bars.** The `bars` knob on the Loops page —
-turn it before the take and the recording closes itself. That is what makes a
+turn it before the take and the recording closes itself, or record free and it
+counts its own bars against the clock. And the arrow runs both ways: **Tempo**
+on page 2 takes the session tempo *from* a loop, so the click can come to what
+you played instead of the other way round. That is what makes a
 loop shorter than the first one possible at all, which is the whole of the
 kick-after-the-song idea.
 
@@ -116,6 +119,20 @@ The same length, started by playing rather than by counting. Use it when Link is
 
 > That note becomes **bar one for the whole rig**: the bar's length still comes from Link, its downbeat now comes from you. Nothing is aligned to Ableton after this and everything is aligned to what you played.
 
+## The click comes to you, not the other way round
+
+For a take that is right except that it ran a little long or a little short against the click. Nothing is stretched — the session tempo is re-derived from what you played, which is the floor-looper move rather than the DAW one.
+
+- **Page 1** press Loop 1, leave bars/Grid unlit
+- **Page 1** press Arm, then play four bars
+  - *loop 0 committed: 8.129 s, 1 layer playing.*
+- look at bars/Grid — it already reads 4
+  - *a free take counts its own bars against the clock, so there is nothing to declare and nothing to trim*
+- **Page 2** press Tempo
+  - *tempo taken from loop 0: 8.129 s over 4 bars is 118.09 bpm.*
+
+> It takes the **average** over the bars, not your timing within them: play four bars slightly slow and the click comes to you, play them unevenly and they stay uneven. That is the point. It also moves Ableton and anything else on the Link session — if other loops are already down they keep their audio and stop agreeing with the click, and the ack counts them so you find out now rather than later.
+
 ## A one-bar second loop against it
 
 The kick after the song. A loop SHORTER than the first one, which is the thing the old model could not express at all — the pulse was loop one's length, so one cycle meant four bars.
@@ -145,12 +162,12 @@ One phrase placed in a longer loop rather than repeated through it. The layer ke
 
 For when you do not know how many bars yet. You count with bars and you play with this; both are worth having.
 
+- record a loop as in any recipe above — Multiply extends something, it does not start one
 - **Page 3** press Multiply
-- the write head opens
-  - *loop 0 multiplying from the start of this cycle — play across as many cycles as you want, then x again.*
+  - *loop 0 multiplying from the start of this cycle (0.25 s recovered from the pre-roll) — play across as many cycles as you want, then x again.*
 - play across as many cycles as you like
 - **Page 3** press Multiply again
-  - *rounds to whole cycles, waiting for the boundary if it rounded up*
+  - *loop 0 x1: now 4.535 s (1 cycles of 4.535 s) — 2 layers playing.*
 
 > It feels like an overdub because it **is** one — an overdub that also lengthens the loop. Refused unless the loop is playing forwards at unity.
 
