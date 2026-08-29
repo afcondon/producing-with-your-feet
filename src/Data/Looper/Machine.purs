@@ -257,6 +257,11 @@ perform rig subject = case _ of
   -- could fall out of step with is the thing this design is trying not to
   -- have."
   LB.SaveTake -> [ Command (cmd i (Verb.SaveTake "")) ]
+  -- **Bare, where Save is prefixed** — and the contrast is the point. Save is
+  -- an `lp.` command and had to be told which loop; this is an `sh.` one, about
+  -- the set rather than any loop in it, so a leading digit would be noise in
+  -- the same way it is for the click.
+  LB.ExportSet -> [ Command (Verb.render (Verb.ExportSet "")) ]
   -- **Set, not flip — and `Rig` is why it can be.**
   --
   -- The metronome is global, `sh.click` rather than `lp.click`, so the daemon

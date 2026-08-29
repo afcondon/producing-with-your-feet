@@ -41,7 +41,7 @@ Page 2 — The set
 Page 3 — Shape
   speed             Pendulum          decay             ·
   chance            every             slot              Dense
-  Multiply          Shift             Save              ·
+  Multiply          Shift             Save              Export
   ·                 ·                 ·                 page
 
 Page 4 — Set up
@@ -60,6 +60,31 @@ Press it to go home to Loops.
 Two cells carry a mode on the press and a value on the turn, and are named after
 both halves: **bars/Grid** on page 1 and **tape/Revox** on page 4. Each is lit
 when its mode is on.
+
+**Save and Export sit side by side, and they are not two spellings of one
+thing.** Save writes *this loop's layers*, raw — itajara's own format, the take
+you reload tomorrow to keep overdubbing. Export writes *every loop that holds
+something*, each flattened and rendered to one WAV: layer gains, decay, speed,
+direction and where a sparse layer lands, all applied, which is what Ableton,
+Loopy Pro and `msm` mean by a loop.
+
+What Export deliberately leaves out of the audio is chance, one-shot and mute —
+the three things that decide whether you hear a loop *this time round* rather
+than what it sounds like. Baking a roll of the dice into a file would make it
+one performance instead of the loop, and every receiver these files go to can
+roll its own. They are written into `export.json` as numbers instead: **what we
+do not render, we record.**
+
+Each file also carries an `acid` chunk — its tempo and beat count — so a take
+drops into Ableton already warped rather than needing to be told its length
+eight times. A loop at any speed but one, or on a pendulum, has no whole number
+of beats to declare and gets no chunk, because a confident wrong answer there
+warps to the wrong grid.
+
+The files are numbered as the board labels them: loop 1 is `loop-1.wav`, even
+though the daemon's own ack for it still says "loop 0". A filename is read in
+Finder and in Ableton's browser with no ack beside it to explain the offset, so
+the seam is crossed here, and the ack says so out loud when it does.
 
 ## The two facts everything else rests on
 

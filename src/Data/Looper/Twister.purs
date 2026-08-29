@@ -704,10 +704,17 @@ shapeBank = case _ of
   -- you play when you do not.
   8 -> verb MultiplyLoop Orange
   9 -> verb RotateLoop Violet
-  -- Blue rather than violet. It sat in a row of four identical violets, and a
-  -- colour four things share says nothing — this one is the Atlantis seam, not
-  -- a structural edit, and it is the only cell here that leaves the rig.
+  -- Blue rather than violet. They sat in a row of four identical violets, and a
+  -- colour four things share says nothing — these two are the Atlantis seam,
+  -- not structural edits, and they are the only cells here that leave the rig.
+  --
+  -- Side by side because the pair is the distinction: **Save is this loop's
+  -- layers, Export is the whole set** — one is the session and reloads, the
+  -- other is what Ableton, Loopy and msm can read. Neither is the better
+  -- version of the other, and having them adjacent is the cheapest way to keep
+  -- that from being a thing you have to remember.
   10 -> verb SaveTake Blue
+  11 -> verb ExportSet Blue
 
   15 -> pager
   _ -> blank

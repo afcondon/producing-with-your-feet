@@ -651,6 +651,9 @@ data Duty
   | Undo
   | ClearLoop
   | SaveTake
+  -- | The whole set, rendered — see `Data.Looper.Verb.ExportSet` for what that
+  -- | means and how it differs from Save.
+  | ExportSet
   | ClickToggle
   | Reverse
   | Pendulum
@@ -942,6 +945,7 @@ dutyLabel = case _ of
   ClearAll -> "Clear All"
   ClaimPast -> "Capture"
   SaveTake -> "Save"
+  ExportSet -> "Export"
   ClickToggle -> "Click"
   Reverse -> "Reverse"
   Pendulum -> "Pendulum"
@@ -1010,6 +1014,7 @@ dutyName = case _ of
   ClearAll -> "Clear every loop"
   ClaimPast -> "Claim what just happened"
   SaveTake -> "Save the take to disk"
+  ExportSet -> "Render every loop to its own WAV"
   ClickToggle -> "Click on or off"
   Reverse -> "Play the loop backwards"
   Pendulum -> "Forward, then back"
