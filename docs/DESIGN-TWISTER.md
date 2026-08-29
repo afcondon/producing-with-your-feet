@@ -862,9 +862,24 @@ apart would have meant rewriting the ring twice.
 ### Stereo
 
 `CHANNELS = 2`, interleaved, everywhere: the arena, the pre-roll rings, every
-layer, the saved WAVs. The arena doubles to 702 MiB at the defaults; `--max-secs`
-is the dial. Interleaved rather than planar because the mix wants both channels
-of a frame at once.
+layer, the saved WAVs. Interleaved rather than planar because the mix wants both
+channels of a frame at once.
+
+The arena doubled to 702 MiB at the then-defaults, and `--max-secs` is the dial.
+Both defaults moved on 2026-08-29 — **`MAX_LAYERS` 8 → 4, `--max-secs` 30 → 300**
+— because thirty seconds is fifteen bars at 120 and "grab sixteen bars of this"
+was a gesture the engine could not perform: the pre-roll remembered the audio and
+there was nowhere to put it. Halving the layers, which were never all used, paid
+for twice the length; the rest was bought outright.
+
+**The arena is reserved, not resident, and that is what makes the size
+affordable.** Measured: 3.43 GiB of arena sat at 455 MiB RSS immediately after
+the zeroing pass and fell to **53 MiB** within a dozen seconds as the kernel
+reclaimed the untouched pages. A page nobody has recorded into is never paid
+for, so the ceiling costs address space and the *use* of it is paid a layer at a
+time by whoever uses it. Which is also the answer to whether long loops should
+be allowed fewer layers than short ones: they already are, by the only allocator
+that knows which loops you actually filled.
 
 **`pan` became two controls wearing one knob**, and this is the part that is a
 decision rather than a type change:

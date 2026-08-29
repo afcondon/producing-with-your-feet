@@ -1000,14 +1000,20 @@ levelRing = positionAt levelLaw
 -- | the snapshot carries the authoritative number as `maxLayers` if this ever
 -- | needs checking rather than trusting.
 maxLayers :: Int
-maxLayers = 8
+maxLayers = 4
 
 -- | The longest tape the knob offers, in seconds.
 -- |
--- | Thirty because that is `--max-secs`' default and the daemon refuses past
--- | it; a knob whose top end is a refusal is a knob with a dead corner.
+-- | **Sixty, and no longer the same number as `--max-secs`.** It used to be
+-- | thirty because that was the daemon's ceiling and a knob whose top end is a
+-- | refusal has a dead corner. The ceiling is five minutes now, and following
+-- | it here would spend all 128 steps on a range nobody threads a tape over:
+-- | 2.3 s a step, so the short tapes — the ones the Revox trick is actually
+-- | for — would be unreachable between two clicks. A knob that offers less
+-- | than the engine allows has no dead corner, it just does not go everywhere;
+-- | that is a smaller fault than not going anywhere usefully.
 tapeTop :: Number
-tapeTop = 30.0
+tapeTop = 60.0
 
 -- | Two hundred milliseconds rather than the daemon's five hundred: past a
 -- | tenth of a second a wrap fade is not a join any more, so spending three

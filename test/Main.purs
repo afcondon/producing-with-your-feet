@@ -3027,7 +3027,7 @@ main = do
   assert "turning the Revox encoder threads the focused loop"
     (let rig = (rigOf [ idle 0, idle 1 ]) { focus = 1 }
      in case LoopTw.turnedAt { bank: 3, index: 8 } 34 of
-          Just (Tuple subj duty) -> Machine.perform rig subj duty == [ Machine.Command "1blank8.0" ]
+          Just (Tuple subj duty) -> Machine.perform rig subj duty == [ Machine.Command "1blank16.0" ]
           Nothing -> false)
 
   -- **Tape loses the top before it loses the level.** Losing only the level is
@@ -3043,9 +3043,9 @@ main = do
   -- is by recording one; this is the only way to have a length and nothing in
   -- it, which is what Revox needs to start from.
   assert "the tape knob threads whole seconds and reads the loop's length back"
-    (LoopTw.fromKnob LoopTw.PTape 127 == LB.Blank 30.0
-      && LoopTw.fromKnob LoopTw.PTape 64 == LB.Blank 15.0
-      && LoopTw.toKnob LoopTw.PTape ((idle 0) { loopSecs = 15.0 }) == 64)
+    (LoopTw.fromKnob LoopTw.PTape 127 == LB.Blank 60.0
+      && LoopTw.fromKnob LoopTw.PTape 64 == LB.Blank 30.0
+      && LoopTw.toKnob LoopTw.PTape ((idle 0) { loopSecs = 30.0 }) == 64)
 
   -- Zero is the absence of a command, not a command for no tape. Sending
   -- `blank0` would have the daemon refuse a length nobody asked for.
@@ -3341,11 +3341,15 @@ main = do
   -- Eight layers across 128 steps is sixteen steps a layer, and the press guard
   -- only has to cover two — so the nudge is harmless by arithmetic rather than
   -- by luck.
-  assert "a layer is sixteen steps wide, well clear of a press nudge"
-    (LoopTw.fromKnob LoopTw.PLayers 127 == LB.Layers 8
+  -- Thirty-two since the ceiling went from eight layers to four, which only
+  -- makes the original argument stronger: the device moves an encoder when you
+  -- press it, and a step you can cross by pressing is a step that changes a
+  -- loop you meant only to take in hand.
+  assert "a layer is thirty-two steps wide, well clear of a press nudge"
+    (LoopTw.fromKnob LoopTw.PLayers 127 == LB.Layers 4
       && LoopTw.fromKnob LoopTw.PLayers 0 == LB.Layers 0
       && LoopTw.fromKnob LoopTw.PLayers 2 == LB.Layers 0
-      && LoopTw.toKnob LoopTw.PLayers ((idle 0) { layers = 4 }) == 64)
+      && LoopTw.toKnob LoopTw.PLayers ((idle 0) { layers = 2 }) == 64)
 
   -- The rig's threshold is not a per-loop value and has no knob for that
   -- reason; it still needs a verb, because the page sets it.
