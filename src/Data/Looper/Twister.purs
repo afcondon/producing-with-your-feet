@@ -73,6 +73,7 @@ module Data.Looper.Twister
   , pages'
   , launchLadder
   , maxBars
+  , maxSources
   , Cell
   , Page
   , pages
@@ -122,6 +123,12 @@ data Param
   -- | What a launch waits for, in beats. **The only parameter here that is not
   -- | about a loop**, which is why its ring is a `RigValue` — see `RingSource`.
   | PLaunch
+  -- | **Which input a loop records from.** One-based, indexing the snapshot's
+  -- | `sources`. The only knob here whose *range* is a fact about the rig — how
+  -- | many sources exist is decided at launch — so `sourceCount` is threaded in
+  -- | rather than assumed, and a rig with one source has a knob that does
+  -- | nothing rather than a knob that lies.
+  | PSource
 
 derive instance Eq Param
 
@@ -146,6 +153,7 @@ paramLabel = case _ of
   PEvery -> "every"
   POn -> "slot"
   PLaunch -> "launch"
+  PSource -> "input"
 
 -- | The position a knob should be able to find without looking, if it has one.
 -- |
@@ -198,6 +206,7 @@ paramRange = case _ of
   PEvery -> "every time round, to once in " <> show maxBars
   POn -> "which slot of the every, counting from one; wraps"
   PLaunch -> "none, a beat up to eight bars, or the bar"
+  PSource -> "which input this loop records from"
 
 -- | What lights the encoder's ring.
 -- | **Two constructors, and there used to be three.** `Playhead` drew a loop's
@@ -248,7 +257,7 @@ derive instance Eq Light
 -- | cannot answer them from a `LoopState` and `leds` fills them in from the
 -- | `Rig` — the same seam `RigValue` opened for the launch knob.
 data Flag = FReverse | FPendulum | FOneShot | FLevelArm | FGrid | FRevox
-  | FClick | FMonitor
+  | FClick | FMonitor | FMono
 
 derive instance Eq Flag
 
@@ -262,6 +271,7 @@ flagName = case _ of
   FRevox -> "a tape"
   FClick -> "the click is on"
   FMonitor -> "the input is monitored"
+  FMono -> "folded to mono"
 
 -- | One encoder: what it is about, what a press means, what a turn means, and
 -- | what it shows.
@@ -734,6 +744,21 @@ setUpBank = case _ of
   -- leaves — an uncommon act, one page turn away.
   2 -> verb ForgetLength Blue
 
+  -- **Which input, and whether its two channels stay two.**
+  --
+  -- Before-the-take decisions both, which is what this page is: a loop records
+  -- from one input and the choice has to be made before the write head opens —
+  -- the daemon refuses it mid-take, because splicing two different rooms
+  -- together in one layer is not a thing anyone means.
+  --
+  -- `mono` is the exception that proves it: it folds at *playback*, so it is
+  -- free to try and free to undo, and it belongs beside the input rather than
+  -- on Shape because what it is really saying is "there is nothing in the
+  -- sides of this source". Its other half is the pan knob on The set, which
+  -- becomes a placement when this is lit and a balance when it is not.
+  4 -> knob PSource (SetSource 1) Teal
+  5 -> flagged MonoToggle FMono Yellow
+
   -- **Press is the mode; turn threads the tape.**
   --
   -- They belong on one control because they are one idea: a tape is a loop of a
@@ -816,6 +841,11 @@ fromKnob p v = case p of
   -- function of a position.
   POn -> PlaceAt (stepOf maxBars v)
   PLaunch -> Launch (fromMaybe (-1) (Array.index launchLadder (bandOf (Array.length launchLadder) v)))
+  -- **Bands over the sources this rig actually has**, so the whole travel is
+  -- live and the top of it is not a refusal — the same rule `bars` broke when
+  -- its span outran `--max-secs`. `maxSources` is the ceiling the knob can
+  -- express; the daemon refuses anything past what exists and says what does.
+  PSource -> SetSource (stepOf maxSources v)
 
 -- | Where a value sits on the ring — the inverse of `fromKnob`, and the reason
 -- | the device never has to remember anything.
@@ -845,6 +875,7 @@ toKnob p st = clamp 0 127 $ case p of
   POn -> stepRing maxBars (max 1 (newestOf _.phase st + 1))
   -- Not about a loop; `leds` reads it from the rig. See `RingSource`.
   PLaunch -> 0
+  PSource -> stepRing maxSources (max 1 st.src)
 
 -- | Silence at the bottom of the travel and unity at the top, with a **fader
 -- | law** rather than a straight line.
@@ -1083,6 +1114,16 @@ newestOf f st = maybe 0 f (Array.last st.shapes)
 -- | for more than a knob can reach, as it can with decay.
 maxBars :: Int
 maxBars = 32
+
+-- | How many inputs a knob can choose between.
+-- |
+-- | Eight, matching the loops, because the interface has eight and a source is
+-- | at most a pair of them — so this is the most that could ever exist, not a
+-- | guess. The ring reads the loop's own value back from the snapshot either
+-- | way, so a rig with two sources simply never leaves the first quarter of
+-- | the travel.
+maxSources :: Int
+maxSources = 8
 
 -- | Equal bands across the travel, one per step, and the value is one-based.
 stepOf :: Int -> Int -> Int
@@ -1329,6 +1370,7 @@ flagOn f st = case f of
   -- one place that is guaranteed to be wrong.
   FClick -> false
   FMonitor -> false
+  FMono -> st.mono
 
 subjectIndex :: Rig -> Subject -> Int
 subjectIndex rig = case _ of
@@ -1499,6 +1541,7 @@ stub =
   , muted: false, reverse: false, pan: 64, speed: 1.0, pendulum: false
   , oneShot: false, levelArm: false, firing: false
   , chance: 1.0, skipping: false, fadeMs: 0.0, decayDb: 0.0, volDb: 0.0
-  , cycles: 0, revox: false, fbDb: -3.0, toneHz: 6500.0, recEnv: []
+  , cycles: 0, src: 1, mono: false, revox: false, fbDb: -3.0, toneHz: 6500.0
+  , recEnv: []
   , pendingAt: -1, shapes: []
   }

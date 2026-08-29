@@ -847,6 +847,77 @@ Cell: page 2, index 11, beside launch / click / monitor — the row that is
 already the facts about the rig. Yellow, and the only yellow on that page:
 every other press there acts on this rig and stops, and this one leaves it.
 
+## 9.4.5 Stereo, and an input a loop can choose
+
+*"I don't think I'd realised that we are summing the stereo inputs before
+placing them in a stereo field."* — and it was worse than that. The engine was
+mono end to end and `--in-ch` named **one** channel; the others were not summed,
+they were **dropped**. Half of a stereo pedalboard, a ping-pong delay or a wide
+reverb never reached the machine.
+
+Two changes, done together because they touch the same three places — the input
+callback, the ring indexing, and the source configuration — and doing them
+apart would have meant rewriting the ring twice.
+
+### Stereo
+
+`CHANNELS = 2`, interleaved, everywhere: the arena, the pre-roll rings, every
+layer, the saved WAVs. The arena doubles to 702 MiB at the defaults; `--max-secs`
+is the dial. Interleaved rather than planar because the mix wants both channels
+of a frame at once.
+
+**`pan` became two controls wearing one knob**, and this is the part that is a
+decision rather than a type change:
+
+- A loop folded to **mono** is one signal being *placed*, so the equal-power pan
+  is right — 3 dB down each side at centre, which is what buys a constant
+  loudness across the travel.
+- A loop that is **not** folded is two signals already in a field. Panning them
+  would collapse a width that was recorded rather than invented, and at centre
+  it would take 3 dB off both sides for nothing. What the knob means there is
+  **balance**: unity at centre, one side falling to silence at the end of the
+  travel, attenuating only — so a balanced loop can never be louder than the
+  take, and there is no headroom to lose.
+
+**Mono is a playback decision, not a capture one.** Andrew asked for it as a
+capture option — sum a source with nothing in its sides so it can be placed
+precisely. At playback it is strictly better: the audio is always kept in
+stereo, so folding is free to try, free to undo, and nothing is thrown away by
+a choice you had to get right before the take.
+
+### An input per loop
+
+`--source name=l[,r]`, repeatable, one-based on the command line. A mono jack is
+a source whose two channels are the same input, which needs no special case
+anywhere downstream. Without any, `--in-ch` becomes one source called `in`, so
+an existing command line is unchanged.
+
+**Per loop, and `ClaimPast` is the whole argument.** The pre-roll ring exists so
+you need not decide in advance — you play something good and claim it
+afterwards. A *global* input selector puts that decision straight back in front
+of you, and the one time it would matter is the time you were on the wrong
+input. So every source fills its own ring continuously and the loop says which
+it wants when it takes it. The cost is 11.5 MB a source a channel against an
+arena of hundreds.
+
+Two things fell out rather than being designed:
+
+- **Level-arm listens on the loop's own source.** Arm a drum loop and it waits
+  for a drum; arm a guitar loop and it waits for a guitar. One shared peak would
+  have had each starting on the other.
+- **Monitoring follows the loop that is armed or recording**, because that is
+  what you are playing into. It keeps its sides, where the click does not: the
+  click is a reference and the monitor is the thing about to be recorded.
+
+The daemon refuses `src` mid-take. Splicing two different rooms into one layer
+is not something anyone means.
+
+### What was measured
+
+A tone on the left only, played into a BlackHole loopback, recorded and saved:
+the WAV comes back `48000 Hz, stereo, pcm_f32le` with **−18.1 dB on one channel
+and −91 dB on the other**. Capture, arena and export keep the sides apart.
+
 ## 9.5 Speed is bipolar, and Reverse was a spelling of its sign
 
 `Data.Looper.Verb.Rate` has said all along that the daemon takes ±0.125 to ±4

@@ -46,7 +46,7 @@ Page 3 — Shape
 
 Page 4 — Set up
   One Shot          Listen            Length            ·
-  ·                 ·                 ·                 ·
+  input             Mono              ·                 ·
   tape/Revox        leaves            lo-pass           fade
   ·                 ·                 ·                 page
 

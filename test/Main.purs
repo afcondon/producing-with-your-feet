@@ -945,7 +945,8 @@ main = do
                , muted: false, reverse: false, pan: 64, speed: 1.0, pendulum: false
                , oneShot: false, levelArm: false, firing: false
                , chance: 1.0, skipping: false, fadeMs: 0.0, decayDb: 0.0
-               , volDb: 0.0, cycles: 0, revox: false, fbDb: -3.0, toneHz: 6500.0, recEnv: []
+               , volDb: 0.0, cycles: 0, src: 1, mono: false, revox: false
+               , fbDb: -3.0, toneHz: 6500.0, recEnv: []
                , pendingAt: -1, shapes: [] }
       withState n s ls = (idle n) { state = s, layers = ls }
       rigOf ls = { loops: ls, focus: 0, click: false, monitor: false, armDb: -36.0, launchQ: -1 }
@@ -3114,6 +3115,33 @@ main = do
     (let c = LoopTw.controlAt { bank: 0, index: 9 }
      in c.press == Just LB.GridToggle && c.turn == Just LoopTw.PBars
           && c.ring == LoopTw.Value LoopTw.PBars)
+
+  -- **The input is a per-loop choice, and it goes out addressed.**
+  --
+  -- `ClaimPast` is why it is per loop rather than a rig-wide switch: the ring
+  -- exists so you need not decide in advance, and a global selector would put
+  -- that decision straight back in front of you.
+  assert "the input knob picks a source for the loop in hand"
+    (LoopTw.fromKnob LoopTw.PSource 0 == LB.SetSource 1
+      && LoopTw.fromKnob LoopTw.PSource 127 == LB.SetSource LoopTw.maxSources
+      && Machine.perform (rig8 { focus = 2 }) LB.Focused (LB.SetSource 3)
+        == [ Machine.Command "2src3" ])
+
+  -- Every source is reachable and reads itself back, which is what lets the
+  -- ring be told rather than remembered.
+  assert "every source can be reached and survives the round trip"
+    (Array.all
+      (\n -> LoopTw.fromKnob LoopTw.PSource (LoopTw.toKnob LoopTw.PSource ((idle 0) { src = n }))
+               == LB.SetSource n)
+      (Array.range 1 LoopTw.maxSources))
+
+  -- Set, never flip — the rule every other mode here follows, and the reason
+  -- is that a client which flips drifts the first time a command is dropped.
+  assert "the mono fold is set from the engine's own word"
+    (Machine.perform (rigOf [ (idle 0) { mono = false } ]) LB.Focused LB.MonoToggle
+       == [ Machine.Command "0mono1" ]
+      && Machine.perform (rigOf [ (idle 0) { mono = true } ]) LB.Focused LB.MonoToggle
+        == [ Machine.Command "0mono0" ])
 
   -- **The tempo comes from a loop and lands on the session.**
   --

@@ -405,6 +405,11 @@ perform rig subject = case _ of
   -- its length in bars — and those two numbers *are* a tempo; the daemon does
   -- the arithmetic because only it knows the sample rate and the metre.
   LB.TakeTempo -> [ Command (cmd i Verb.TakeTempo) ]
+  LB.SetSource n -> [ Command (cmd i (Verb.Source n)) ]
+  -- Set, never flip — the same rule every other mode here follows. The engine
+  -- reports it thirty times a second, so there is no excuse for guessing.
+  LB.MonoToggle -> [ Command (cmd i (Verb.Mono (not (is _.mono)))) ]
+  LB.Mono on -> [ Command (cmd i (Verb.Mono on)) ]
 
   LB.NotYet what why -> [ Unavailable (what <> ": " <> why) ]
   -- No longer names the bank it came from: a duty has no bank, and the two

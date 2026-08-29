@@ -778,6 +778,18 @@ data Duty
   -- | be a deliberate press rather than a knob, not a reason to leave the click
   -- | fighting what you played.
   | TakeTempo
+  -- | **Which input this loop records from.**
+  -- |
+  -- | Per loop and not per rig, and `ClaimPast` is the argument: the pre-roll
+  -- | exists so you need not decide in advance, and a global input selector
+  -- | would put that decision straight back in front of you. So every source
+  -- | keeps its own ring and a loop says which it wants.
+  | SetSource Int
+  -- | Fold this loop's two channels at playback, which also turns its `pan`
+  -- | from a balance into a placement. A playback decision, so nothing is lost
+  -- | by trying it.
+  | MonoToggle
+  | Mono Boolean
   -- | Input monitoring. Global in the engine, like the click.
   | MonitorToggle
 
@@ -952,6 +964,9 @@ dutyLabel = case _ of
   DenseLoop -> "Dense"
   ForgetLength -> "Length"
   TakeTempo -> "Tempo"
+  SetSource _ -> "Input"
+  MonoToggle -> "Mono"
+  Mono _ -> "Mono"
   MonitorToggle -> "Monitor"
   -- The value goes in `dutyName`, not here. Eight characters cannot hold
   -- "Chance 3 in 4", and these three never reach an MC6 switch anyway — they
@@ -1021,6 +1036,9 @@ dutyName = case _ of
   DenseLoop -> "Sound every cycle again"
   ForgetLength -> "Let go of the length"
   TakeTempo -> "Take the tempo from this loop"
+  SetSource n -> "Record from input " <> show n
+  MonoToggle -> "Fold to mono, or keep the sides"
+  Mono on -> if on then "Folded to mono" else "Two channels"
   MonitorToggle -> "Input monitoring"
   Click on -> "Click " <> onOff on
   Monitor on -> "Monitoring " <> onOff on
