@@ -1007,7 +1007,7 @@ dutyName = case _ of
   Back (ToSlot slot) -> "Back to " <> slotName slot
   Back ToBoard -> "Leave the looper"
   StopAll -> "Stop every loop"
-  StartAll -> "Start every loop"
+  StartAll -> "Every loop from the top, together"
   Undo -> "Undo the last layer"
   Redo -> "Put the layer back"
   ClearLoop -> "Clear the chosen loop"

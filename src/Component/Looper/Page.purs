@@ -395,12 +395,37 @@ render h ports state =
         -- **One-based, like every other surface.** The wire counts loops from
         -- zero and this does not; the two met in the log once and cost an hour.
         , reading "selected" ("loop " <> show (state.looperFocus + 1)) false
+        -- **Which jack the selected loop is listening to.** It belongs beside
+        -- `selected` because it is a fact about that loop and not about the
+        -- rig: the source is per loop, a new loop starts on the first one, and
+        -- there is nothing anywhere else on screen that says which. Getting it
+        -- wrong costs a whole take and the take is silent, which is the most
+        -- expensive way to find out.
+        --
+        -- Stereo or mono comes with the name, because that is the half of it
+        -- this page can be wrong about without saying so: a mono source is one
+        -- jack read twice, and a loop recorded from one will never have width
+        -- however the balance knob is turned. The channel numbers stay in the
+        -- ack, which names them every time the knob moves.
+        , reading "input" (inputWords lp focused) false
         , reading "length" (if bars == 0 then "not set"
                             else show bars <> (if bars == 1 then " bar" else " bars")) false
         , reading "launch" (launchWords lp.launchQ) false
         , reading "grid" (if maybe false _.quant focused then "on" else "off") false
         , twisterReading
         ]
+
+  -- | The selected loop's source, named as the daemon names it.
+  -- |
+  -- | `src` is **one-based** and indexes `sources`, so the subtraction is the
+  -- | seam and is done in one place. A number with no entry is reported as the
+  -- | number rather than silently blanked: it would mean the daemon and this
+  -- | page disagree about how many inputs exist, which is worth seeing.
+  inputWords lp focused = case focused of
+    Nothing -> "\x2014"
+    Just f -> case Array.index lp.sources (f.src - 1) of
+      Nothing -> "source " <> show f.src
+      Just src -> src.name <> (if src.mono then " (mono)" else " (stereo)")
 
   -- | **Which page the Twister is on, on the screen as well as under the hand.**
   -- |

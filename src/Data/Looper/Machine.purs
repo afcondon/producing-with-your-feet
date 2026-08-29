@@ -324,7 +324,13 @@ perform rig subject = case _ of
   -- output frames.
   LB.ClaimPast -> [ Command (cmd i Verb.ClaimPast) ]
   LB.Redo -> [ Command (cmd i Verb.Redo) ]
-  LB.StartAll -> map (\n -> Command (cmd n (Verb.Sounding true))) (sounding rig)
+  -- **One command, where this was eight.** It sent `h1` to every non-empty
+  -- loop, which restored audibility and left each playhead where it was — so a
+  -- four-bar, a three-bar and a one-bar loop resumed in whatever relationship
+  -- they had drifted into. The daemon now owns the gesture, because the thing
+  -- that makes it a *start* is that all the origins get the same stamp, and
+  -- only something with one clock in front of it can hand out one stamp.
+  LB.StartAll -> [ Command (Verb.render Verb.StartAll) ]
   LB.ClearAll -> map (\n -> Command (cmd n Verb.Clear)) (Array.range 0 (nLoops - 1))
 
   LB.Free -> perform rig subject (LB.OnGrid false)
