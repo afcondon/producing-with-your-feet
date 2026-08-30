@@ -223,4 +223,7 @@ PASS - every recipe has steps, and most of them say what to expect
    said something.
 3. **Does the loop have what the verb needs?** `every` and `on` refuse on an
    empty loop; `bars` refuses with no clock and no recorded loop; Multiply
-   refuses on a loop that is not playing plain.
+   refuses on a loop that is not playing plain. **Recording does not** — since
+   2026-08-30 the write head follows the play head, so a loop running backwards
+   or at half speed takes an overdub and gives back what you played. A pendulum
+   and a tape at speed are still refused, and both say why.
