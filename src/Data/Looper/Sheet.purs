@@ -262,7 +262,7 @@ css =
   \cursor:pointer}\
   \@media print{.noprint{display:none}body{padding:0}}\
   \@page{size:A4 portrait;margin:12mm}"
-    <> foldMap tone [ TW.Red, TW.Orange, TW.Yellow, TW.Green, TW.Teal, TW.Blue, TW.Violet ]
+    <> foldMap tone TW.tones
     <> ".tone-off{background:#efece7}"
   where
   tone t = ".tone-" <> TW.toneName t <> "{background:" <> TW.swatch t <> "}"

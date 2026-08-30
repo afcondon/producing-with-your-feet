@@ -1,5 +1,6 @@
 module Config.Preset
-  ( presetToReadableJson
+  ( buildCCLabels
+  , presetToReadableJson
   , boardPresetToReadableJson
   , presetsToReadableJsonString
   , boardPresetsToReadableJsonString

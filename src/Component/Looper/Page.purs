@@ -48,6 +48,10 @@ module Component.Looper.Page
 import Prelude
 
 import Component.Looper.Board (render) as BoardSim
+import Component.Looper.TwisterCard as TwisterCard
+import Config.Registry (PedalRegistry)
+import Data.Pedal (PedalId)
+import Data.Twister.Scene (Scene)
 import Component.Looper.Slots as Slots
 import Component.Looper.TwisterMap as TwisterMap
 import Data.Looper.Recipes as Recipes
@@ -84,6 +88,13 @@ type State r =
   , mc6BoardBankNum :: Int
   , twisterPage :: Int
   , twisterHeardBank :: Maybe Int
+  -- | What the card draws: which surface the Twister is on, and the two things
+  -- | needed to name its cells. `registry` rather than a prepared list, because
+  -- | a scene's cells belong to several pedals and which ones is not known
+  -- | until the scene is read.
+  , twisterScene :: Maybe Scene
+  , focusPedalId :: Maybe PedalId
+  , registry :: PedalRegistry
   | r
   )
 
@@ -150,7 +161,7 @@ render h ports state =
         -- directly underneath it — cause above effect, in one column, without
         -- crossing the page. That is what the corner dock could not do.
         , HH.div [ HP.class_ (HH.ClassName "looper-side") ]
-            [ boardCard, logCard ]
+            [ twisterCard, logCard ]
         ]
     , panel
     ]
@@ -173,6 +184,9 @@ render h ports state =
       -- spent covering the loops the card describes.
       modal "is-narrow" "Midifighter Twister — what each encoder does"
         [ TwisterMap.render ports.twister state.twisterPage state.twisterHeardBank h.showTwisterPage ]
+    Just PanelBoard ->
+      modal "is-board" "The MC6 board"
+        [ BoardSim.render h.simulate (LoopBanks.face state.looperBankShown) ]
     Just PanelBanks ->
       modal "" "MC6 banks" [ footswitchCard, loopFamilyCard ]
     -- **In the app rather than on paper, and that is the whole reason it
@@ -215,7 +229,7 @@ render h ports state =
                Just e -> [ HH.span [ HP.class_ (HH.ClassName "recipe-expect") ] [ HH.text e ] ]
       )
 
-  -- | The board, permanently.
+  -- | The Twister's current page, permanently.
   -- |
   -- | **Not behind a button, and that is a reversal made by looking at it.** It
   -- | was a corner dock you opened; seeing it open showed that it is small
@@ -224,10 +238,12 @@ render h ports state =
   -- | written down at all — those are FS3X switches with no markings and no
   -- | LCD — which used to be the job of a legend under the loops. That legend
   -- | said the same six things less usefully, because you could not press it.
-  boardCard =
+  twisterCard =
     HH.div [ HP.class_ (HH.ClassName "looper-side-card") ]
-      [ cardHead "The board, live"
-      , BoardSim.render h.simulate (LoopBanks.face state.looperBankShown)
+      [ cardHead "The Twister, live"
+      , TwisterCard.render
+          (TwisterCard.cardFor state.registry state.twisterScene
+             state.focusPedalId state.twisterPage)
       ]
 
   -- | What the presses did, newest first.
@@ -356,6 +372,13 @@ render h ports state =
           [ panelBtn PanelRecipes "Recipes"
           , panelBtn PanelTwister "Twister"
           , panelBtn PanelBanks "MC6 banks"
+          -- **Behind a button rather than on the page**, since the Twister
+          -- card took its slot. The device labels A-F on its own screen and
+          -- G-L mean the same six things on every bank, so there is nothing
+          -- here to look up any more. What is left is that its switches can be
+          -- pressed from the app, which is how the board gets exercised
+          -- without feet.
+          , panelBtn PanelBoard "MC6 board"
           -- **Not a panel, so not a `panelBtn`.** The other three lay a
           -- reference over this page; this one opens a document in another tab
           -- so the reference can be on paper beside the rig while this tab

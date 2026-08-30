@@ -54,6 +54,7 @@ import Data.Tuple (Tuple(..))
 import Pedals.Registry as Registry
 import Data.Twister.Scene as Scene
 import Data.Twister.Scenes as Scenes
+import Component.Looper.TwisterCard as Card
 import Engine.Twister as ETw
 
 -- Golden fixture: JS-format engine state with 3 pedals, numeric-string CC keys
@@ -3510,6 +3511,44 @@ main = do
   assert "the ambient page fills its expanders"
     (Array.length (Array.filter (\sw -> sw.label /= "")
       (Array.drop 6 ControlBank.ambientControlBank.switches)) == 6)
+
+  -- **The card names a borrowed cell by asking the pedal it was borrowed from.**
+  -- Three things have to line up for this to read right — the pick, the pedal's
+  -- own Twister mapping, and its CC labels — and they are three separate tables
+  -- in three files. If any of them slips, the card shows a blank or the wrong
+  -- word on a controller with nothing written on it, which is the failure the
+  -- card exists to prevent.
+  let testRegistry = CRegistry.mkRegistry Registry.pedals []
+        { pedalOutput: { match: "" }, twisterInput: { match: "" }
+        , twisterOutput: { match: "" }, mc6Input: { match: "" } }
+      ambientCard = Card.cardFor testRegistry (Just ambientScene) Nothing 0
+  assert "the card names the ambient scene from the pedals it borrows from"
+    (ambientCard.title == "Ambient"
+      && map _.name ambientCard.cells ==
+           -- "Micro-Looper" and not the engage table's "ML": the card takes
+           -- its words from the pedal's own layout, which is what the pedal
+           -- prints and what its detail page says. The MC6 switch is labelled
+           -- "MD ML" because eight characters is all it has.
+           [ "Clock", "Length", "Mix", "Micro-Looper"
+           , "Error", "Texture", "Size", "Glitch"
+           , "Spill", "Glue", "Blend", "Left"
+           , "Modify", "Scan", "Spread", "Mode"
+           ])
+
+  -- Four inks, one per row, and a row is one pedal. The colour is the only
+  -- thing on the device that says whose knob is under your hand.
+  assert "the card gives each row its pedal's ink"
+    (let rowInk r = Array.nub
+           (Array.mapMaybe _.ink (Array.take 4 (Array.drop (r * 4) ambientCard.cells)))
+     in Array.all (\r -> Array.length (rowInk r) == 1) [ 0, 1, 2, 3 ]
+          && Array.length (Array.nub (Array.mapMaybe _.ink ambientCard.cells)) == 4)
+
+  -- With no scene and no pedal in focus it is the looper's own page, named
+  -- from the same table the print sheet and the modal render.
+  assert "with nothing overriding it the card is the looper's page"
+    (let c = Card.cardFor testRegistry Nothing Nothing 0
+     in c.title == "Loops" && Array.length c.cells == 16
+          && map _.name (Array.take 2 c.cells) == [ "Loop 1", "Loop 2" ])
 
   assert "only the ambient page calls up a scene"
     (isJust (Scenes.sceneForControlBank "control-ambient")

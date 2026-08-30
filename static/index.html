@@ -1964,6 +1964,23 @@ body {
 }
 .looper-side-card .looper-panel-head { padding: 7px 10px; }
 
+/* The Twister's current page: sixteen cells, four across, in a 320px column.
+   Colour rides the left edge rather than filling the cell, so a row reads as a
+   group and the word stays the thing you read. */
+.twister-card { padding: 10px 10px 11px; }
+.twister-card-title {
+  font-size: 10px; letter-spacing: .09em; text-transform: uppercase;
+  color: #857d73; margin-bottom: 8px;
+}
+.twister-card-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.twister-card-cell {
+  min-height: 32px; background: #fff; padding: 4px 5px;
+  border: 1px solid #e2ddd5; border-left: 3px solid #c9c2b8;
+  font-size: 10px; line-height: 1.2; color: #33302c;
+  overflow: hidden; word-break: break-word;
+}
+.twister-card-cell.is-dark { background: #f4f1ec; border-color: #eae5dd; border-left-color: #eae5dd; }
+
 /* Narrow on purpose: at page width the twelve switches were three columns of
    near-empty box with a word in the corner, which is the white space that made
    this worth moving. In a 320px column the same grid is dense. */
@@ -4233,6 +4250,6 @@ body {
   <!-- Stamped by tools/bundle.sh with the bundle's own mtime. Without it a
        reload can serve yesterday's app and say nothing, which has cost this
        project whole afternoons more than once. -->
-  <script src="./index.js?v=1788077977"></script>
+  <script src="./index.js?v=1788078467"></script>
 </body>
 </html>

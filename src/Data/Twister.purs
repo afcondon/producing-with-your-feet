@@ -17,6 +17,8 @@
 module Data.Twister
   ( TwisterEncoder(..)
   , TwisterButton(..)
+  , encoderCC
+  , buttonCC
   , TwisterMapping
   , TwisterMsg(..)
   , Knob
@@ -48,6 +50,20 @@ data TwisterButton
 -- | a page of knobs and the twelve of them that have mappings all fit on one.
 -- | The looper is the surface that needed more, and it has its own table in
 -- | `Data.Looper.Twister` rather than four of these.
+-- | The CC a control speaks on, whatever kind it is.
+-- |
+-- | Wanted by anything that has to *name* a cell rather than act on it: a
+-- | pedal's labels are keyed by CC, so this is the join between a Twister page
+-- | and the words a player would recognise.
+encoderCC :: TwisterEncoder -> CC
+encoderCC (TwisterCC r) = r.cc
+
+buttonCC :: TwisterButton -> CC
+buttonCC = case _ of
+  TwisterToggle r -> r.cc
+  TwisterMomentary r -> r.cc
+  TwisterSet r -> r.cc
+
 type TwisterMapping =
   { hue :: Int
   , encoders :: Array (Maybe TwisterEncoder)

@@ -70,6 +70,8 @@ module Data.Looper.Twister
   , pageFor
   , pageTone
   , pageStep
+  , tones
+  , swatchNamed
   , pages'
   , launchLadder
   , maxBars
@@ -349,6 +351,22 @@ hue = case _ of
 -- | place they are written down for anything that has to draw them itself. The
 -- | printed sheet emits its own stylesheet from here rather than reaching for
 -- | the app's.
+-- | Every colour there is, in one place.
+-- |
+-- | It was written out at each use, which is two places to forget a new one —
+-- | and the way you find out is a cell rendered in whatever "no colour" looks
+-- | like on that surface, which reads as a cell that means nothing.
+tones :: Array Tone
+tones = [ Red, Orange, Yellow, Green, Teal, Blue, Violet ]
+
+-- | Ink for a tone named as `Cell.tone` names it.
+-- |
+-- | The printable `Cell` carries its colour as a word rather than a `Tone`, so
+-- | that a card can be rendered by anything that can print a string. Anything
+-- | that wants to *draw* it needs the way back, and this is it.
+swatchNamed :: String -> Maybe String
+swatchNamed n = map swatch (Array.find (\t -> toneName t == n) tones)
+
 swatch :: Tone -> String
 swatch = case _ of
   Red -> "#c0392b"
