@@ -52,6 +52,8 @@ import Data.MC6.Survey as Survey
 import Data.MC6.Verb as Verb
 import Data.Tuple (Tuple(..))
 import Pedals.Registry as Registry
+import Data.Twister.Scene as Scene
+import Engine.Twister as ETw
 
 -- Golden fixture: JS-format engine state with 3 pedals, numeric-string CC keys
 engineFixture :: String
@@ -3353,6 +3355,54 @@ main = do
 
   -- The rig's threshold is not a per-loop value and has no knob for that
   -- reason; it still needs a verb, because the page sets it.
+  -- **A scene is a pedal page that has been told whose it is.**
+  --
+  -- The claim the whole widening rests on: reading a pedal's own mapping as a
+  -- scene changes nothing about the controls, only binds each to its owner. If
+  -- this ever stops holding, the two kinds of page have quietly become two
+  -- kinds of thing again and every surface downstream has to start asking.
+  -- `handleEncoder` has never read the state it is handed — which is the fact
+  -- the extraction rests on — so an empty one is the honest argument here.
+  let noValues = { channel: 1, values: Map.empty, info: Map.empty }
+  case Registry.findPedal (PedalId "onward") >>= _.twister of
+    Nothing -> assert "Onward has a Twister mapping to read as a scene" false
+    Just tw -> do
+      let sc = Scene.ofPedal (PedalId "onward") "Onward" tw
+      assert "reading a pedal page as a scene keeps its shape"
+        (Array.length sc.encoders == Array.length tw.encoders
+          && Array.length sc.buttons == Array.length tw.buttons
+          && sc.hue == tw.hue)
+
+      -- Dark stays dark. A cell with no control must not acquire one by being
+      -- bound: `Nothing` is a knob that does nothing, and binding it to a pedal
+      -- would make it a knob that does nothing *to that pedal*, which is a
+      -- different and wrong statement.
+      assert "binding does not light a dark cell"
+        (map isJust sc.encoders == map isJust tw.encoders
+          && map isJust sc.buttons == map isJust tw.buttons)
+
+      -- One owner, because that is what a pedal's own page means.
+      assert "every cell of a pedal's page names that pedal"
+        (Scene.pedalsIn sc == [ PedalId "onward" ])
+
+      -- **Same cell, same decision** — and it is the first half that is worth
+      -- testing. `handleEncoder` calls `encoderAction` now, so their agreement
+      -- is not in doubt; what this pins is that a scene's index reaches the
+      -- *same control* the pedal page's does. `ofPedal` maps over two arrays,
+      -- and an off-by-one or a reorder in there would be invisible everywhere
+      -- else: every knob would still work, and each would work on the wrong
+      -- parameter. Every index, so the options branch cannot slip through.
+      assert "the bound control decides exactly as the pedal page did"
+        (case Registry.findPedal (PedalId "onward") of
+           Nothing -> false
+           Just def -> Array.all
+             (\i ->
+               let viaPage = ETw.handleEncoder i 100 def noValues
+                   viaCell = Scene.encoderAt sc i >>= \b -> ETw.encoderAction b.control 100
+               in map _.cc viaPage == map _.cc viaCell
+                    && map _.value viaPage == map _.value viaCell)
+             (Array.range 0 15))
+
   assert "the arm threshold goes unprefixed, like the click and the monitor"
     (Machine.perform (rigOf [ idle 0 ]) LB.Focused (LB.ArmLevel (-24.0))
       == [ Machine.Command "arm-24.0" ])

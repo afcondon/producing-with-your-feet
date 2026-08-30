@@ -1,6 +1,10 @@
 module Engine.Twister
   ( handleEncoder
+  , encoderAction
   , handleButton
+  , buttonAction
+  , EncoderResult
+  , ButtonResult
   , handleSideButton
   , handleSideButtonPrev
   , computeAllLEDs
@@ -28,6 +32,13 @@ type EncoderResult =
   , ringSnap :: Maybe Int
   }
 
+-- | Look the control up on the focused pedal's own page, then decide.
+-- |
+-- | The lookup and the decision used to be one function. They are two because
+-- | a *scene* — a page whose cells each name their own pedal — needs the
+-- | decision without this lookup, and the decision never wanted a pedal
+-- | anyway: the `PedalState` this was handed has been ignored since it was
+-- | written, which is the tell.
 handleEncoder
   :: Int -> Int -> PedalDef -> PedalState
   -> Maybe EncoderResult
@@ -35,6 +46,16 @@ handleEncoder encoderIndex rawValue def _ps = do
   tw <- def.twister
   mEnc <- Array.index tw.encoders encoderIndex
   enc <- mEnc
+  encoderAction enc rawValue
+
+-- | What a turn of *this control* means, with no pedal in sight.
+-- |
+-- | Every branch here is arithmetic on the encoder's own position and its own
+-- | declaration — a centre to snap to, a list of options to land on. None of it
+-- | could ever have differed between two pedals, which is why moving it out
+-- | cost nothing and why a scene can call it directly.
+encoderAction :: TwisterEncoder -> Int -> Maybe EncoderResult
+encoderAction enc rawValue =
   case enc of
     TwisterCC { cc, center: Nothing, options: Nothing } ->
       Just { cc, value: unsafeMidiValue rawValue, ringSnap: Nothing }
@@ -64,6 +85,16 @@ handleButton encoderIndex def ps = do
   tw <- def.twister
   mBtn <- Array.index tw.buttons encoderIndex
   btn <- mBtn
+  buttonAction btn ps
+
+-- | What a press of *this control* means, given the state that holds its value.
+-- |
+-- | **The state is a parameter rather than a pedal**, and that is the whole of
+-- | what makes a mixed page possible: a toggle needs to know what its CC
+-- | currently reads and nothing else, so a scene hands it whichever pedal's
+-- | state the cell names. A momentary and a set do not even need that much.
+buttonAction :: TwisterButton -> PedalState -> Maybe ButtonResult
+buttonAction btn ps =
   case btn of
     TwisterToggle { cc } ->
       let current = fromMaybe (unsafeMidiValue 0) (Map.lookup cc ps.values)
