@@ -924,15 +924,19 @@ main = do
   -- own destination on `DoubleTapRelease` applies to a switch carrying a hold
   -- and no double, and nothing in the family is shaped that way any more — the
   -- builder still does it, and nothing exercises it.
-  assert "a loop switch jumps on the release, and its double is its own"
+  -- **Two gestures and no jump at all.** Which also means a loop switch stopped
+  -- putting a CC and a bank jump on the same action — the arrangement this
+  -- project has twice watched eat one or the other, and the risk I flagged when
+  -- these switches moved to the release side. It went away by itself when the
+  -- tap stopped navigating.
+  assert "a loop switch reports two gestures and goes nowhere"
     (let places = do
            b <- Array.take 1 (LB.banks { base: 22, boardBank: 1 })
            Array.take LB.loopSwitches b.switches
      in Array.length places == LB.loopSwitches
           && Array.all
-               (\sw -> map _.action
+               (\sw -> Array.null
                          (Array.filter (\m -> m.msgType == MsgBankJump) sw.messages)
-                         == [ ActionRelease ]
                          && ccsOf sw == [ Tuple ActionRelease 127
                                         , Tuple ActionDoubleTapRelease 64
                                         ])
@@ -959,8 +963,13 @@ main = do
   -- which is right: the app is the only thing that can act on it.
   -- Choosing a loop *is* opening its page, so the jump is a consequence of the
   -- duty rather than a second thing the switch happens to carry.
-  assert "selecting a loop navigates, and a hold that goes nowhere programs no jump"
-    (LB.sendsTo LB.LoopBank 0 LB.Tap == Just (LB.ToSlot LB.LoopPage)
+  -- **Choosing a loop goes nowhere, and the hold is what opens its page.** The
+  -- tap used to make the jump; it was taking a foot off the Loops page for
+  -- nothing, since the verbs live on the toolbar now and the next loop you
+  -- want is on the page you were already standing on.
+  assert "selecting a loop goes nowhere, on any gesture it carries"
+    (LB.sendsTo LB.LoopBank 0 LB.Tap == Nothing
+      && LB.sendsTo LB.LoopBank 0 LB.Double == Nothing
       && LB.sendsTo LB.LoopBank 0 LB.Hold == Nothing
       && LB.sendsTo LB.LoopPage 5 LB.Tap == Just (LB.ToSlot LB.ConfigBank)
       && LB.sendsTo LB.ConfigBank 0 LB.Tap == Just (LB.ToSlot LB.QuantiseBank)
@@ -1339,8 +1348,10 @@ main = do
        (LB.switchGesture LB.LoopBank 3 LB.Double)
       == [ Machine.Focus 0, Machine.Command "0u" ])
 
-  -- And the tap still means what it meant: choose, and let the board open the
-  -- page. Adding the double must not have changed that.
+  -- And the tap still means what it meant: choose, and nothing else. It is the
+  -- whole of the workflow — stand on Loops, press a loop, record it on `I`,
+  -- double back to undo, press the next loop — and the reason the jump moved
+  -- to the hold.
   assert "and the tap on the same switch still just chooses it"
     (Machine.act ((rigOf [ idle 0, idle 1, idle 2 ]) { focus = 2 })
        (LB.switchGesture LB.LoopBank 3 LB.Tap)
@@ -2048,12 +2059,12 @@ main = do
   -- One press, at press-down, that both says which loop and opens its page.
   -- There is no moment in between where the app and the board could disagree
   -- about whose page this is.
-  assert "each of the six loop switches opens the loop page"
+  -- A loop switch is a name, not a door. It was a door until 2026-08-30, when
+  -- what it opened turned out to be the toolbar's six over again.
+  assert "no loop switch sends the board anywhere"
     (Array.length loopBankSwitches == LB.loopSwitches
       && Array.all
-        (\e -> Array.any
-          (\m -> m.msgType == MsgBankJump && m.action == ActionRelease && m.data1 == 23)
-          e.sw.messages)
+        (\e -> not (Array.any (\m -> m.msgType == MsgBankJump) e.sw.messages))
         loopBankSwitches)
 
   -- **`ActionPress` if and only if the switch carries exactly one gesture.**
@@ -2177,12 +2188,27 @@ main = do
   -- moment tap jumps moved to the release, which was the test noticing a change
   -- rather than a fault — the claim is that a way out is *reachable*, and a hold
   -- is as much a way out as a tap.
-  assert "every bank's way out is reachable without a second FS3X"
+  -- **The way out is J's hold, on every bank in the family.**
+  --
+  -- This asked for a jump on a switch at index eight or below — the unit's own
+  -- six plus the first expander — so that a board with one FS3X could still
+  -- leave a bank. That is no longer true and is no longer meant to be: the
+  -- toolbar spans G to L and assumes both expanders, which is what the layout
+  -- was reorganised around once it was clear the sloped switches are the ones
+  -- worth having. What is checked instead is that every bank has exactly one
+  -- way out and it is in the same place, which is the property a foot actually
+  -- depends on.
+  assert "every bank's way out is J's hold, in the same place on all of them"
     (Array.all
-      (\cb -> Array.any
-        (\e -> e.i <= 8
-            && Array.any (\m -> m.msgType == MsgBankJump) e.sw.messages)
-        (Array.filter (\e -> e.cb.mc6BankNumber == cb.mc6BankNumber) familySwitches))
+      (\cb ->
+        let outs = Array.filter
+              (\e -> Array.any (\m -> m.msgType == MsgBankJump) e.sw.messages)
+              (Array.filter (\e -> e.cb.mc6BankNumber == cb.mc6BankNumber) familySwitches)
+        -- `elem`, not equality: a bank may also carry jumps *inward* — the
+        -- config bank's four lead to Quantise, Speed, Modes and Pan. Those are
+        -- ways in and this is about the way out, which is one place on all of
+        -- them.
+        in Array.elem 9 (map _.i outs))
       family)
 
   -- **A bank is physical storage on a pedal you are standing on.** Two things

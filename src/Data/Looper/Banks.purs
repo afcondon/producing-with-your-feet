@@ -1262,10 +1262,16 @@ dutyTap :: Duty -> Maybe Jump
 dutyTap = case _ of
   Enter slot -> Just (ToSlot slot)
   Back j -> Just j
-  -- Choosing a loop *is* opening its page — one act, so one press. The MC6
-  -- makes the jump itself and the app is told which loop by the same CC, so
-  -- there is no moment where the two disagree about whose page this is.
-  SelectLoop _ -> Just (ToSlot LoopPage)
+  -- **Choosing a loop no longer opens anything**, changed 2026-08-30. It used
+  -- to: choosing was opening its page, one act and one press, back when the
+  -- page was where the verbs were. The verbs are on the toolbar now, on every
+  -- bank, so the jump was taking you off the Loops page for nothing and the
+  -- next loop you wanted was two presses away instead of one.
+  --
+  -- The working shape is to stand on Loops and stay there: press a loop, record
+  -- it on `I`, undo with a double if it was not the one, press another loop.
+  -- Its page is a hold away for the two things only it has.
+  SelectLoop _ -> Nothing
   _ -> Nothing
 
 -- | Whether this switch carries one meaning and nothing else.
@@ -1450,6 +1456,9 @@ own = case _ of
   -- cannot be taken back — and a fumbled double while choosing loops is
   -- exactly how you would find that out. Undo leaves the audio in place and
   -- `Redo` brings it back.
+  -- **Two gestures and no more.** Choose it, or double to undo the last thing
+  -- on it. There is nowhere for a hold to go: what the tap used to open is
+  -- gone, its verbs having turned out to be the toolbar's six over again.
   LoopBank -> map (\n -> alsoDouble Undo (only (SelectLoop n))) switchLoops
 
   -- **The verbs, for whichever loop is in hand.**
