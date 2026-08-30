@@ -53,6 +53,7 @@ import Data.MC6.Verb as Verb
 import Data.Tuple (Tuple(..))
 import Pedals.Registry as Registry
 import Data.Twister.Scene as Scene
+import Data.Twister.Scenes as Scenes
 import Engine.Twister as ETw
 
 -- Golden fixture: JS-format engine state with 3 pedals, numeric-string CC keys
@@ -3402,6 +3403,51 @@ main = do
                in map _.cc viaPage == map _.cc viaCell
                     && map _.value viaPage == map _.value viaCell)
              (Array.range 0 15))
+
+  -- **Every borrowing leads somewhere.** A pick that does not resolve becomes a
+  -- dark cell rather than an error, which is right at runtime and useless as a
+  -- guard — a mistyped pedal id or an index past the end of a page would show
+  -- up as a knob that quietly does nothing, on a controller with no labels, in
+  -- the middle of a set. So the resolution is checked here instead.
+  let lookupTw pid = Registry.findPedal pid >>= _.twister
+      live = Scene.resolve lookupTw Scenes.liveThree
+  assert "every pick in the live scene resolves"
+    (Array.length (Array.catMaybes live.encoders)
+       == Array.length (Array.catMaybes Scenes.liveThree.encoders)
+      && Array.length (Array.catMaybes live.buttons)
+       == Array.length (Array.catMaybes Scenes.liveThree.buttons))
+
+  -- The three the feet are on, and only those. A scene that quietly grew a
+  -- fourth pedal would be a page where some knobs act on a pedal the bank's
+  -- switches cannot reach.
+  assert "the live scene touches exactly its three pedals"
+    (Array.sort (Scene.pedalsIn live)
+      == Array.sort [ PedalId "mood", PedalId "onward", PedalId "lostandfound" ])
+
+  -- Column four is the switch column on every pedal page, so it is the switch
+  -- column here. The bottom row breaks that on purpose and is checked with it:
+  -- three seconds, in the same left-to-right order as the rows above.
+  assert "the scene keeps the switch column and spends the bottom row"
+    (Array.all (\i -> isJust (Scene.buttonAt live i)) [ 3, 7, 11, 12, 13, 14 ]
+      && Array.all (\i -> isNothing (Scene.buttonAt live i)) [ 0, 1, 2, 15 ]
+      && Array.all (\i -> isJust (Scene.encoderAt live i)) [ 0, 1, 2, 4, 5, 6, 8, 9, 10 ])
+
+  -- A scene is CCs to pedals, and Itajara is not a pedal. Reaching the daemon
+  -- from here would be a second route beside `Machine.perform`, which is the
+  -- thing `Pedals.Itajara.twister = Nothing` exists to prevent.
+  assert "no scene can reach the looper"
+    (Array.all
+      (\d -> not (Array.elem Looper.itajaraId
+                    (Scene.pedalsIn (Scene.resolve lookupTw d))))
+      Scenes.scenes)
+
+  -- Only a bank that has given its switches to pedals asks for a scene. Every
+  -- other bank must leave the Twister alone, or standing on the looper's own
+  -- banks would take its four pages away.
+  assert "only the pedal bank calls up a scene"
+    (isJust (Scenes.sceneForBank Scenes.liveThreeBank)
+      && Array.all (\b -> isNothing (Scenes.sceneForBank b))
+           (Array.filter (_ /= Scenes.liveThreeBank) (Array.range 1 16)))
 
   assert "the arm threshold goes unprefixed, like the click and the monitor"
     (Machine.perform (rigOf [ idle 0 ]) LB.Focused (LB.ArmLevel (-24.0))

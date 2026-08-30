@@ -29,6 +29,9 @@
 module Data.Twister.Scene
   ( Bound
   , Scene
+  , Pick
+  , SceneDef
+  , resolve
   , ofPedal
   , encoderAt
   , buttonAt
@@ -62,6 +65,57 @@ type Scene =
   , encoders :: Array (Maybe (Bound TwisterEncoder))
   , buttons :: Array (Maybe (Bound TwisterButton))
   }
+
+-- | Where a scene's cell comes from: a pedal, and the index of the control on
+-- | **that pedal's own page**.
+-- |
+-- | A scene is a list of borrowings rather than a table of CCs, and that is the
+-- | point. Every pedal here already has a Twister mapping that says what its
+-- | knob nine is, complete with the centre it detents to and the options it
+-- | steps through; a scene that restated any of that would be a second place
+-- | for MOOD's Clock to be described, and the second place is the one that
+-- | goes stale. Correct a pedal's page and every scene that borrows from it is
+-- | corrected too.
+type Pick = { pedal :: PedalId, index :: Int }
+
+-- | A scene as it is written down: sixteen borrowings and sixteen more.
+-- |
+-- | `Scene` is the resolved form and this is the authored one, for the same
+-- | reason a pedal has a `PedalDef` and a `PedalState`. Resolution needs the
+-- | registry, which is a thing the app has and a table of data should not.
+type SceneDef =
+  { name :: String
+  , hue :: Int
+  , encoders :: Array (Maybe Pick)
+  , buttons :: Array (Maybe Pick)
+  }
+
+-- | Follow every borrowing, and drop the ones that lead nowhere.
+-- |
+-- | **A pick that does not resolve becomes a dark cell, not an error.** It can
+-- | only mean a pedal that is not in this rig or an index past the end of its
+-- | page — and the useful behaviour for both is a knob that does nothing,
+-- | because the alternative is a whole scene refusing to appear on account of
+-- | one cell. The pick is still visible in the source, which is where a
+-- | mistake like that gets found.
+resolve :: (PedalId -> Maybe TwisterMapping) -> SceneDef -> Scene
+resolve lookupPedal d =
+  { name: d.name
+  , hue: d.hue
+  , encoders: map (bindPick _.encoders) d.encoders
+  , buttons: map (bindPick _.buttons) d.buttons
+  }
+  where
+  bindPick
+    :: forall a
+     . (TwisterMapping -> Array (Maybe a))
+    -> Maybe Pick
+    -> Maybe (Bound a)
+  bindPick which mPick = do
+    pick <- mPick
+    tw <- lookupPedal pick.pedal
+    control <- join (Array.index (which tw) pick.index)
+    pure { pedal: pick.pedal, control }
 
 -- | A pedal's own page, read as a scene: every cell names its owner.
 -- |

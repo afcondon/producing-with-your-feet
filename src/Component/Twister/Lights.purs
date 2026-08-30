@@ -32,6 +32,7 @@
 module Component.Twister.Lights
   ( rigOf
   , refreshTwister
+  , sendSceneLEDs
   , showTwisterPage
   , adoptTwisterPage
   , sendRingPosition
@@ -44,6 +45,8 @@ module Component.Twister.Lights
 
 import Prelude
 
+import Control.Alt ((<|>))
+
 import Config.Registry as CRegistry
 import Data.Array as Array
 import Data.Foldable (for_)
@@ -54,6 +57,8 @@ import Data.Looper.Machine as Machine
 import Data.Looper.Twister as LoopTwister
 import Data.Pedal (PedalId)
 import Data.Twister (Knob)
+import Data.Twister.Scene (Scene)
+import Data.Twister.Scene as Scene
 import Data.Twister as TwisterData
 import Effect.Aff.Class (class MonadAff)
 import Effect.Class (liftEffect)
@@ -204,6 +209,43 @@ sendAllLEDs pid = do
         for_ leds \led -> do
           sendRGBColor { bank: 0, index: led.index } led.hue
           sendRingPosition { bank: 0, index: led.index } led.ring
+
+-- | A scene's lights: **each cell in its own pedal's colour**.
+-- |
+-- | This is the difference that makes a mixed page usable. A pedal's own page
+-- | is one colour because everything on it belongs to one pedal and the colour
+-- | says nothing you did not know; here it is the only thing that says whether
+-- | the knob under your hand is MOOD's or Onward's, on a controller Andrew has
+-- | decided not to label.
+-- |
+-- | Cells that carry only a switch are lit too, at ring zero. A pedal page
+-- | leaves those dark because `computeAllLEDs` walks the encoders alone, and
+-- | dark is nearly right there — the switch column is in the same place on
+-- | every pedal page, so it is learned. A scene's switches are not: they are
+-- | the fourth column *and* the bottom row, and an unlit switch is one you do
+-- | not know is there.
+sendSceneLEDs :: forall act slots o m. MonadAff m => Scene -> H.HalogenM AppState act slots o m Unit
+sendSceneLEDs sc = do
+  st <- H.get
+  for_ (Array.range 0 (TwisterData.encodersPerBank - 1)) \i -> do
+    let knob = { bank: 0, index: i }
+        -- The encoder decides the ring; either half decides the colour, so a
+        -- switch-only cell still shows whose it is.
+        mEnc = Scene.encoderAt sc i
+        mBtn = Scene.buttonAt sc i
+        mPedal = map _.pedal mEnc <|> map _.pedal mBtn
+        hueOf pid = case CRegistry.findPedal st.registry pid of
+          Just def -> Twister.pedalHue def
+          Nothing -> 0
+        led = case mPedal of
+          Nothing -> { index: i, ring: 0, hue: 0 }
+          Just pid ->
+            let hue = hueOf pid
+            in case mEnc, Map.lookup pid st.engine of
+                 Just b, Just ps -> Twister.encoderLEDOf i hue b.control ps
+                 _, _ -> { index: i, ring: 0, hue }
+    sendRGBColor knob led.hue
+    sendRingPosition knob led.ring
 
 -- | Every light on the controller, from the daemon's newest word.
 -- |

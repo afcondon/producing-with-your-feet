@@ -16,7 +16,7 @@ import Data.Looper as Looper
 import Data.Looper.Banks as LoopBanks
 import Component.Looper.Control as LooperControl
 import Component.Looper.Page as LooperPage
-import Component.Twister.Lights (adoptTwisterPage, dimAllLEDs, knobCC, pinDevice, refreshTwister, rigOf, sendAllLEDs, sendLooperLEDs, sendRingPosition, showTwisterPage)
+import Component.Twister.Lights (sendSceneLEDs, adoptTwisterPage, dimAllLEDs, knobCC, pinDevice, refreshTwister, rigOf, sendAllLEDs, sendLooperLEDs, sendRingPosition, showTwisterPage)
 import Data.Looper.Machine as Machine
 import Data.MC6.Backup as Backup
 import Data.MC6.ControlBank (ControlBank)
@@ -67,6 +67,8 @@ import Data.String.CodeUnits as SCU
 import Engine (AppState, EngineState, LooperPanel, MC6Assignment, PedalState, View(..), getValue, initAppState, initEngineFromPedals, pedalsOnChannel, pushLooperLog)
 import Config.Preset as CPreset
 import Engine.Storage as Storage
+import Data.Twister.Scene as Scene
+import Data.Twister.Scenes as Scenes
 import Engine.Twister as Twister
 import Data.Looper.Sheet as LoopSheet
 import Foreign.FileIO as FileIO
@@ -3338,9 +3340,59 @@ pressGuardMs = 300.0
 -- | Which is why `Pedals.Itajara.twister` is still `Nothing` and must stay
 -- | that way: filling it in is a five-minute job that would install a fourth
 -- | route to the daemon.
+-- | Follow the MC6 onto a bank, and put the Twister where that bank wants it.
+-- |
+-- | **The device is the one that moves.** `mc6CurrentBank` comes from the frame
+-- | the MC6 volunteers the instant it changes bank — the one piece of its state
+-- | this app does not have to believe — so the hand's surface follows the foot
+-- | without anything being pressed twice or kept in step by hand.
+-- |
+-- | Guarded on the scene actually changing, because that frame arrives for
+-- | other reasons too (a preset read answers with its bank), and relighting
+-- | sixteen cells on every one of those would be a burst of MIDI for nothing.
+-- | Names are compared rather than the scenes themselves: a `Scene` holds
+-- | functions' worth of resolved controls and has no `Eq`, and two scenes with
+-- | one name would be the real fault.
+syncSceneToBank :: forall o m. MonadAff m => Int -> H.HalogenM AppState Action Slots o m Unit
+syncSceneToBank bank = do
+  st <- H.get
+  let wanted = map
+        (Scene.resolve \pid -> CRegistry.findPedal st.registry pid >>= _.twister)
+        (Scenes.sceneForBank bank)
+  when (map _.name wanted /= map _.name st.twisterScene) do
+    H.modify_ _ { twisterScene = wanted }
+    case wanted of
+      Just sc -> do
+        dimAllLEDs
+        sendSceneLEDs sc
+      -- Leaving. Hand the controller back to whatever focus says, which is the
+      -- same road a focus change takes — including its dim, since a scene lights
+      -- cells a pedal page leaves dark.
+      Nothing -> for_ st.focusPedalId refreshTwister
+
 handleEncoderTurn :: forall o m. MonadAff m => Knob -> Int -> H.HalogenM AppState Action Slots o m Unit
 handleEncoderTurn knob val = do
   st <- H.get
+  case st.twisterScene of
+    -- **A scene wins over everything, the looper's own pages included.** You
+    -- are standing on an MC6 bank whose six switches are pedal switches; the
+    -- hands belong on the same pedals the feet are on, and a page that let one
+    -- knob still reach Itajara would be the back-and-forth this removes.
+    Just sc -> when (knob.bank == 0) $
+      for_ (Scene.encoderAt sc knob.index) \b ->
+        for_ (Twister.encoderAction b.control val) \result -> do
+          -- `b.pedal`, not focus. The whole of what a scene is.
+          H.modify_ _ { suppressTwister = true }
+          handleAction (SetValue b.pedal result.cc result.value)
+          H.modify_ _ { suppressTwister = false }
+          for_ result.ringSnap \snap ->
+            sendRingPosition knob snap
+    Nothing -> handleEncoderTurnOnPedal st knob val
+
+handleEncoderTurnOnPedal
+  :: forall o m. MonadAff m
+  => AppState -> Knob -> Int -> H.HalogenM AppState Action Slots o m Unit
+handleEncoderTurnOnPedal st knob val =
   if st.focusPedalId == Just Looper.itajaraId
     then
       let here = onPage st knob
@@ -3368,6 +3420,26 @@ handleEncoderTurn knob val = do
 handleEncoderPress :: forall o m. MonadAff m => Knob -> H.HalogenM AppState Action Slots o m Unit
 handleEncoderPress knob = do
   st <- H.get
+  case st.twisterScene of
+    Just sc -> when (knob.bank == 0) $
+      for_ (Scene.buttonAt sc knob.index) \b ->
+        -- The state of the pedal the *cell* names, which is why `buttonAction`
+        -- takes a `PedalState` and not a pedal: a toggle needs to know what its
+        -- own CC currently reads, and on a mixed page that is a different
+        -- pedal's answer from one cell to the next.
+        for_ (Map.lookup b.pedal st.engine) \ps ->
+          for_ (Twister.buttonAction b.control ps) \changes -> do
+            H.modify_ _ { suppressTwister = true }
+            for_ changes \change ->
+              handleAction (SetValue b.pedal change.cc change.value)
+            H.modify_ _ { suppressTwister = false }
+            sendSceneLEDs sc
+    Nothing -> handleEncoderPressOnPedal st knob
+
+handleEncoderPressOnPedal
+  :: forall o m. MonadAff m
+  => AppState -> Knob -> H.HalogenM AppState Action Slots o m Unit
+handleEncoderPressOnPedal st knob =
   if st.focusPedalId == Just Looper.itajaraId
     then if (LoopTwister.controlAt (onPage st knob)).pager
       -- Home, because that is the page you want in a hurry and the turn is
@@ -3485,23 +3557,30 @@ handleReadReply bytes = case Read.decodeReply bytes of
       }
   -- Double duty: what a bank holds, and — when the device volunteers it rather
   -- than answering a request — which bank it is standing on.
-  Just (Read.BankSwitches bank names) ->
+  Just (Read.BankSwitches bank names) -> do
     H.modify_ \s -> s
       { mc6BankSwitches = Map.insert bank names s.mc6BankSwitches
       , mc6CurrentBank = Just bank
       , mc6ReadStatus = Just ("Read bank " <> show bank <> ".")
       }
+    syncSceneToBank bank
   -- Said the instant the device moves, and the fastest honest answer to "which
   -- bank is it on". The switch names for the same bank turn up much later.
-  Just (Read.CurrentBank bank name) ->
+  Just (Read.CurrentBank bank name) -> do
     H.modify_ \s -> s
       { mc6CurrentBank = Just bank
       , mc6ReadStatus = Just
           ("The MC6 is showing bank " <> show bank
             <> (if name == "" then "" else " (" <> name <> ")") <> ".")
       }
-  Just (Read.CurrentPreset bank _) ->
+    -- **The fastest honest answer, so the fastest place to follow it.** This
+    -- frame is the one the device volunteers the instant a foot changes bank;
+    -- the switch names for the same bank turn up much later, and waiting for
+    -- them would put a visible lag between the foot and the hand's surface.
+    syncSceneToBank bank
+  Just (Read.CurrentPreset bank _) -> do
     H.modify_ _ { mc6CurrentBank = Just bank }
+    syncSceneToBank bank
   Just (Read.EditorMode on) -> do
     liftEffect $ Console.log $ "MC6 editor mode " <> (if on then "on" else "off")
     H.modify_ _ { mc6EditorMode = Just on }

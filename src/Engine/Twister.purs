@@ -8,6 +8,8 @@ module Engine.Twister
   , handleSideButton
   , handleSideButtonPrev
   , computeAllLEDs
+  , encoderLEDOf
+  , LEDState
   , pedalHue
   , ringValueForEncoder
   ) where
@@ -145,19 +147,26 @@ encoderLED :: Int -> Maybe TwisterEncoder -> PedalDef -> PedalState -> LEDState
 encoderLED index mEnc def ps =
   case mEnc of
     Nothing -> { index, ring: 0, hue: 0 }
-    Just enc ->
-      let hue = case def.twister of
-                  Just tw -> tw.hue
-                  Nothing -> 0
-      in case enc of
-        TwisterCC { cc, center, options } ->
-          let currentVal = fromMaybe 0 (map unMidiValue (Map.lookup cc ps.values))
-              ring = case options of
-                Just opts -> optionRing currentVal opts
-                Nothing -> case center of
-                  Nothing -> currentVal
-                  Just c -> ringValue currentVal (unMidiValue c)
-          in { index, ring, hue }
+    Just enc -> encoderLEDOf index (pedalHue def) enc ps
+
+-- | One lit cell, given the colour it should be rather than the pedal it is on.
+-- |
+-- | The same seam as `encoderAction`: everything here is the encoder's own
+-- | declaration against the value its CC currently holds, and the pedal was
+-- | only ever consulted for a hue. Handing the hue in is what lets a **scene**
+-- | light each row in its own pedal's colour — which is the whole of how a
+-- | mixed page stays readable on a controller with no labels on it.
+encoderLEDOf :: Int -> Int -> TwisterEncoder -> PedalState -> LEDState
+encoderLEDOf index hue enc ps =
+  case enc of
+    TwisterCC { cc, center, options } ->
+      let currentVal = fromMaybe 0 (map unMidiValue (Map.lookup cc ps.values))
+          ring = case options of
+            Just opts -> optionRing currentVal opts
+            Nothing -> case center of
+              Nothing -> currentVal
+              Just c -> ringValue currentVal (unMidiValue c)
+      in { index, ring, hue }
 
 optionRing :: Int -> Array MidiValue -> Int
 optionRing currentVal opts =

@@ -40,6 +40,7 @@ import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Foreign.LooperSocket (LooperState, SocketStatus)
 import Data.Midi (CC, MidiValue)
+import Data.Twister.Scene (Scene)
 import Data.Pedal (PedalDef, PedalId)
 import Data.Preset (BoardPreset, PedalPreset, PresetId)
 import Data.Tuple (Tuple(..))
@@ -162,6 +163,17 @@ type AppState =
   -- | The two fields therefore no longer name two candidate addresses. There is
   -- | one address, and `twisterHeardBank` is only how drift is spotted.
   , twisterPage :: Int
+  -- | The live-controls page the Twister is showing, if it is showing one.
+  -- |
+  -- | **A scene wins over everything**, including the looper's own four pages,
+  -- | and that is what it is for: it is set by standing on an MC6 bank whose
+  -- | six switches are pedal switches, so the hands should be on the same
+  -- | pedals the feet are. `Nothing` is the ordinary state — focus decides,
+  -- | as it always did.
+  -- |
+  -- | Resolved rather than a `SceneDef`, because resolution needs the registry
+  -- | and every reader of this field wants the controls, not the borrowings.
+  , twisterScene :: Maybe Scene
   , presets :: Array PedalPreset
   , boardPresets :: Array BoardPreset
   , registry :: PedalRegistry
@@ -410,6 +422,7 @@ initAppState =
   , twisterGuard: Set.empty
   , twisterHeardBank: Nothing
   , twisterPage: 0
+  , twisterScene: Nothing
   , presets: []
   , boardPresets: []
   , configError: Nothing
