@@ -112,6 +112,21 @@ kick-after-the-song idea.
 
 > The daemon counts loops from zero, so the ack for Loop 1 reads "loop 0". The lines quoted below are its own words, untranslated — the app's own log line above each of them counts from one.
 
+## A beat off the iPad, four bars of it
+
+The way in when the piece starts with a drum machine rather than with you. Get to the Grab bank with a hold on G — the same switch Arm is on — and have Patterning (or anything with Start/Stop Sync ticked) loaded and stopped.
+
+- **Grab bank** press Loop 4, or Loop 8 for the other one
+- **Grab bank** press 4 bars
+  - *loop 3 starts on the grid in 1.94 s.*
+- the iPad comes in on the downbeat and four bars go by
+  - *loop 3 committed: 8.000 s, 1 layer playing.*
+- **Grab bank** press Halt — the iPad is still playing otherwise
+  - *asked Link to stop — peers with start/stop sync follow.*
+- **Grab bank** press < Loops, and make guitar loops against it
+
+> **One press does four things**, and it has to: the iPad will not play until Link's transport starts, and the take has to open on the same bar line the transport does. So `4 bars` starts the session, sets the grid, declares the length and records — and the recording waits for the downbeat rather than for your foot, which is why nothing here needs counting in. **Layering is the same press again**: a second grab onto a loop that already holds one is an overdub, so a hat over a kick is `4 bars` twice with the pattern changed in between. A double on the loop switch undoes the last one. And Halt stops the Link *session*, so it stops Ableton too — that is what a session transport is, not a leak.
+
 ## A four-bar first loop, in time
 
 The ordinary way in when Link is running and you want to sit on Ableton's grid. Check the legend reads a tempo before you start.
@@ -206,12 +221,6 @@ Only reachable with Link off. With a clock, bars resizes instead — and the ack
   - *loop 0 is 4 bars — the bar is now 2.000 s. Nothing was moved.*
 
 > No audio changed. The pulse is a quarter of what you played, so a one-bar loop 2 is now possible.
-PASS - the sheet names every control and every recipe
-PASS - the sheet counts its pages from one
-PASS - every tone has ink on the sheet
-PASS - the sheet escapes what could close a tag
-PASS - the sheet prints the eight loops once, as a range
-PASS - every recipe has steps, and most of them say what to expect
 
 ## When something looks broken
 

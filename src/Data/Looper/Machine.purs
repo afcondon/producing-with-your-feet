@@ -357,6 +357,31 @@ perform rig subject = case _ of
   -- that makes it a *start* is that all the origins get the same stamp, and
   -- only something with one clock in front of it can hand out one stamp.
   LB.StartAll -> [ Command (Verb.render Verb.StartAll) ]
+
+  -- **Four commands, and the order is the whole of it.**
+  --
+  -- The transport first, because link-spike schedules it for the next bar line
+  -- and everything after this is trying to land on that same line. Then the
+  -- grid, then the length, then record — the same three a hand would send from
+  -- the Loops page, which is deliberate: a grab is not a new thing the daemon
+  -- knows how to do, it is the ordinary opening of a take with the beat
+  -- started underneath it.
+  --
+  -- Nothing here is conditional on what the loop holds. `r` on a loop with
+  -- material is an overdub, `g1` on a loop already following the grid is a
+  -- no-op, and `len` on a loop already that long changes nothing — so the
+  -- second grab layers onto the first with no branch to get wrong.
+  LB.Grab bars ->
+    [ Command (Verb.render (Verb.Playing true))
+    , Command (cmd i (Verb.OnGrid true))
+    , Command (cmd i (Verb.Bars bars))
+    , Command (cmd i Verb.Record)
+    ]
+
+  -- Rig-wide, so it is not addressed to a loop — and the ack says so, because
+  -- a bare command in a log beside seven loop-prefixed ones reads like one that
+  -- forgot its prefix.
+  LB.LinkPlay on -> [ Command (Verb.render (Verb.Playing on)) ]
   LB.ClearAll -> map (\n -> Command (cmd n Verb.Clear)) (Array.range 0 (nLoops - 1))
 
   LB.Free -> perform rig subject (LB.OnGrid false)
@@ -600,7 +625,7 @@ show' = case _ of
   ConfigBank -> "config"
   QuantiseBank -> "quantise"
   SpeedBank -> "speed"
-  ModesBank -> "modes"
+  GrabBank -> "grab"
   PanBank -> "pan"
 
 -- | One line about what an action did, for the display and the log.

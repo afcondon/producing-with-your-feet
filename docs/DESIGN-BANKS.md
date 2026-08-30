@@ -148,6 +148,15 @@ looper's page count is settled — it is above almost everything and moves it al
 Per B3 a block's base and size live in one place, so this is one edit when it
 comes, not thirty.
 
+**The looper's page count is settled at seven, and by arithmetic rather than by
+taste.** Its pages address themselves in the CC — `16 * (page + 1) + switch`, so
+that a press says which page it came from and the app never has to remember —
+and page seven's twelfth switch is CC 123. An eighth page would need CC 128,
+where a data byte stops being data. So the loop machine has seven pages for as
+long as it uses that scheme, and an eighth idea has to displace one of the
+seven. That happened on 2026-08-30: the Grab page took the Modes page's slot,
+Modes having become five things the Twister already had encoders for.
+
 ### Control pages are grouped by function, not by pedal
 
 The first draft of this had a page of every bypass, on the assumption that
@@ -451,9 +460,12 @@ re-litigated:
 
 ## Open questions
 
-1. **Are the looper's eight pages settled?** Seven loop-machine pages plus the
-   legacy hand-driven transport. It sits above almost everything, so this is the
-   question blocking the bases being written into code.
+1. ~~**Are the looper's eight pages settled?**~~ **Answered 2026-08-30, by the
+   CC arithmetic rather than by design**: seven loop-machine pages is the
+   ceiling, plus the legacy hand-driven transport, which is the eight this block
+   reserves. See the note under *The map*. The bases can be written into code
+   whenever the rest of the map is ready; the looper is no longer what blocks
+   them.
 2. **Where does Hedra go?** It is a harmoniser rather than an effect and wants a
    page of its own; whether that page lives in the control block or the pedal
    block decides how the groups are counted.

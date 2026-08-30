@@ -98,7 +98,7 @@ import Data.Array as Array
 import Data.Int (round, toNumber)
 import Data.String (joinWith)
 import Halogen (AttrName(..), ElemName(..), Namespace(..))
-import Data.Maybe (Maybe(..), fromMaybe, isNothing)
+import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Looper.Banks as LB
 import Data.Looper.Twister as TW
 import Foreign.LooperSocket (LoopState, LayerShape, LooperState)
@@ -147,7 +147,14 @@ slot top focus fc idx st =
   HH.div
     [ HP.class_ (HH.ClassName ("loop-slot " <> stateClass st
         <> (if focus == idx then " is-selected" else "")
-        <> (if isNothing (LB.switchForLoop idx) then " is-offboard" else ""))) ]
+        -- **The fourth column, marked rather than hidden.** These were the two
+        -- loops no foot could reach and were drawn with a dashed edge to say
+        -- so; since the Grab bank they have switches of their own, and what
+        -- makes them different is no longer absence but *kind* — they hold
+        -- what the iPad plays rather than what the guitar does. So the mark is
+        -- a colour now and not a dash, which is a statement rather than an
+        -- apology.
+        <> (if Array.elem idx LB.grabLoops then " is-grab" else ""))) ]
     [ HH.div [ HP.class_ (HH.ClassName "loop-head") ]
         [ HH.span [ HP.class_ (HH.ClassName "loop-letter") ]
             [ HH.text (LB.faceLoopKey fc idx) ]

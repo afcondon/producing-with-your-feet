@@ -975,6 +975,46 @@ main = do
       && LB.sendsTo LB.ConfigBank 0 LB.Tap == Just (LB.ToSlot LB.QuantiseBank)
       && LB.sendsTo LB.ConfigBank 0 LB.Hold == Nothing)
 
+  -- **The two the pedal cannot reach are exactly the two the Grab bank aims
+  -- at**, and both lists come from `loopRows` rather than from each other. A
+  -- literal on either side would let the grid grow a column and leave one of
+  -- them describing the old shape — which is the failure that would look like
+  -- a routing bug, since every loop would still be reachable from *somewhere*.
+  assert "the grab loops are the fourth column, and nothing overlaps"
+    (LB.grabLoops == [ 7, 3 ]
+      && Array.null (Array.intersect LB.grabLoops LB.switchLoops)
+      && Array.sort (LB.grabLoops <> LB.switchLoops)
+        == Array.range 0 (LB.nLoops - 1))
+
+  -- The Grab bank's own layout has to agree with `grabSwitchForLoop`, because
+  -- the screen prints the letter from one and the foot presses the other.
+  -- Getting this wrong prints "A" beside loop 4 and sends you to loop 8, and
+  -- the two would still agree about which loops are involved.
+  assert "and each of them is under the switch its letter claims"
+    (Array.all
+      (\l -> map (\i -> LB.dutyAt LB.GrabBank i) (Array.fromFoldable (LB.grabSwitchForLoop l))
+               == [ Just (LB.SelectLoop l) ])
+      LB.grabLoops
+      && LB.grabSwitchForLoop 0 == Nothing
+      && map (LB.faceLoopKey (LB.face (Just LB.GrabBank))) [ 3, 7 ] == [ "D", "A" ]
+      -- And nowhere else, because on every other bank those switches are
+      -- something else entirely.
+      && map (LB.faceLoopKey (LB.face (Just LB.SpeedBank))) [ 3, 7 ] == [ "4", "8" ])
+
+  -- **One switch shuttles between the two pages that get used**, and it is the
+  -- one whose own timing does not matter. Arm waits for your note, so the
+  -- double-tap window it now sits behind costs nothing; Record could not have
+  -- paid that and is untouched.
+  assert "the grab bank is a hold away, and the loops are a hold back"
+    (LB.sendsTo LB.LoopBank 6 LB.Hold == Just (LB.ToSlot LB.GrabBank)
+      && LB.sendsTo LB.GrabBank 6 LB.Hold == Just (LB.ToSlot LB.LoopBank)
+      && LB.sendsTo LB.SpeedBank 6 LB.Hold == Just (LB.ToSlot LB.GrabBank)
+      -- Arm itself is unmoved; only what a hold on it means is new.
+      && LB.dutyAt LB.GrabBank 6 == Just LB.ArmLoop
+      -- And the printed way out is on the bank as well, which is the one you
+      -- can find without remembering a hold.
+      && LB.sendsTo LB.GrabBank 2 LB.Tap == Just (LB.ToSlot LB.LoopBank))
+
   log ""
   log "What a gesture means (Data.Looper.Machine)..."
 
@@ -1022,6 +1062,47 @@ main = do
       (Array.filter isCommand
         (Machine.act (rigOf [ idle 0, withState 1 "playing" 2 ])
           (LB.switchGesture LB.LoopBank 1 LB.Tap))))
+
+  -- **A grab is four commands and the order is the claim.** The transport
+  -- first, because link-spike schedules it for the next bar line and the three
+  -- that follow are all trying to land on that same line; then the grid, the
+  -- length and the record, which is exactly what a hand sends from the Loops
+  -- page. Nothing about it is new to the daemon — what is new is that the beat
+  -- starts underneath it.
+  assert "a grab starts the session, then opens a take of the length it names"
+    (Machine.act ((rigOf [ idle 0, idle 1, idle 2, idle 3 ]) { focus = 3 })
+       (LB.switchGesture LB.GrabBank 4 LB.Tap)
+      == [ Machine.Command "play1"
+         , Machine.Command "3g1"
+         , Machine.Command "3len4"
+         , Machine.Command "3r"
+         ]
+      && Machine.act ((rigOf [ idle 0, idle 1, idle 2, idle 3 ]) { focus = 3 })
+           (LB.switchGesture LB.GrabBank 1 LB.Tap)
+        == [ Machine.Command "play1"
+           , Machine.Command "3g1"
+           , Machine.Command "3len8"
+           , Machine.Command "3r"
+           ])
+
+  -- **Layering needs no switch and no branch.** `r` on a loop with material is
+  -- an overdub, `g1` on a loop already on the grid is a no-op and `len` on a
+  -- loop already that long changes nothing — so the second grab is byte for
+  -- byte the first one, and there is no state to read wrong. Grabbing a hat
+  -- over a kick is the same press twice.
+  assert "and a second grab is the same four commands, over the first"
+    (Machine.act ((rigOf [ (withState 0 "playing" 1) { quant = true } ]) { focus = 0 })
+       (LB.switchGesture LB.GrabBank 4 LB.Tap)
+      == Machine.act ((rigOf [ idle 0 ]) { focus = 0 })
+           (LB.switchGesture LB.GrabBank 4 LB.Tap))
+
+  -- Rig-wide, so no loop prefix — the same shape as Start All. A bare command
+  -- in a log beside a column of prefixed ones reads like one that forgot its
+  -- prefix, which is why this is asserted rather than assumed.
+  assert "and Halt stops the session, not a loop"
+    (Machine.act ((rigOf [ idle 0, idle 1 ]) { focus = 1 })
+       (LB.switchGesture LB.GrabBank 5 LB.Tap)
+      == [ Machine.Command "play0" ])
 
   assert "recording an empty loop opens a take"
     (Machine.act (rigOf [ idle 0 ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
@@ -1366,7 +1447,7 @@ main = do
   -- The config family acts on the focused loop, which is what a hold sets. One
   -- config bank serving six loops only works because of that.
   assert "reverse and clear act on the focused loop, not the pressed switch"
-    (Machine.act ((rigOf [ idle 0, idle 1, idle 2 ]) { focus = 2 }) (LB.switchGesture LB.ConfigBank 4 LB.Tap)
+    (Machine.act ((rigOf [ idle 0, idle 1, idle 2 ]) { focus = 2 }) (LB.switchGesture LB.ConfigBank 3 LB.Tap)
       == [ Machine.Command "2rev1" ]
       && Machine.perform ((rigOf []) { focus = 1 }) LB.Focused LB.ClearLoop
         == [ Machine.Command "1c" ])
@@ -1497,7 +1578,7 @@ main = do
   -- snapshot and send the explicit form, so a dropped command cannot leave the
   -- app and the engine disagreeing for ever about which way a loop is facing.
   assert "and pendulum is a config switch of its own, sent as a value"
-    (Machine.act ((rigOf []) { focus = 4 }) (LB.switchGesture LB.ConfigBank 5 LB.Tap)
+    (Machine.act ((rigOf []) { focus = 4 }) (LB.switchGesture LB.ConfigBank 4 LB.Tap)
       == [ Machine.Command "4pend1" ])
 
   -- **The mode changes what the switch means, and the switch keeps its name.**
@@ -1532,14 +1613,18 @@ main = do
     (Machine.act (rigOf [ (idle 0) { armed = true } ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
       == [ Machine.Command "0r", Machine.Handled "loop 1 stopped listening" ])
 
-  -- Modes, where Chance was. Two toggles rather than five values, because
-  -- one-shot and level-arm are not exclusive — which is the thing a bank of
-  -- five choices cannot say.
-  assert "the modes bank sets its toggles from what the engine last reported"
-    (Machine.act ((rigOf [ (idle 0) { levelArm = true } ]) { focus = 0 })
-       (LB.switchGesture LB.ModesBank 0 LB.Tap) == [ Machine.Command "0one1" ]
-      && Machine.act ((rigOf [ (idle 0) { levelArm = true } ]) { focus = 0 })
-           (LB.switchGesture LB.ModesBank 1 LB.Tap) == [ Machine.Command "0lev0" ])
+  -- **Through `perform`, not through a switch, since 2026-08-30.** The modes
+  -- bank was the price of the Grab bank — seven blocks is all the CC
+  -- arithmetic holds — and these five duties are unplaced now, reachable from
+  -- the Twister and from nothing underfoot. They are still tested, because
+  -- what they compute is not a property of the switch that used to carry them:
+  -- a toggle set from what the engine last reported rather than flipped
+  -- locally is the rule, and it outlives its bank.
+  assert "the modes set their toggles from what the engine last reported"
+    (Machine.perform ((rigOf [ (idle 0) { levelArm = true } ]) { focus = 0 })
+       LB.Focused LB.OneShot == [ Machine.Command "0one1" ]
+      && Machine.perform ((rigOf [ (idle 0) { levelArm = true } ]) { focus = 0 })
+           LB.Focused LB.LevelArm == [ Machine.Command "0lev0" ])
 
   -- Chance steps rather than flipping, and the step is computed from what the
   -- engine last reported — not counted here and not counted on the device. The
@@ -1591,13 +1676,13 @@ main = do
         == [ "hard", "10 ms", "25 ms", "50 ms", "100 ms" ])
 
   assert "and a press sends the fade it stepped to"
-    (Machine.act ((rigOf [ (idle 0) { fadeMs = 25.0 } ]) { focus = 0 })
-       (LB.switchGesture LB.ModesBank 3 LB.Tap)
+    (Machine.perform ((rigOf [ (idle 0) { fadeMs = 25.0 } ]) { focus = 0 })
+       LB.Focused LB.StepFade
       == [ Machine.Command "0xf50.0", Machine.Handled "loop 1 wraps 50 ms" ])
 
   assert "and a press sends the rung it stepped to"
-    (Machine.act ((rigOf [ (idle 0) { chance = 0.5 } ]) { focus = 0 })
-       (LB.switchGesture LB.ModesBank 2 LB.Tap)
+    (Machine.perform ((rigOf [ (idle 0) { chance = 0.5 } ]) { focus = 0 })
+       LB.Focused LB.StepChance
       == [ Machine.Command "0ch0.25", Machine.Handled "loop 1 plays 1 in 4" ])
 
   -- What is not built says what it is waiting for, and says it in the SAME
@@ -2102,9 +2187,15 @@ main = do
       -- to see whether a second press is coming before it can say which you
       -- meant. That is a real cost and it was spent deliberately — it is
       -- Record that has to answer when a foot lands, and Record is one gesture
-      -- on `LoopPage`, below.
+      -- of its own on the toolbar's `I`.
       && not (LB.firesAtPressDown LB.LoopBank 0 LB.Tap)
-      && LB.firesAtPressDown LB.LoopPage 0 LB.Tap
+      && LB.firesAtPressDown LB.LoopBank 8 LB.Tap
+      -- **And Arm waits too**, since `G` gained the hold onto the Grab bank.
+      -- The same cost, spent on the one duty in the toolbar that can afford
+      -- it: Arm listens for your note, so when the foot landed is not what
+      -- starts the recording. That sentence is why the hold went on `G` and
+      -- not on `I`.
+      && not (LB.firesAtPressDown LB.LoopBank 6 LB.Tap)
       && LB.firesAtPressDown LB.SpeedBank 0 LB.Tap
       -- Only a gesture the switch actually carries can fire at press-down, and
       -- a hold never does: it is a hold.

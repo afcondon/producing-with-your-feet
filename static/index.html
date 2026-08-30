@@ -2205,12 +2205,21 @@ body {
   gap: 12px; margin-bottom: 12px; align-items: start;
 }
 
-/* Loops 4 and 8 have no switch on the board — they are the fourth column the
-   MC6 does not have. Marked rather than hidden: they are as real as the others,
-   and the dashed edge is the whole of the difference. An MC8 would fill them
-   and this rule would stop matching anything. */
-.loop-slot.is-offboard { border-style: dashed; }
-.loop-slot.is-offboard .loop-letter { opacity: 0.55; }
+/* Loops 4 and 8 — the fourth column, which the MC6 is three switches too narrow
+   to hold. They were drawn dashed while that absence was the whole story.
+   It is not any more: the Grab bank reaches both, and what sets them apart now
+   is what goes IN them — a beat or a pad off the iPad, arriving on its own pair
+   of channels rather than through the pedalboard. So the edge is a colour and
+   not a dash. A dash reads as provisional; these are the two you build on.
+
+   Three sides only. `border-top-color` is the state channel — playing, armed,
+   recording — and a rule that took the whole border would silence it on
+   exactly the two loops you are watching while a grab closes. */
+.loop-slot.is-grab {
+  border-left-color: #6d7f96;
+  border-right-color: #6d7f96;
+  border-bottom-color: #6d7f96;
+}
 
 .loop-slot {
   border: 1px solid #ded9d1; border-top: 3px solid #ded9d1;
@@ -4250,6 +4259,6 @@ body {
   <!-- Stamped by tools/bundle.sh with the bundle's own mtime. Without it a
        reload can serve yesterday's app and say nothing, which has cost this
        project whole afternoons more than once. -->
-  <script src="./index.js?v=1788086660"></script>
+  <script src="./index.js?v=1788089097"></script>
 </body>
 </html>

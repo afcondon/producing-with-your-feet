@@ -194,6 +194,8 @@ module Data.Looper.Banks
   , boardRows
   , loopRows
   , switchLoops
+  , grabLoops
+  , grabSwitchForLoop
   , loopAtSwitch
   , switchForLoop
   , Jump(..)
@@ -260,7 +262,9 @@ data BankSlot
   | ConfigBank
   | QuantiseBank
   | SpeedBank
-  | ModesBank
+  -- | The two loops the six loop switches cannot reach, and a way to fill them
+  -- | from something that is not a guitar. See `own GrabBank`.
+  | GrabBank
   | PanBank
 
 derive instance Eq BankSlot
@@ -268,7 +272,7 @@ derive instance Ord BankSlot
 
 allSlots :: Array BankSlot
 allSlots =
-  [ LoopBank, LoopPage, ConfigBank, QuantiseBank, SpeedBank, ModesBank, PanBank ]
+  [ LoopBank, LoopPage, ConfigBank, QuantiseBank, SpeedBank, GrabBank, PanBank ]
 
 -- | **Seven is the last one that fits.** The CC block is `16 * (index + 1)`, so
 -- | Pan sits at 112 and its twelfth switch is 123 — four short of the 127 a
@@ -283,7 +287,7 @@ slotIndex = case _ of
   ConfigBank -> 2
   QuantiseBank -> 3
   SpeedBank -> 4
-  ModesBank -> 5
+  GrabBank -> 5
   PanBank -> 6
 
 slotFromIndex :: Int -> Maybe BankSlot
@@ -293,7 +297,7 @@ slotFromIndex = case _ of
   2 -> Just ConfigBank
   3 -> Just QuantiseBank
   4 -> Just SpeedBank
-  5 -> Just ModesBank
+  5 -> Just GrabBank
   6 -> Just PanBank
   _ -> Nothing
 
@@ -308,7 +312,7 @@ slotName = case _ of
   ConfigBank -> "Loop Cfg"
   QuantiseBank -> "Quantise"
   SpeedBank -> "Speed"
-  ModesBank -> "Modes"
+  GrabBank -> "Grab"
   PanBank -> "Pan"
 
 slotId :: BankSlot -> String
@@ -318,7 +322,7 @@ slotId = case _ of
   ConfigBank -> "config"
   QuantiseBank -> "quantise"
   SpeedBank -> "speed"
-  ModesBank -> "modes"
+  GrabBank -> "grab"
   PanBank -> "pan"
 
 -- | Which CC a given switch sends.
@@ -516,6 +520,34 @@ switchLoops = [ 4, 5, 6, 0, 1, 2 ]
 loopAtSwitch :: Int -> Maybe Int
 loopAtSwitch = Array.index switchLoops
 
+-- | The two loops the six loop switches cannot reach, in the pedal's row order.
+-- |
+-- | **The fourth column, derived rather than written down.** `switchLoops`
+-- | covers the left three columns of both rows; this is what is left — and it
+-- | is `Array.last` of each row rather than the literal `[7, 3]` so that a
+-- | change to `loopRows` moves both halves together instead of leaving one of
+-- | them right and the other stale.
+-- |
+-- | Reversed for the same reason `switchLoops` reads bottom row first: the MC6
+-- | numbers its switches from the near edge, so A is loop 8 and D is loop 4.
+-- |
+-- | These are the two the Grab bank aims at, and that is not a coincidence
+-- | dressed as a design. Being out of the feet's reach is what made them the
+-- | loops you set up rather than stomp, and material that arrives from the
+-- | iPad is set up rather than stomped.
+grabLoops :: Array Int
+grabLoops = Array.reverse (Array.mapMaybe Array.last loopRows)
+
+-- | Which switch on the Grab bank selects a loop, for the two that have one.
+-- |
+-- | **Derived from the layout's own shape, not from a second copy of it.** The
+-- | targets sit in the left column of both rows — A and D — so the switch is
+-- | three times the position in `grabLoops`, which is the one arithmetic fact
+-- | `own GrabBank` and this have to agree about. A test walks both and checks
+-- | they do.
+grabSwitchForLoop :: Int -> Maybe Int
+grabSwitchForLoop l = (\n -> n * (mc6OwnSwitches / 2)) <$> Array.findIndex (_ == l) grabLoops
+
 -- | Which switch selects a loop, or `Nothing` for the two the pedal cannot
 -- | reach.
 switchForLoop :: Int -> Maybe Int
@@ -576,9 +608,16 @@ faceSlot (Face m) = m
 -- | that survives testing.
 -- |
 -- | Loops with no switch have no letter; their number is the honest answer.
+-- |
+-- | **Two banks name loops now**, since the Grab page landed: the loop bank
+-- | names six and the Grab bank names the two the loop bank cannot reach.
+-- | Reading the letter off the wrong one is the same fault as reading it off
+-- | the index — on the Grab bank, A is loop 8 and not loop 5 — so each bank
+-- | asks its own table and every other bank still prints numbers.
 faceLoopKey :: Face -> Int -> String
 faceLoopKey (Face m) i = case m of
   Just LoopBank -> fromMaybe (show (i + 1)) (switchForLoop i >>= switchLetter)
+  Just GrabBank -> fromMaybe (show (i + 1)) (grabSwitchForLoop i >>= switchLetter)
   _ -> show (i + 1)
 
 data Jump = ToSlot BankSlot | ToBoard
@@ -741,6 +780,35 @@ data Duty
   | Redo
   -- | Bring every loop back, the counterpart of stopping them all.
   | StartAll
+  -- | Start the beat and record a whole number of bars of it, in one press.
+  -- |
+  -- | **The one duty that reaches outside this rig.** Everything else here
+  -- | ends at itajara; this begins by asking Link's transport to start, which
+  -- | is the only cue an iPad app takes. Patterning, Xynthesizr and AUM all
+  -- | follow Start/Stop Sync and none of them follow anything else the board
+  -- | can send, so "play the beat" has to be said to the session rather than
+  -- | to the app.
+  -- |
+  -- | The rest is ordinary: the grid on, the length declared, and record.
+  -- | link-spike schedules the transport for the next bar line without moving
+  -- | the beat grid, and a grid-quantised recording is waiting for that same
+  -- | bar line — so the take opens on the drum machine's downbeat rather than
+  -- | somewhere inside its first bar.
+  -- |
+  -- | On a loop that already holds something this is an overdub, because that
+  -- | is what a recording is on a loop with material. Layering a hat over a
+  -- | kick is therefore the same press twice and needs no switch of its own.
+  | Grab Int
+  -- | Link's transport, started or stopped, for the whole session.
+  -- |
+  -- | Only the stop is on a switch. The start is inside `Grab`, where it
+  -- | belongs — starting the beat without recording it is a thing you would do
+  -- | from the iPad, which is in your hands at that point anyway.
+  -- |
+  -- | **It stops Ableton too**, and everything else on the session. That is
+  -- | not a leak in the abstraction, it is what a session transport is, and it
+  -- | is why the long name says Link rather than saying iPad.
+  | LinkPlay Boolean
   | ClearAll
   | Free
   -- | Quantised launch. The bar count is carried and does not yet do anything —
@@ -958,6 +1026,11 @@ dutyLabel = case _ of
   ClickToggle -> "Click"
   Reverse -> "Reverse"
   Pendulum -> "Pendulum"
+  -- Not "Grab 4". The page already says Grab on the device's own header, and
+  -- "Grab 4" sitting a switch away from "Loop 4" is two different fours side
+  -- by side on a screen you read with your feet.
+  Grab n -> show n <> " bars"
+  LinkPlay on -> if on then "Play" else "Halt"
   OneShot -> "One Shot"
   LevelArm -> "Listen"
   StepChance -> "Chance"
@@ -1028,6 +1101,8 @@ dutyName = case _ of
   ClickToggle -> "Click on or off"
   Reverse -> "Play the loop backwards"
   Pendulum -> "Forward, then back"
+  Grab n -> "Grab " <> show n <> " bars into it"
+  LinkPlay on -> (if on then "Start" else "Stop") <> " the Link transport"
   OneShot -> "One pass, then silence"
   LevelArm -> "Start when you play"
   StepChance -> ladderLine chanceLadder
@@ -1396,7 +1471,28 @@ toolbar slot =
   -- carry Record and the set. Arm sits on `G`, the hardest, deliberately: it
   -- waits for your note, so unlike Record its own timing does not matter. The
   -- best switch goes to the gesture that is late if you are.
-  [ only ArmLoop
+  --
+  -- **G's hold is the only way onto the Grab bank**, and it is here because
+  -- there was nowhere else. The loop switches carry two gestures by decision
+  -- and no third; `J` has all three already; and bank 0's gateway — which is
+  -- where a jump like this properly belongs, per DESIGN-BANKS — is not built
+  -- yet. So the family carries its own navigation for now, as it does for the
+  -- way out.
+  --
+  -- `G` rather than any other switch for a stated reason: it is the one duty
+  -- up here whose own timing does not matter, which the paragraph above says
+  -- in order to justify putting Arm on the worst switch. A second gesture
+  -- costs a switch its press-down report — the device has to wait out the
+  -- double-tap window before it knows what you meant — and Arm is precisely
+  -- the duty that can afford to pay it. Record could not.
+  --
+  -- It leads both ways, like `J`: from the Grab bank it goes back to the
+  -- loops, so one switch shuttles between the two pages you actually use.
+  [ alsoHold
+      (Back (ToSlot (case slot of
+                       GrabBank -> LoopBank
+                       _ -> GrabBank)))
+      (only ArmLoop)
   , only Reverse
   , only RecordLoop
   -- **The set, and the way out.** Tap stops everything, double starts it again
@@ -1496,13 +1592,19 @@ own = case _ of
 
   -- The four that lead somewhere sit first, because they are the ones with a
   -- value to choose; the two that act sit last.
+  -- **Three that lead and three that act, since the modes bank became Grab.**
+  -- The fourth door used to be Modes; of the five duties that lost their bank,
+  -- one-shot is the only one that is a decision you make *while* something is
+  -- playing rather than while setting it up, so it is the one that takes the
+  -- freed switch. The other four are set-up values and are on the Twister,
+  -- which is where set-up belongs.
   ConfigBank ->
     [ only (Enter QuantiseBank)
     , only (Enter SpeedBank)
-    , only (Enter ModesBank)
     , only (Enter PanBank)
     , only (Reverse)
     , only (Pendulum)
+    , only OneShot
     ]
 
   -- Free is the default and sits first, because ambient wants it and because a
@@ -1527,32 +1629,72 @@ own = case _ of
     , only (Back (ToSlot ConfigBank))
     ]
 
-  -- **Modes, where Chance was.**
+  -- **Grab, where Modes was, and where there was no room for anything.**
   --
-  -- Chance had a bank of five to itself and could not do any of it — five
-  -- switches spending the config bank's scarcest resource on a feature waiting
-  -- on a random source in the audio callback. It keeps one place here, which is
-  -- all an unimplemented thing has earned.
+  -- The CC block runs out at seven banks (see `slotIndex`), so an eighth page
+  -- could only come from one of the seven — and six of them have been
+  -- unreachable since choosing a loop stopped opening anything. Modes was the
+  -- one whose loss costs nothing at all: one-shot, listen, chance, fade and
+  -- decay each have an encoder of their own on the Twister's pages three and
+  -- four, so the bank was a second, slower way to reach five things already in
+  -- reach. Their duties are still in the tables below, unplaced.
   --
-  -- What replaces it is the shape the surface actually wanted. Quantise, speed
-  -- and pan are each **one value chosen from a few**, and a bank of five reads
-  -- like that. One-shot and level-arm are not values, they are *toggles*, and
-  -- they are not exclusive — which is the conundrum that came up when the last
-  -- of the config switches was being spent: you cannot step through a set of
-  -- things that can all be on at once. A bank of independent switches is the
-  -- honest rendering of a set of independent facts.
+  -- ## What this bank is for
   --
-  -- Three of the six are empty, deliberately. This is where the modes that are
-  -- still being argued about will land, and a bank with room in it is better
-  -- than one that has to be redesigned to admit the next one.
-  ModesBank ->
-    [ only OneShot
-    , only LevelArm
-    , only StepChance
-    , only StepFade
-    , only StepDecay
-    , only (Back (ToSlot ConfigBank))
-    ]
+  -- **Loops 4 and 8 are the fourth column** — the one the six loop switches
+  -- cannot reach, because the MC6 is three across and the grid is four. That
+  -- made them the two you *set up* rather than stomp, which turns out to be
+  -- exactly the right shape for material that does not come from the guitar:
+  -- a beat out of Patterning, a pad out of Xynthesizr, arriving on the iPad's
+  -- pair of channels rather than through the pedalboard.
+  --
+  -- So this page aims at those two and nothing else, and the whole of the
+  -- workflow is on it: pick which of the two, and grab a whole number of bars
+  -- into it. Then leave, and make guitar loops against what you grabbed.
+  --
+  -- ## Why a grab is not just a recording
+  --
+  -- The iPad has to be playing, and it will not be until Link's transport
+  -- starts — that is the only cue any of those apps takes. So `Grab` is two
+  -- things at once: it starts the session and it starts a grid-quantised
+  -- recording of the declared length. Both are waiting for the same downbeat,
+  -- so the take begins on the drum machine's bar one rather than a bar and a
+  -- bit into it.
+  --
+  -- **Layering is free and needs no switch.** A second grab on a loop that
+  -- already holds one is an overdub, because that is what `r` does to a loop
+  -- with material — so grabbing a kick and then grabbing a hat over it is the
+  -- same gesture twice, and a fumbled one comes off with a double on the loop
+  -- switch, as everywhere else.
+  --
+  -- ```
+  --   far    Loop 4    4 bars    Halt
+  --   near   Loop 8    8 bars    < Loops
+  -- ```
+  --
+  -- `Halt` is the other half of the transport and has to be here: once the
+  -- grab has closed, the iPad is still playing, and nothing else on this board
+  -- can stop it. It stops the Link session rather than the looper, which is
+  -- said in its long name because the difference matters — Ableton stops too.
+  GrabBank ->
+    let
+      -- Through `grabLoops`, so the two this page aims at and the two the loop
+      -- bank cannot reach are the same fact read twice, not two lists that
+      -- agree today.
+      target n =
+        maybe (only Nothing_) (\l -> alsoDouble Undo (only (SelectLoop l)))
+          (Array.index grabLoops n)
+    in
+      [ target 0
+      , only (Grab 8)
+      -- The way out they asked for, in the place the way out has always been on
+      -- a bank with a spare switch. The toolbar's hold on J does the same thing
+      -- from here; this is the one you can find without remembering it.
+      , only (Back (ToSlot LoopBank))
+      , target 1
+      , only (Grab 4)
+      , only (LinkPlay false)
+      ]
 
   -- Five places across the field rather than the eight this had, which is
   -- plenty for placing six loops against each other and is what fits where the
