@@ -650,6 +650,14 @@ data Duty
   | StopAll
   | Undo
   | ClearLoop
+  -- | Half speed, or back to unity — one switch, because underfoot the pair is
+  -- | one idea and the knob that can express the rest of the range is on the
+  -- | Twister.
+  -- |
+  -- | **Anything slow goes back to one**, not just a half: set the loop to a
+  -- | quarter from the encoder and this is still the way out, which is what you
+  -- | want from a footswitch you press without looking.
+  | HalfSpeed
   | SaveTake
   -- | The whole set, rendered — see `Data.Looper.Verb.ExportSet` for what that
   -- | means and how it differs from Save.
@@ -942,6 +950,7 @@ dutyLabel = case _ of
   Undo -> "Undo"
   Redo -> "Redo"
   ClearLoop -> "Clear"
+  HalfSpeed -> "Half Spd"
   ClearAll -> "Clear All"
   ClaimPast -> "Capture"
   SaveTake -> "Save"
@@ -1011,6 +1020,7 @@ dutyName = case _ of
   Undo -> "Undo the last layer"
   Redo -> "Put the layer back"
   ClearLoop -> "Clear the chosen loop"
+  HalfSpeed -> "Half speed or back to 1"
   ClearAll -> "Clear every loop"
   ClaimPast -> "Claim what just happened"
   SaveTake -> "Save the take to disk"
@@ -1360,21 +1370,50 @@ layout slot =
 -- | role, same place, one press, from any depth.
 toolbar :: BankSlot -> Array Duties
 toolbar slot =
-  -- Out. From the loops it leaves the looper; from anywhere else it goes home
-  -- to the loops, and a hold leaves outright from any depth — so the way out
-  -- is one gesture wherever you happen to be standing.
-  [ case slot of
-      LoopBank -> only (Back ToBoard)
-      _ -> alsoHold (Back ToBoard) (only (Back (ToSlot LoopBank)))
-  , alsoDouble StartAll (only StopAll)
-  , alsoDouble Redo (only Undo)
-  , alsoDouble ClearAll (only ClearLoop)
-  -- **The swap.** Claiming the past is the live gesture and the one thing no
-  -- pedal can do; saving a WAV is never time-critical and was holding the fast
-  -- slot while the feature the sixty-second ring exists for had no switch at
-  -- all.
-  , alsoDouble SaveTake (only ClaimPast)
-  , only ClickToggle
+  -- **The six the feet are best at, and nothing that duplicates the Twister.**
+  --
+  -- This used to be the six most-wanted looper duties, from a time when the
+  -- MC6 was the whole surface. It is not any more: the Twister is on the board
+  -- permanently, and Undo, Clear, Clear All, Capture, Save and the click all
+  -- have encoders of their own on its first two pages. Keeping them here as
+  -- well was not redundancy for safety, it was two places to learn and one of
+  -- them slower.
+  --
+  -- What is left is what a *foot* is better at than a hand: the gestures that
+  -- happen mid-phrase, where looking away is the cost. Arm and Record start
+  -- takes; Reverse and half speed are the two that transform a loop in one
+  -- press; Overdub adds a pass; the set stops and starts.
+  --
+  -- **The order is ergonomic and was measured with feet, not reasoned.** These
+  -- are the FS3X switches, which are sloped and reachable where the unit's own
+  -- six are neither, and `I` and `J` are the easiest two of the six — so they
+  -- carry Record and the set. Arm sits on `G`, the hardest, deliberately: it
+  -- waits for your note, so unlike Record its own timing does not matter. The
+  -- best switch goes to the gesture that is late if you are.
+  [ only ArmLoop
+  , only Reverse
+  , only RecordLoop
+  -- **The set, and the way out.** Tap stops everything, double starts it again
+  -- from the top together — see `Machine.perform` on why that is one command
+  -- and not eight.
+  --
+  -- The hold is navigation, and it is here because it had nowhere else to go.
+  -- It was `G`'s tap, which this layout spends on Arm; the only switches left
+  -- are the unit's own, which are the awkward ones. A hold on the easiest
+  -- switch on the board is a better home than a tap on a switch you have to
+  -- reach up for.
+  --
+  -- One gesture out from wherever you are standing, but not one gesture *all
+  -- the way* out: from a deeper page it goes home to the loops, and it takes a
+  -- second hold from there to leave the looper. The old toolbar could do both
+  -- because it had a tap and a hold to spend on the question; this has a hold.
+  , alsoHold
+      (case slot of
+         LoopBank -> Back ToBoard
+         _ -> Back (ToSlot LoopBank))
+      (alsoDouble StartAll (only StopAll))
+  , only HalfSpeed
+  , only OverdubLoop
   ]
 
 -- | The MC6's own six, which the device labels on its screen and which each

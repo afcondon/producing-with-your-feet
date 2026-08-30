@@ -859,22 +859,35 @@ main = do
 
   -- A loop switch is the fully loaded case: tap selects, double overdubs, hold
   -- opens the config bank.
-  -- **The last switches in the family that carry more than one meaning.** Since
-  -- the loop switches became places rather than verbs, the only multi-gesture
-  -- switch left is the way out of a sub-bank: tap for Loops, hold to leave the
-  -- looper outright. Those stay on the release side, because a press there would
-  -- jump to Loops before the device knew you were holding for Board.
-  assert "a switch with two gestures sends both, one per action, on the release side"
-    (let wayOut = do
-           b <- Array.drop 1 (LB.banks { base: 22, boardBank: 1 })
-           Array.take 1 (Array.drop 6 b.switches)
-     in Array.length wayOut == Array.length LB.allSlots - 1
+  -- **The one switch in the family that carries three meanings**, and it is J:
+  -- tap stops the set, double starts it again from the top, hold is the way
+  -- out. All three stay on the release side, because a press would stop the set
+  -- before the device knew you were holding to leave.
+  --
+  -- The double really is a double now — 64 rather than the tap's own 127 —
+  -- because there is a duty on it. The old way-out switch had no double and got
+  -- the tap's value as a fallback, so a fumble did the tap once instead of
+  -- answering with silence; that fallback still exists and is checked below.
+  assert "the switch with three gestures sends all three, one per action, on the release side"
+    (let set = do
+           b <- LB.banks { base: 22, boardBank: 1 }
+           Array.take 1 (Array.drop 9 b.switches)
+     in Array.length set == Array.length LB.allSlots
           && Array.all
                (\sw -> ccsOf sw == [ Tuple ActionRelease 127
-                                   , Tuple ActionDoubleTapRelease 127
+                                   , Tuple ActionDoubleTapRelease 64
                                    , Tuple ActionLongPress 1
                                    ])
-               wayOut)
+               set)
+
+  -- And only the hold navigates, so only the hold carries a jump. Stopping the
+  -- set does not move the board, which is the difference from the switch this
+  -- replaced: there, both the tap and its double were bank jumps.
+  assert "the set switch jumps on the hold alone"
+    (let set = do
+           b <- Array.drop 1 (LB.banks { base: 22, boardBank: 1 })
+           Array.take 1 (Array.drop 9 b.switches)
+     in Array.all (\sw -> jumpsOf sw == [ ActionLongPress ]) set)
 
   -- **One meaning, one message, at press-down.** Measured: the MC6 fires Press
   -- the instant the foot lands, whatever else is bound. It is the *release*
@@ -889,9 +902,12 @@ main = do
   -- selecting a loop silently did nothing. The report goes at press-down and the
   -- board moves when the foot lifts, so the app is told before the thing it is
   -- being told about happens.
+  -- A loop switch, since G stopped being the way out and became Arm. Same
+  -- shape: one meaning, and it is a place — so the CC reports at press-down and
+  -- the board moves on the lift.
   assert "a press-side navigating switch reports on the press and jumps on the release"
-    (map ccsOf (loopBankSwitch 6) == Just [ Tuple ActionPress 127 ]
-      && map jumpsOf (loopBankSwitch 6)
+    (map ccsOf (loopBankSwitch 0) == Just [ Tuple ActionPress 127 ]
+      && map jumpsOf (loopBankSwitch 0)
            == Just [ ActionRelease, ActionDoubleTapRelease ])
 
   -- **The fallback, which now applies only on the release side.** A switch that
@@ -899,18 +915,20 @@ main = do
   -- double whether or not anything is bound to it — so a fumbled double would
   -- answer with silence. It gets the tap's own value instead. The way out of a
   -- sub-bank is such a switch: tap for Loops, hold for Board.
-  assert "and the tap's value on the double, so a fumble does it once"
-    (let wayOut = do
-           b <- Array.drop 1 (LB.banks { base: 22, boardBank: 1 })
-           Array.take 1 (Array.drop 6 b.switches)
-     in Array.all
-          (\sw -> map (\m -> Tuple m.action m.data1)
-                    (Array.filter (\m -> m.msgType == MsgBankJump) sw.messages)
-                    == [ Tuple ActionRelease 22
-                       , Tuple ActionDoubleTapRelease 22
-                       , Tuple ActionLongPress 1
-                       ])
-          wayOut)
+  -- **The fallback, on the switch that still needs it.** A loop switch is one
+  -- meaning and a place, so its jump is on the release — and the device
+  -- suppresses Release on a double, which would leave a fumbled double-tap
+  -- going nowhere. It gets the same destination on the double instead.
+  assert "and the tap's destination on the double, so a fumble does it once"
+    (let places = do
+           b <- Array.take 1 (LB.banks { base: 22, boardBank: 1 })
+           Array.take LB.loopSwitches b.switches
+     in Array.length places == LB.loopSwitches
+          && Array.all
+               (\sw -> map _.action
+                         (Array.filter (\m -> m.msgType == MsgBankJump) sw.messages)
+                         == [ ActionRelease, ActionDoubleTapRelease ])
+               places)
 
   -- **The CCs before the jumps.** A jump that goes out first means the message
   -- after it is emitted from the bank the board has already reached — which is
@@ -1228,16 +1246,20 @@ main = do
   --
   -- Tested at focus 3 specifically: at focus 0 the correct and the broken
   -- output are the same string, which is exactly why nobody saw it.
+  -- **Off the MC6 since the toolbar stopped duplicating the Twister**, so the
+  -- duty is asked for directly. What it pins is unchanged and is the reason the
+  -- test exists: a per-loop verb carries the focused loop, because unprefixed
+  -- it would reach the daemon's own selection, which nothing here writes.
   assert "Save Take writes the focused loop, not the daemon's idea of selected"
-    (Machine.act ((rigOf [ idle 0, idle 1, idle 2, idle 3 ]) { focus = 3 })
-       (LB.switchGesture LB.ConfigBank 10 LB.Double)
+    (Machine.perform ((rigOf [ idle 0, idle 1, idle 2, idle 3 ]) { focus = 3 })
+       LB.Focused LB.SaveTake
       == [ Machine.Command "3w" ])
 
   -- The metronome is global — `sh.click`, not `lp.click` — so this one is right
   -- to stay bare, and a loop index on it would be noise.
   assert "and the click stays unprefixed, because it is not a per-loop thing"
-    (Machine.act ((rigOf [ idle 0, idle 1 ]) { focus = 1 })
-       (LB.switchGesture LB.ConfigBank 11 LB.Tap)
+    (Machine.perform ((rigOf [ idle 0, idle 1 ]) { focus = 1 })
+       LB.Focused LB.ClickToggle
       == [ Machine.Command "k1" ])
 
   -- **Set, both ways.** It sent the flipping `k` until `Rig` carried the global
@@ -1245,11 +1267,9 @@ main = do
   -- better than one that flips if it reads the current value, and a test that
   -- only ever starts from off cannot tell the two apart.
   assert "and it sets the click from what the daemon reported, in both directions"
-    (Machine.act ((rigOf [ idle 0 ]) { click = true })
-       (LB.switchGesture LB.ConfigBank 11 LB.Tap)
+    (Machine.perform ((rigOf [ idle 0 ]) { click = true }) LB.Focused LB.ClickToggle
       == [ Machine.Command "k0" ]
-      && Machine.act ((rigOf [ idle 0 ]) { click = false })
-           (LB.switchGesture LB.ConfigBank 11 LB.Tap)
+      && Machine.perform ((rigOf [ idle 0 ]) { click = false }) LB.Focused LB.ClickToggle
         == [ Machine.Command "k1" ])
 
   -- **Stop All reaches the loops that have something to stop, and no others.**
@@ -1258,11 +1278,11 @@ main = do
   -- arm a trap in all six, and the next take recorded perfectly and silently.
   assert "stop all reaches every loop that has anything in it"
     (Machine.act (rigOf [ withState 0 "playing" 1, idle 1, withState 2 "playing" 3 ])
-       (LB.switchGesture LB.LoopBank 7 LB.Tap)
+       (LB.switchGesture LB.LoopBank 9 LB.Tap)
       == [ Machine.Command "0h0", Machine.Command "2h0" ])
 
   assert "and reaches nothing at all when there is nothing to stop"
-    (Machine.act (rigOf [ idle 0, idle 1 ]) (LB.switchGesture LB.LoopBank 7 LB.Tap) == [])
+    (Machine.act (rigOf [ idle 0, idle 1 ]) (LB.switchGesture LB.LoopBank 9 LB.Tap) == [])
 
   -- The other half of the same trap: Record on a loop that was silenced brings
   -- it back first, because working on something you cannot hear is never what
@@ -1295,10 +1315,13 @@ main = do
     (Machine.act (rigOf [ idle 0 ]) (LB.switchGesture LB.LoopPage 5 LB.Tap)
       == [ Machine.Handled "showing config" ])
 
+  -- Both off the MC6 now and on the Twister's first page, so both are asked
+  -- for directly. The property is the one that mattered: the config family acts
+  -- on the focused loop, never on whichever switch was pressed.
   assert "undo and clear act on the focused loop"
-    (Machine.act ((rigOf [ idle 0, idle 1, idle 2 ]) { focus = 2 }) (LB.switchGesture LB.LoopBank 8 LB.Tap)
+    (Machine.perform ((rigOf [ idle 0, idle 1, idle 2 ]) { focus = 2 }) LB.Focused LB.Undo
       == [ Machine.Command "2u" ]
-      && Machine.act ((rigOf [ idle 0 ]) { focus = 1 }) (LB.switchGesture LB.LoopBank 9 LB.Tap)
+      && Machine.perform ((rigOf [ idle 0 ]) { focus = 1 }) LB.Focused LB.ClearLoop
         == [ Machine.Command "1c" ])
 
   -- The config family acts on the focused loop, which is what a hold sets. One
@@ -1306,7 +1329,7 @@ main = do
   assert "reverse and clear act on the focused loop, not the pressed switch"
     (Machine.act ((rigOf [ idle 0, idle 1, idle 2 ]) { focus = 2 }) (LB.switchGesture LB.ConfigBank 4 LB.Tap)
       == [ Machine.Command "2rev1" ]
-      && Machine.act ((rigOf []) { focus = 1 }) (LB.switchGesture LB.ConfigBank 9 LB.Tap)
+      && Machine.perform ((rigOf []) { focus = 1 }) LB.Focused LB.ClearLoop
         == [ Machine.Command "1c" ])
 
   assert "the pan bank places the focused loop across the field"
@@ -1326,7 +1349,7 @@ main = do
            , Machine.Handled "on the grid — bar counts need the frame-to-bar join" ])
 
   assert "and stop-all works the same from any bank"
-    (Machine.act (rigOf [ withState 0 "playing" 1 ]) (LB.switchGesture LB.QuantiseBank 7 LB.Tap)
+    (Machine.act (rigOf [ withState 0 "playing" 1 ]) (LB.switchGesture LB.QuantiseBank 9 LB.Tap)
       == [ Machine.Command "0h0" ])
 
   -- Direction is the sign of speed, not a second control, so the bottom row is
@@ -1338,55 +1361,54 @@ main = do
   -- like a switch wired to the wrong place, and is worse than saying nothing.
   assert "the aux legend is the bank's own table"
     (LB.auxLegend LB.LoopBank
-      == [ { key: "G", what: "< Board" }, { key: "H", what: "Stop All" }
-         , { key: "I", what: "Undo" }, { key: "J", what: "Clear" }
-         , { key: "K", what: "Capture" }, { key: "L", what: "Click" } ])
+      == [ { key: "G", what: "Arm" }, { key: "H", what: "Reverse" }
+         , { key: "I", what: "Record" }, { key: "J", what: "Stop All" }
+         , { key: "K", what: "Half Spd" }, { key: "L", what: "Overdub" } ])
 
   -- **The rule about feet.** G to L have no markings, so they are remembered as
   -- positions; a switch that clears a loop on one page and sets an end-state on
   -- the next cannot be learned at all. Everything but the way out is identical
   -- on every bank, and the way out differs only in where "out" is.
+  -- **All six now, where it used to be five.** The way out was G's tap and so
+  -- was the one position that meant something different depending on where you
+  -- were standing; it is J's hold now, and a hold is not what an unmarked
+  -- switch is remembered by. Every tap on every bank is the same six.
   assert "the toolbar means the same thing on every bank"
     (Array.all
-      (\slot -> map _.what (Array.drop 1 (LB.auxLegend slot))
-        == [ "Stop All", "Undo", "Clear", "Capture", "Click" ])
+      (\slot -> map _.what (LB.auxLegend slot)
+        == [ "Arm", "Reverse", "Record", "Stop All", "Half Spd", "Overdub" ])
       LB.allSlots)
 
   -- The second gesture, where a switch carries one. Same six everywhere for
   -- the same reason the first six are: an unmarked switch is a position, and
   -- a position that means different things on different pages cannot be
   -- learned at all.
+  -- One switch carries a second gesture now, and it is the set: tap stops it,
+  -- double starts it again from the top.
   assert "and so does the second gesture, where there is one"
     (Array.all
       (\slot -> map (map LB.dutyLabel <<< _.double)
-        (Array.catMaybes (map (LB.dutiesAt slot) (Array.range 7 11)))
-        == [ Just "Start All", Just "Redo", Just "Clear All", Just "Save", Nothing ])
+        (Array.catMaybes (map (LB.dutiesAt slot) (Array.range 6 11)))
+        == [ Nothing, Nothing, Nothing, Just "Start All", Nothing, Nothing ])
       LB.allSlots)
 
   -- Claiming the past is the live gesture and the one thing no pedal can do;
   -- saving a WAV is never time-critical and was holding the fast slot while
   -- the feature the ring exists for had no switch at all.
-  assert "capture has the tap and saving has the double, not the other way round"
-    (map LB.dutyLabel (Array.catMaybes [ LB.dutyAt LB.LoopBank 10 ]) == [ "Capture" ]
-      && Machine.act (rigOf []) (LB.switchGesture LB.PanBank 10 LB.Tap)
-        == [ Machine.Command "0t" ]
-      -- `0w`, not `w`. It was the bare form until the prefix bug was fixed, and
-      -- at focus 0 the two are indistinguishable — which is why this assertion
-      -- was happy with the broken one. See the Save Take test above, which
-      -- checks at focus 3 for exactly that reason.
-      && Machine.act (rigOf []) (LB.switchGesture LB.PanBank 10 LB.Double)
-        == [ Machine.Command "0w" ])
-
+  -- The way out is a hold now, so it does not show in the legend at all — the
+  -- legend is what the six switches *do*, and holding J is not what J does. It
+  -- still differs by where you are standing, which is what this pins.
   assert "and only the way out differs, because only its destination does"
-    (map (\slot -> map _.what (Array.take 1 (LB.auxLegend slot))) LB.allSlots
-      == Array.cons [ "< Board" ]
-           (Array.replicate (Array.length LB.allSlots - 1) [ "< Loops" ]))
+    (map (\slot -> map (map LB.dutyLabel <<< _.hold) (LB.dutiesAt slot 9)) LB.allSlots
+      == Array.cons (Just (Just "< Board"))
+           (Array.replicate (Array.length LB.allSlots - 1) (Just (Just "< Loops"))))
 
   -- The code has to say it too, or two tables agree until one of them does not.
   assert "and the meaning table answers the toolbar without consulting the bank"
     (Array.all
-      (\slot -> Machine.act ((rigOf []) { focus = 2 }) (LB.switchGesture slot 9 LB.Tap)
-        == [ Machine.Command "2c" ])
+      (\slot -> Machine.act ((rigOf [ withState 0 "playing" 1 ]) { focus = 2 })
+                  (LB.switchGesture slot 9 LB.Tap)
+        == [ Machine.Command "0h0" ])
       LB.allSlots)
 
   -- **The join that was missing.** The pedal's label and the command on the
@@ -1926,6 +1948,16 @@ main = do
   assert "no label is longer than the device shows"
     (Array.all (\e -> String.length e.sw.label <= 8) familySwitches)
 
+  -- **Capture and Save left the MC6 entirely**, which is the deduplication made
+  -- checkable for the two it is most visible on. Both are encoders on the
+  -- Twister's first and third pages; keeping them here as well was two places
+  -- to learn and one of them slower. If either comes back to a footswitch this
+  -- goes red, which is the point — it should be a decision and not a drift.
+  assert "capture and saving are the Twister's, not the board's"
+    (Array.all
+      (\e -> e.sw.label /= "Capture" && e.sw.label /= "Save")
+      familySwitches)
+
   assert "no long name is longer than the device shows"
     (Array.all (\e -> String.length e.sw.longName <= 24) familySwitches)
 
@@ -2035,8 +2067,8 @@ main = do
       -- Only a gesture the switch actually carries can fire at press-down, and
       -- a hold never does: it is a hold.
       && not (LB.firesAtPressDown LB.LoopBank 0 LB.Hold)
-      -- The way out of a sub-bank carries two, so it waits.
-      && not (LB.firesAtPressDown LB.ConfigBank 6 LB.Tap))
+      -- The set switch carries three, so it waits.
+      && not (LB.firesAtPressDown LB.ConfigBank 9 LB.Tap))
 
   -- One CC per gesture, all on the switch's own number: the number says where
   -- the press came from and the value says which gesture it was.
@@ -3410,11 +3442,11 @@ main = do
   -- up as a knob that quietly does nothing, on a controller with no labels, in
   -- the middle of a set. So the resolution is checked here instead.
   let lookupTw pid = Registry.findPedal pid >>= _.twister
-      live = Scene.resolve lookupTw Scenes.ambient
+      ambientScene = Scene.resolve lookupTw Scenes.ambient
   assert "every pick in the live scene resolves"
-    (Array.length (Array.catMaybes live.encoders)
+    (Array.length (Array.catMaybes ambientScene.encoders)
        == Array.length (Array.catMaybes Scenes.ambient.encoders)
-      && Array.length (Array.catMaybes live.buttons)
+      && Array.length (Array.catMaybes ambientScene.buttons)
        == Array.length (Array.catMaybes Scenes.ambient.buttons))
 
   -- The three the feet are on, and only those. A scene that quietly grew a
@@ -3424,7 +3456,7 @@ main = do
   -- quietly grew a fifth pedal would be a page where some knobs act on a pedal
   -- the bank's switches cannot reach.
   assert "the ambient scene touches exactly its group"
-    (Array.sort (Scene.pedalsIn live)
+    (Array.sort (Scene.pedalsIn ambientScene)
       == Array.sort
            [ PedalId "mood", PedalId "onward"
            , PedalId "lostandfound", PedalId "habit" ])
@@ -3435,11 +3467,11 @@ main = do
   -- Column four is the switch column on every pedal page, so it is the switch
   -- column here: a row per pedal, three knobs and a switch, learned once.
   assert "the scene is four rows of three knobs and a switch"
-    (Array.all (\i -> isJust (Scene.buttonAt live i)) [ 3, 7, 11, 15 ]
-      && Array.all (\i -> isNothing (Scene.buttonAt live i)) [ 0, 1, 2, 4, 8, 12 ]
-      && Array.all (\i -> isJust (Scene.encoderAt live i))
+    (Array.all (\i -> isJust (Scene.buttonAt ambientScene i)) [ 3, 7, 11, 15 ]
+      && Array.all (\i -> isNothing (Scene.buttonAt ambientScene i)) [ 0, 1, 2, 4, 8, 12 ]
+      && Array.all (\i -> isJust (Scene.encoderAt ambientScene i))
            [ 0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14 ]
-      && Array.all (\i -> isNothing (Scene.encoderAt live i)) [ 3, 7, 11, 15 ])
+      && Array.all (\i -> isNothing (Scene.encoderAt ambientScene i)) [ 3, 7, 11, 15 ])
 
   -- A scene is CCs to pedals, and Itajara is not a pedal. Reaching the daemon
   -- from here would be a second route beside `Machine.perform`, which is the

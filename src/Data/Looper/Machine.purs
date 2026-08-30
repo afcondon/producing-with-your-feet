@@ -240,6 +240,17 @@ perform rig subject = case _ of
   LB.StopAll -> map (\n -> Command (cmd n (Verb.Sounding false))) (sounding rig)
   LB.Undo -> [ Command (cmd i Verb.Undo) ]
   LB.ClearLoop -> [ Command (cmd i Verb.Clear) ]
+  -- **Read from the loop, not remembered** — the same shape as the click and
+  -- the monitor since `Rig` started carrying the flags, and for the same
+  -- reason: a switch that flips a value it is not looking at is a switch that
+  -- disagrees with the rig the moment anything else moves it, and the Twister's
+  -- speed encoder moves this one.
+  --
+  -- Anything below unity goes back to one rather than only a half, so a loop
+  -- sitting at a quarter from the encoder still has this as its way out.
+  LB.HalfSpeed ->
+    let now = maybe 1.0 _.speed (loopAt rig i)
+    in perform rig subject (LB.Rate (if now < 0.75 then 1.0 else 0.5))
   -- **Addressed to the focused loop, like everything else on this page.**
   --
   -- It used to go unprefixed. Without a leading digit the daemon applies a
