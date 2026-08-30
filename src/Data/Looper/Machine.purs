@@ -125,7 +125,22 @@ act rig p = case LB.dutiesAt p.slot p.switch of
     -- which duty the switch is showing, and the duty decides everything else.
     -- The MC6 always speaks about the focused loop: six switches cannot name
     -- eight loops as well as saying what to do to one.
-    _, Just d -> perform rig Focused d
+    -- **A loop switch names its loop, so a gesture on it acts on that loop.**
+    --
+    -- The line above this used to be the whole story and said why: six switches
+    -- cannot name eight loops *as well as* saying what to do to one. That is
+    -- still true of every other switch in the family — they act on whatever is
+    -- in hand — but a loop switch is the exception it was always going to be,
+    -- because naming the loop is the only thing it does.
+    --
+    -- It matters because of how the device reports a double: the tap is
+    -- suppressed, so nothing ever says you touched loop 3, and `Focused` would
+    -- have undone whichever loop you happened to have chosen before. Through
+    -- `performPress` the subject prepends its own focus, so a double takes the
+    -- loop in hand *and* undoes it, which is what a foot on that switch means.
+    g, Just d -> case s.tap of
+      LB.SelectLoop n | g /= LB.Tap -> performPress rig (OnLoop n) d
+      _ -> perform rig Focused d
 
     -- **The board and this table have fallen out of step.** A gesture only
     -- arrives because the device was programmed to send it, and the device is

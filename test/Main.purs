@@ -903,24 +903,28 @@ main = do
   -- selecting a loop silently did nothing. The report goes at press-down and the
   -- board moves when the foot lifts, so the app is told before the thing it is
   -- being told about happens.
-  -- A loop switch, since G stopped being the way out and became Arm. Same
-  -- shape: one meaning, and it is a place — so the CC reports at press-down and
-  -- the board moves on the lift.
+  -- The config bank's first switch, since a loop switch stopped being one
+  -- meaning and gained its double. Same shape: one meaning, and it is a place —
+  -- so the CC reports at press-down and the board moves on the lift.
   assert "a press-side navigating switch reports on the press and jumps on the release"
-    (map ccsOf (loopBankSwitch 0) == Just [ Tuple ActionPress 127 ]
-      && map jumpsOf (loopBankSwitch 0)
-           == Just [ ActionRelease, ActionDoubleTapRelease ])
+    (let cfg = do
+           b <- Array.index (LB.banks { base: 22, boardBank: 1 })
+                  (LB.slotIndex LB.ConfigBank)
+           Array.index b.switches 0
+     in map ccsOf cfg == Just [ Tuple ActionPress 127 ]
+          && map jumpsOf cfg == Just [ ActionRelease, ActionDoubleTapRelease ])
 
   -- **The fallback, which now applies only on the release side.** A switch that
   -- carries a hold is on the release, and the device suppresses Release on a
   -- double whether or not anything is bound to it — so a fumbled double would
   -- answer with silence. It gets the tap's own value instead. The way out of a
   -- sub-bank is such a switch: tap for Loops, hold for Board.
-  -- **The fallback, on the switch that still needs it.** A loop switch is one
-  -- meaning and a place, so its jump is on the release — and the device
-  -- suppresses Release on a double, which would leave a fumbled double-tap
-  -- going nowhere. It gets the same destination on the double instead.
-  assert "and the tap's destination on the double, so a fumble does it once"
+  -- **A loop switch's jump is on the release alone now**, because its double
+  -- means something: undo that loop. The fallback that used to put the tap's
+  -- own destination on `DoubleTapRelease` applies to a switch carrying a hold
+  -- and no double, and nothing in the family is shaped that way any more — the
+  -- builder still does it, and nothing exercises it.
+  assert "a loop switch jumps on the release, and its double is its own"
     (let places = do
            b <- Array.take 1 (LB.banks { base: 22, boardBank: 1 })
            Array.take LB.loopSwitches b.switches
@@ -928,7 +932,10 @@ main = do
           && Array.all
                (\sw -> map _.action
                          (Array.filter (\m -> m.msgType == MsgBankJump) sw.messages)
-                         == [ ActionRelease, ActionDoubleTapRelease ])
+                         == [ ActionRelease ]
+                         && ccsOf sw == [ Tuple ActionRelease 127
+                                        , Tuple ActionDoubleTapRelease 64
+                                        ])
                places)
 
   -- **The CCs before the jumps.** A jump that goes out first means the message
@@ -1319,6 +1326,26 @@ main = do
   -- Both off the MC6 now and on the Twister's first page, so both are asked
   -- for directly. The property is the one that mattered: the config family acts
   -- on the focused loop, never on whichever switch was pressed.
+  -- **A double on a loop switch names its own loop**, which is why `act` grew a
+  -- subject after saying for months that it never would. The device suppresses
+  -- the tap on a double, so nothing ever says you touched that switch — with
+  -- `Focused` this would have undone whichever loop you happened to have chosen
+  -- before, silently and on the wrong take.
+  --
+  -- Switch 3 is loop 1: the six are in grid order, not switch order, because A
+  -- is the bottom-left switch and loop 5 is the bottom-left loop.
+  assert "a double on a loop switch undoes that loop, and takes it in hand"
+    (Machine.act ((rigOf [ idle 0, idle 1, idle 2 ]) { focus = 2 })
+       (LB.switchGesture LB.LoopBank 3 LB.Double)
+      == [ Machine.Focus 0, Machine.Command "0u" ])
+
+  -- And the tap still means what it meant: choose, and let the board open the
+  -- page. Adding the double must not have changed that.
+  assert "and the tap on the same switch still just chooses it"
+    (Machine.act ((rigOf [ idle 0, idle 1, idle 2 ]) { focus = 2 })
+       (LB.switchGesture LB.LoopBank 3 LB.Tap)
+      == [ Machine.Focus 0, Machine.Handled "loop 1" ])
+
   assert "undo and clear act on the focused loop"
     (Machine.perform ((rigOf [ idle 0, idle 1, idle 2 ]) { focus = 2 }) LB.Focused LB.Undo
       == [ Machine.Command "2u" ]
@@ -2060,9 +2087,12 @@ main = do
       (\e -> LB.firesAtPressDown e.slot e.i LB.Tap
                == Array.any (\m -> m.action == ActionPress) e.sw.messages)
       live
-      -- A loop switch carries one meaning now, so it reports at press-down —
-      -- which was the whole return on moving its verbs to the page.
-      && LB.firesAtPressDown LB.LoopBank 0 LB.Tap
+      -- **A loop switch waits now**, since it gained a double: the device has
+      -- to see whether a second press is coming before it can say which you
+      -- meant. That is a real cost and it was spent deliberately — it is
+      -- Record that has to answer when a foot lands, and Record is one gesture
+      -- on `LoopPage`, below.
+      && not (LB.firesAtPressDown LB.LoopBank 0 LB.Tap)
       && LB.firesAtPressDown LB.LoopPage 0 LB.Tap
       && LB.firesAtPressDown LB.SpeedBank 0 LB.Tap
       -- Only a gesture the switch actually carries can fire at press-down, and
@@ -2073,12 +2103,19 @@ main = do
 
   -- One CC per gesture, all on the switch's own number: the number says where
   -- the press came from and the value says which gesture it was.
-  assert "and reports it on its own CC, once, at press-down"
+  -- Its own number for both gestures, and the value says which — the number
+  -- says where the press came from, the value says what kind it was. That is
+  -- what lets one CC per switch carry a tap and a double without a second
+  -- block of CCs for the doubles.
+  assert "and reports both gestures on its own CC, on the release side"
     (Array.all
       (\e -> map (\m -> Tuple m.data1 (Tuple m.data2 m.action))
                (Array.filter (\m -> m.msgType == MsgCC) e.sw.messages)
                == [ Tuple (LB.switchCC LB.LoopBank e.i)
-                      (Tuple (LB.gestureValue LB.Tap) ActionPress) ])
+                      (Tuple (LB.gestureValue LB.Tap) ActionRelease)
+                  , Tuple (LB.switchCC LB.LoopBank e.i)
+                      (Tuple (LB.gestureValue LB.Double) ActionDoubleTapRelease)
+                  ])
       loopBankSwitches)
 
   -- The engine has six loops; the bank offers six places to put a foot. These

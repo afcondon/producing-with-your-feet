@@ -1437,7 +1437,20 @@ own = case _ of
   -- **Not switch order — grid order.** Switch A selects loop 5, because A is
   -- the bottom-left switch and loop 5 is the bottom-left loop. See
   -- `switchLoops`.
-  LoopBank -> map (only <<< SelectLoop) switchLoops
+  --
+  -- **And a double undoes that loop**, added 2026-08-30. It costs the
+  -- press-down report above — a switch with two meanings waits out the
+  -- device's double-tap window before it can say which you meant — and the
+  -- paragraph above is wrong about how much that matters: it is *Record* that
+  -- has to answer when your foot lands, and Record is on `LoopPage` with one
+  -- gesture of its own. Choosing a loop can afford to wait.
+  --
+  -- Undo rather than Clear, which was the first idea. Clear zeroes `redo_to`
+  -- as well as the loop, so it is the one destructive act in the engine that
+  -- cannot be taken back — and a fumbled double while choosing loops is
+  -- exactly how you would find that out. Undo leaves the audio in place and
+  -- `Redo` brings it back.
+  LoopBank -> map (\n -> alsoDouble Undo (only (SelectLoop n))) switchLoops
 
   -- **The verbs, for whichever loop is in hand.**
   --
