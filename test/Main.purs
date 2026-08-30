@@ -3410,27 +3410,36 @@ main = do
   -- up as a knob that quietly does nothing, on a controller with no labels, in
   -- the middle of a set. So the resolution is checked here instead.
   let lookupTw pid = Registry.findPedal pid >>= _.twister
-      live = Scene.resolve lookupTw Scenes.liveThree
+      live = Scene.resolve lookupTw Scenes.ambient
   assert "every pick in the live scene resolves"
     (Array.length (Array.catMaybes live.encoders)
-       == Array.length (Array.catMaybes Scenes.liveThree.encoders)
+       == Array.length (Array.catMaybes Scenes.ambient.encoders)
       && Array.length (Array.catMaybes live.buttons)
-       == Array.length (Array.catMaybes Scenes.liveThree.buttons))
+       == Array.length (Array.catMaybes Scenes.ambient.buttons))
 
   -- The three the feet are on, and only those. A scene that quietly grew a
   -- fourth pedal would be a page where some knobs act on a pedal the bank's
   -- switches cannot reach.
-  assert "the live scene touches exactly its three pedals"
+  -- The group DESIGN-BANKS calls ambient/evolving, and only it. A scene that
+  -- quietly grew a fifth pedal would be a page where some knobs act on a pedal
+  -- the bank's switches cannot reach.
+  assert "the ambient scene touches exactly its group"
     (Array.sort (Scene.pedalsIn live)
-      == Array.sort [ PedalId "mood", PedalId "onward", PedalId "lostandfound" ])
+      == Array.sort
+           [ PedalId "mood", PedalId "onward"
+           , PedalId "lostandfound", PedalId "habit" ])
 
   -- Column four is the switch column on every pedal page, so it is the switch
   -- column here. The bottom row breaks that on purpose and is checked with it:
   -- three seconds, in the same left-to-right order as the rows above.
-  assert "the scene keeps the switch column and spends the bottom row"
-    (Array.all (\i -> isJust (Scene.buttonAt live i)) [ 3, 7, 11, 12, 13, 14 ]
-      && Array.all (\i -> isNothing (Scene.buttonAt live i)) [ 0, 1, 2, 15 ]
-      && Array.all (\i -> isJust (Scene.encoderAt live i)) [ 0, 1, 2, 4, 5, 6, 8, 9, 10 ])
+  -- Column four is the switch column on every pedal page, so it is the switch
+  -- column here: a row per pedal, three knobs and a switch, learned once.
+  assert "the scene is four rows of three knobs and a switch"
+    (Array.all (\i -> isJust (Scene.buttonAt live i)) [ 3, 7, 11, 15 ]
+      && Array.all (\i -> isNothing (Scene.buttonAt live i)) [ 0, 1, 2, 4, 8, 12 ]
+      && Array.all (\i -> isJust (Scene.encoderAt live i))
+           [ 0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14 ]
+      && Array.all (\i -> isNothing (Scene.encoderAt live i)) [ 3, 7, 11, 15 ])
 
   -- A scene is CCs to pedals, and Itajara is not a pedal. Reaching the daemon
   -- from here would be a second route beside `Machine.perform`, which is the
@@ -3444,10 +3453,36 @@ main = do
   -- Only a bank that has given its switches to pedals asks for a scene. Every
   -- other bank must leave the Twister alone, or standing on the looper's own
   -- banks would take its four pages away.
-  assert "only the pedal bank calls up a scene"
-    (isJust (Scenes.sceneForBank Scenes.liveThreeBank)
-      && Array.all (\b -> isNothing (Scenes.sceneForBank b))
-           (Array.filter (_ /= Scenes.liveThreeBank) (Array.range 1 16)))
+  -- Only a page that has given its switches to a group asks for a scene. Every
+  -- other page must leave the Twister alone, or standing on the looper's own
+  -- banks would take its four pages away.
+  -- **The id is the join, so the id is what can drift.** `Scenes` answers to
+  -- "control-ambient" and the page declares it; nothing else connects the two.
+  -- If they part, the scene simply never appears — a page that looks entirely
+  -- right and leaves the Twister on whatever it happened to be showing, which
+  -- is the quietest failure this arrangement has available.
+  assert "the ambient page and the ambient scene agree on the id"
+    (isJust (Scenes.sceneForControlBank ControlBank.ambientControlBank.id))
+
+  -- Control pages live in the pedal half of the table. Below it `Reserved`
+  -- refuses them as ControlTooLow, and that refusal only fires on a write —
+  -- which is the worst moment to discover a bank number.
+  assert "the ambient page sits in the pedal half, beside not on the other one"
+    (ControlBank.ambientControlBank.mc6BankNumber >= Reserved.pedalRangeFrom
+      && ControlBank.ambientControlBank.mc6BankNumber
+           /= ControlBank.exampleControlBank.mc6BankNumber)
+
+  -- Six on the expanders, because three dual-engage pedals at two channels
+  -- each is exactly what G-L holds. If a pedal gained or lost a channel this
+  -- page would stop being the group's page and nothing else would say so.
+  assert "the ambient page fills its expanders"
+    (Array.length (Array.filter (\sw -> sw.label /= "")
+      (Array.drop 6 ControlBank.ambientControlBank.switches)) == 6)
+
+  assert "only the ambient page calls up a scene"
+    (isJust (Scenes.sceneForControlBank "control-ambient")
+      && isNothing (Scenes.sceneForControlBank "control-default")
+      && isNothing (Scenes.sceneForControlBank ""))
 
   assert "the arm threshold goes unprefixed, like the click and the monitor"
     (Machine.perform (rigOf [ idle 0 ]) LB.Focused (LB.ArmLevel (-24.0))

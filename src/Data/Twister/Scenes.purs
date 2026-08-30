@@ -7,30 +7,18 @@
 -- | `Pedals.Mood`, with the centre it detents to and the options it steps
 -- | through. A scene only says *where a hand should find it*.
 -- |
--- | ## Why a scene is one bank's worth of pedals and not all of them
+-- | ## Why a scene is one group's pedals and not all of them
 -- |
--- | The MC6 bank this pairs with puts six switches under a foot — Onward left
--- | and right, MOOD left and right, Lost+Found left and right — so the hands
--- | should be on the same three pedals. A scene that also carried Habit and
--- | Hedra would be a page where two thirds of the knobs act on pedals the feet
--- | cannot reach, which is the back-and-forth the whole arrangement exists to
--- | remove. Habit, Hedra and Brig get their own bank and their own scene.
--- |
--- | ## The grid
--- |
--- | A row per pedal, three knobs and a switch, which is the shape a pedal's own
--- | page already uses — column four is where a switch lives, learned once. The
--- | bottom row breaks it deliberately: those are the three pedals' *second*
--- | switches, in the same left-to-right order as the rows above, so the column
--- | you are in still tells you whose pedal you are on.
--- |
--- | **Nothing here is precious.** These are opening bids on six pedals with
--- | enormous control surfaces; the point of the file is that changing one is a
--- | line, and changing one cannot break the pedal it borrows from.
+-- | The control page a scene attaches to is a functional group —
+-- | `docs/DESIGN-BANKS.md` on why the pages are grouped by what a pedal is
+-- | *for* rather than by pedal. Standing there, the feet are on that group's
+-- | bypasses, so the hands should be on the same group's knobs. A scene that
+-- | also carried the delay pedals would be a page where half the knobs act on
+-- | pedals the feet cannot reach, which is the back-and-forth the whole
+-- | arrangement exists to remove.
 module Data.Twister.Scenes
-  ( liveThree
-  , liveThreeBank
-  , sceneForBank
+  ( ambient
+  , sceneForControlBank
   , scenes
   ) where
 
@@ -49,74 +37,89 @@ onward = PedalId "onward"
 lostAndFound :: PedalId
 lostAndFound = PedalId "lostandfound"
 
+habit :: PedalId
+habit = PedalId "habit"
+
 -- | `Just` a borrowing, said shortly, because the table below is the content
 -- | and sixteen `Just { pedal: _, index: _ }`s would bury it.
 at :: PedalId -> Int -> Maybe { pedal :: PedalId, index :: Int }
 at pedal index = Just { pedal, index }
 
--- | Onward, MOOD and Lost+Found — the three the feet are already on.
+-- | The ambient page: **MOOD, Onward, Lost+Found and Habit**, a row each.
 -- |
--- | The knobs, and why each:
+-- | The four are not a taste; they are the group `docs/DESIGN-BANKS.md` calls
+-- | *ambient / evolving*, and the control page they share is the bank this
+-- | scene answers to. The first draft of this had three of them, because the
+-- | six expander switches hold three pedals' worth of channels — and that is a
+-- | fact about the **feet**. Habit engages with one switch rather than two, so
+-- | it sits on the unit's own six and is every bit as much part of the group.
+-- | Leaving its knobs off would have made the hand's page disagree with the
+-- | page it is attached to.
 -- |
--- | - **MOOD Clock** is the sample rate, and it is the one control on that
--- |   pedal that changes what kind of machine it is rather than how much of it
--- |   you hear. **Length** is the micro-looper's slice. **Mix** last, because
--- |   it is the one you reach for to get out of trouble.
--- | - **Onward Error** is the glitch, which is the reason the pedal is on the
--- |   board. **Texture** and **Size** shape what it glitches.
--- | - **Lost+Found Spill**, **Glue** and **Blend** — the three that decide how
--- |   much of the wreckage comes back.
+-- | ## The grid
 -- |
--- | Hue is the page's own rather than any pedal's, because it belongs to none
--- | of them; the cells are lit in their own pedal's colour, which is what makes
--- | a row readable without a label on the device.
-liveThree :: SceneDef
-liveThree =
-  { name: "Live three"
+-- | A row per pedal, three knobs and a switch, which is the shape a pedal's own
+-- | page already uses — column four is where a switch lives, learned once. Four
+-- | pedals, four rows, and the colour of a row is its pedal's own, which is the
+-- | only thing on the device that says whose knob is under your hand.
+-- |
+-- | ## The knobs, and why each
+-- |
+-- | - **MOOD Clock** is the sample rate, and the one control on that pedal that
+-- |   changes what kind of machine it is rather than how much of it you hear.
+-- |   **Length** is the micro-looper's slice. **Mix** last, because it is what
+-- |   you reach for to get out of trouble.
+-- | - **Onward Error** is the glitch, which is why the pedal is on the board.
+-- |   **Texture** and **Size** shape what it glitches.
+-- | - **Lost+Found Spill**, **Glue** and **Blend** decide how much of the
+-- |   wreckage comes back.
+-- | - **Habit Modify** and **Scan** are the two that move its window through
+-- |   what it has already heard, which is the whole trick; **Spread** is where
+-- |   that window sits.
+-- |
+-- | **Nothing here is precious.** These are opening bids on four pedals with
+-- | enormous control surfaces; changing one is a line, and changing one cannot
+-- | break the pedal it borrows from.
+ambient :: SceneDef
+ambient =
+  { name: "Ambient"
   , hue: 110
   , encoders:
-      [ at mood 5, at mood 2, at mood 1, Nothing            -- Clock, Length, Mix
-      , at onward 4, at onward 6, at onward 0, Nothing      -- Error, Texture, Size
+      [ at mood 5, at mood 2, at mood 1, Nothing              -- Clock, Length, Mix
+      , at onward 4, at onward 6, at onward 0, Nothing        -- Error, Texture, Size
       , at lostAndFound 9, at lostAndFound 13, at lostAndFound 5, Nothing
-                                                            -- Spill, Glue, Blend
-      , Nothing, Nothing, Nothing, Nothing
+                                                              -- Spill, Glue, Blend
+      , at habit 4, at habit 6, at habit 5, Nothing           -- Modify, Scan, Spread
       ]
   , buttons:
-      [ Nothing, Nothing, Nothing, at mood 3               -- Micro-Looper
-      , Nothing, Nothing, Nothing, at onward 3             -- Glitch
-      , Nothing, Nothing, Nothing, at lostAndFound 3       -- Left
-      -- The seconds, in the same order the rows are in: MOOD's Wet Freeze,
-      -- Onward's Freeze, Lost+Found's Right. Column four stays the switch
-      -- column, so the fourth cell here is the one that is free.
-      , at mood 11, at onward 7, at lostAndFound 7, Nothing
+      [ Nothing, Nothing, Nothing, at mood 3                  -- Micro-Looper
+      , Nothing, Nothing, Nothing, at onward 3                -- Glitch
+      , Nothing, Nothing, Nothing, at lostAndFound 3          -- Left
+      , Nothing, Nothing, Nothing, at habit 3                 -- Mode
       ]
   }
 
 -- | Every scene this rig knows, in the order a menu would list them.
 -- |
 -- | One so far. It is a list rather than a single value because the second is
--- | expected — Habit, Hedra and Brig want their own — and because whatever
--- | associates a scene with an MC6 bank needs something to look through.
+-- | expected — the delay/reverb group is the obvious next — and because
+-- | whatever associates a scene with a page needs something to look through.
 scenes :: Array SceneDef
-scenes = [ liveThree ]
+scenes = [ ambient ]
 
--- | The MC6 bank whose six switches are Onward, MOOD and Lost+Found.
+-- | Which scene a **control page** calls up, by its id.
 -- |
--- | **A placeholder, and the one number here to change.** Banks 1 to 12 and 15
--- | are spoken for — the board mirror, the looper's eight pages, the probe, two
--- | diagnostics pages and the control bank — so 13 is free rather than chosen.
--- | Nothing has been written to the device for it yet; this says where the
--- | Twister should go when you stand there.
-liveThreeBank :: Int
-liveThreeBank = 13
-
--- | Which scene an MC6 bank calls up, if any.
+-- | Keyed on the page's id and not its bank number, which was the first
+-- | attempt and was wrong twice over. Control banks are stored, editable data —
+-- | the user can move one — and the block bases in `docs/DESIGN-BANKS.md` are
+-- | explicitly not fixed yet, so a number written here would be a number that
+-- | goes stale in two different ways. An id survives both.
 -- |
--- | `Nothing` is the ordinary answer and means "leave the Twister alone" — the
--- | looper's pages or the focused pedal's, as before. Only a bank that has
--- | given its switches to pedals asks for a scene, because only there is the
--- | hand's surface a foregone conclusion.
-sceneForBank :: Int -> Maybe SceneDef
-sceneForBank bank
-  | bank == liveThreeBank = Just liveThree
+-- | `Nothing` is the ordinary answer and means "leave the Twister alone": the
+-- | looper's pages or the focused pedal's, as before. Only a page that has
+-- | given its switches to a group of pedals asks for a scene, because only
+-- | there is the hand's surface a foregone conclusion.
+sceneForControlBank :: String -> Maybe SceneDef
+sceneForControlBank id
+  | id == "control-ambient" = Just ambient
   | otherwise = Nothing

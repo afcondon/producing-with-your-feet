@@ -3356,9 +3356,15 @@ pressGuardMs = 300.0
 syncSceneToBank :: forall o m. MonadAff m => Int -> H.HalogenM AppState Action Slots o m Unit
 syncSceneToBank bank = do
   st <- H.get
-  let wanted = map
-        (Scene.resolve \pid -> CRegistry.findPedal st.registry pid >>= _.twister)
-        (Scenes.sceneForBank bank)
+  let
+    -- **Through the control page, not straight from the number.** Which page
+    -- sits on which bank is stored, editable data and the block bases in
+    -- DESIGN-BANKS are explicitly unfixed, so a bank number is the one thing
+    -- here that will not stay true. The page's id will.
+    onThisBank = Array.find (\cb -> cb.mc6BankNumber == bank) st.controlBanks
+    wanted = map
+      (Scene.resolve \pid -> CRegistry.findPedal st.registry pid >>= _.twister)
+      (onThisBank >>= \cb -> Scenes.sceneForControlBank cb.id)
   when (map _.name wanted /= map _.name st.twisterScene) do
     H.modify_ _ { twisterScene = wanted }
     case wanted of

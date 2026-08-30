@@ -24,7 +24,7 @@ import Config.Registry (PedalRegistry)
 import Config.Registry as CRegistry
 import Config.Types (MidiRouting)
 import Data.MC6.Global (GlobalSwitch)
-import Data.MC6.ControlBank (ControlBank, exampleControlBank)
+import Data.MC6.ControlBank (ControlBank, exampleControlBank, ambientControlBank)
 import Data.MC6.Dump as Dump
 import Data.MC6.Settings as Settings
 import Data.Looper.Banks as LooperBanks
@@ -433,7 +433,7 @@ initAppState =
   , mc6Held: Nothing
   , mc6EditorMode: Nothing
   , mc6UnloadGuard: Nothing
-  , controlBanks: [exampleControlBank]
+  , controlBanks: [exampleControlBank, ambientControlBank]
   , globalSwitches: []
   , activeControlBankIdx: Just 0
   , looper: Nothing
