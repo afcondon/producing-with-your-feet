@@ -1027,10 +1027,14 @@ main = do
                , fbDb: -3.0, toneHz: 6500.0, recEnv: []
                , pendingAt: -1, shapes: [] }
       withState n s ls = (idle n) { state = s, layers = ls }
-      rigOf ls = { loops: ls, focus: 0, click: false, monitor: false, armDb: -36.0, launchQ: -1 }
+      rigOf ls = { loops: ls, focus: 0, click: false, monitor: false, armDb: -36.0
+                 , launchQ: -1, sources: [ "board", "di", "ipad" ] }
       isCommand = case _ of
         Machine.Command _ -> true
         _ -> false
+      -- All eight, idle. The grab rules are about which loop an index is, so
+      -- most of them need a rig with loops 4 and 8 actually in it.
+      octet = map idle (Array.range 0 (LB.nLoops - 1))
 
   -- **A loop switch is a place, not a verb.** It used to be seven verbs in a
   -- trenchcoat — record, close, overdub, cancel-arm, fire, stop, start — chosen
@@ -1074,6 +1078,7 @@ main = do
        (LB.switchGesture LB.GrabBank 4 LB.Tap)
       == [ Machine.Command "play1"
          , Machine.Command "3g1"
+         , Machine.Command "3src3"
          , Machine.Command "3len4"
          , Machine.Command "3r"
          ]
@@ -1081,20 +1086,84 @@ main = do
            (LB.switchGesture LB.GrabBank 1 LB.Tap)
         == [ Machine.Command "play1"
            , Machine.Command "3g1"
+           , Machine.Command "3src3"
            , Machine.Command "3len8"
            , Machine.Command "3r"
            ])
 
-  -- **Layering needs no switch and no branch.** `r` on a loop with material is
-  -- an overdub, `g1` on a loop already on the grid is a no-op and `len` on a
-  -- loop already that long changes nothing — so the second grab is byte for
-  -- byte the first one, and there is no state to read wrong. Grabbing a hat
-  -- over a kick is the same press twice.
-  assert "and a second grab is the same four commands, over the first"
-    (Machine.act ((rigOf [ (withState 0 "playing" 1) { quant = true } ]) { focus = 0 })
+  -- **A second grab says less, because what is already true is not said
+  -- again.** Both preparations read the engine's own answer out of the
+  -- snapshot rather than flipping, so a loop that is already on the grid and
+  -- already on the iPad gets the transport, the length and the record and
+  -- nothing else — which is what keeps the ack log worth reading.
+  --
+  -- It is still an overdub, and it still works. What it is NOT is a way to
+  -- stack two machines in phase: an overdub starts at the play head rather
+  -- than on a boundary, while the transport restarts the iPad on the next bar,
+  -- so a pattern longer than a bar comes back rotated. Two machines go in the
+  -- two grab loops. See `own GrabBank`.
+  assert "and a second grab says only what is not already true"
+    (Machine.act
+       ((rigOf [ (withState 0 "playing" 1) { quant = true, src = 3 } ]) { focus = 0 })
        (LB.switchGesture LB.GrabBank 4 LB.Tap)
-      == Machine.act ((rigOf [ idle 0 ]) { focus = 0 })
-           (LB.switchGesture LB.GrabBank 4 LB.Tap))
+      == [ Machine.Command "play1"
+         , Machine.Command "0len4"
+         , Machine.Command "0r"
+         ])
+
+  -- **The grid is a lock on these two, not a default.** What goes in them is
+  -- machine material that was already on a grid when it arrived, and stacking a
+  -- second drum machine's beat over the first only works if both takes opened
+  -- on the same bar line. A take that opened a fraction late is not fixable
+  -- afterwards, so it is not left to whether the flag survived the last Clear.
+  --
+  -- Every road into a recording, not just the grab: Record and Overdub from the
+  -- toolbar and Listen too, since Arm is a recording that has not started yet.
+  assert "every way into a grab loop puts it on the grid first"
+    (map
+      (\d -> Array.take 1 (Machine.perform ((rigOf octet) { focus = 3 }) LB.Focused d))
+      [ LB.RecordLoop, LB.OverdubLoop, LB.ArmLoop ]
+      == Array.replicate 3 [ Machine.Command "3g1" ]
+      -- Silent when it is already there.
+      && Array.take 1
+           (Machine.perform
+              ((rigOf (Array.mapWithIndex (\n l -> if n == 3 then l { quant = true } else l) octet))
+                 { focus = 3 })
+              LB.Focused LB.RecordLoop)
+        == [ Machine.Command "3r" ])
+
+  -- **And nothing at all for the other six**, which is the half that makes it a
+  -- rule rather than a change of behaviour. A guitar take that quietly waited
+  -- for a bar line would be the same surprise in the other direction — and it
+  -- is precisely the trap the recipes warn about, where playing just after a
+  -- line costs almost a whole bar and the attack with it.
+  assert "and no other loop is quietly put on one"
+    (Array.all
+      (\n -> Machine.perform ((rigOf octet) { focus = n }) LB.Focused LB.RecordLoop
+               == [ Machine.Command (show n <> "r") ])
+      (Array.filter (\n -> not (Array.elem n LB.grabLoops)) (Array.range 0 (LB.nLoops - 1))))
+
+  -- The source is a DEFAULT and not a lock, which is the difference between it
+  -- and the grid: wanting a guitar in loop 8 once is a legitimate thing to
+  -- want, and asserting the input on every press would make it impossible
+  -- rather than unusual. So Record leaves it alone; choosing the loop and
+  -- grabbing into it are the two moments you are plainly setting it up.
+  assert "but the input is only asserted while you are setting up, not playing"
+    (Machine.perform ((rigOf octet) { focus = 3 }) LB.Focused LB.RecordLoop
+      == [ Machine.Command "3g1", Machine.Command "3r" ])
+
+  -- A grab is a machine take whatever it is aimed at, so it grids and sources
+  -- the loop even when that loop is not one of the two — which is the case
+  -- where you reached the bank with something else in focus. Anything else
+  -- would be a grab that quietly ran free.
+  assert "and a grab prepares whatever it is aimed at, grab loop or not"
+    (Machine.act ((rigOf octet) { focus = 5 }) (LB.switchGesture LB.GrabBank 4 LB.Tap)
+      == [ Machine.Command "play1"
+         , Machine.Command "5g1"
+         , Machine.Command "5src3"
+         , Machine.Command "5len4"
+         , Machine.Command "5r"
+         ])
 
   -- Rig-wide, so no loop prefix — the same shape as Start All. A bare command
   -- in a log beside a column of prefixed ones reads like one that forgot its
@@ -2830,8 +2899,39 @@ main = do
   -- Selecting already focused, so it must not be focused twice — and every
   -- duty that reaches `SelectLoop` by recursion is covered by the same check.
   assert "selecting a loop focuses it exactly once"
+    (Machine.performPress (rig8 { focus = 0 }) (LB.OnLoop 1) (LB.SelectLoop 1)
+      == [ Machine.Focus 1, Machine.Handled "loop 2" ])
+
+  -- **A grab loop is set up when you choose it**, which is the one exception to
+  -- selecting doing nothing — and it is an exception in kind, not in degree:
+  -- the grid and the input start nothing, stop nothing and erase nothing, so
+  -- you can still look at a loop without committing to anything. What it saves
+  -- is the menu dive between deciding to grab a beat and being able to.
+  --
+  -- By NAME. `src3` is the iPad only because of the order of itajara's launch
+  -- flags, which live in a registry this app never reads; the lookup is over
+  -- the names the daemon reports in every snapshot.
+  assert "and a grab loop arrives on the grid, listening to the iPad"
     (Machine.performPress (rig8 { focus = 0 }) (LB.OnLoop 3) (LB.SelectLoop 3)
-      == [ Machine.Focus 3, Machine.Handled "loop 4" ])
+      == [ Machine.Focus 3, Machine.Handled "loop 4"
+         , Machine.Command "3g1", Machine.Command "3src3"
+         ]
+      -- Silent once it is already there, because both read the engine's own
+      -- answer rather than flipping.
+      && Machine.performPress
+           ((rigOf (Array.mapWithIndex (\n l -> if n == 3 then l { quant = true, src = 3 } else l) eight))
+              { focus = 0 })
+           (LB.OnLoop 3) (LB.SelectLoop 3)
+        == [ Machine.Focus 3, Machine.Handled "loop 4" ]
+      -- And nothing at all for the other six, which is what makes it a rule
+      -- about these two loops rather than a change to what selecting means.
+      && Machine.performPress (rig8 { focus = 0 }) (LB.OnLoop 4) (LB.SelectLoop 4)
+        == [ Machine.Focus 4, Machine.Handled "loop 5" ]
+      -- A rig whose daemon has no source of that name is told nothing rather
+      -- than told a number that might mean the guitar.
+      && Machine.performPress ((rig8 { sources = [ "board" ] }) { focus = 0 })
+           (LB.OnLoop 3) (LB.SelectLoop 3)
+        == [ Machine.Focus 3, Machine.Handled "loop 4", Machine.Command "3g1" ])
 
   -- Nothing whose subject is the focused loop can move the focus, or every
   -- knob on the Shape page would be a selector.

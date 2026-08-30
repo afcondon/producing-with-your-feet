@@ -84,6 +84,10 @@ rigOf st =
   -- as "on the bar" rather than as "none" — which would be the one value that
   -- silently changes behaviour if it were wrong.
   , launchQ: maybe (-1) _.launchQ st.looper
+  -- Names only. What a source is *called* is what the machine asks by; how
+  -- many channels it has is a thing the page draws and the machine has no
+  -- opinion about.
+  , sources: maybe [] (map _.name <<< _.sources) st.looper
   }
 
 -- | Hand the controller over to whatever is now in focus.

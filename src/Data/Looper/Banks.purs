@@ -196,6 +196,7 @@ module Data.Looper.Banks
   , switchLoops
   , grabLoops
   , grabSwitchForLoop
+  , grabSource
   , loopAtSwitch
   , switchForLoop
   , Jump(..)
@@ -547,6 +548,21 @@ grabLoops = Array.reverse (Array.mapMaybe Array.last loopRows)
 -- | they do.
 grabSwitchForLoop :: Int -> Maybe Int
 grabSwitchForLoop l = (\n -> n * (mc6OwnSwitches / 2)) <$> Array.findIndex (_ == l) grabLoops
+
+-- | The input a grab loop records from, **by the name the daemon gives it**.
+-- |
+-- | Not a number. `src` is one-based over whatever `--source` flags itajara was
+-- | launched with, so `src3` means the iPad only for as long as the flags stay
+-- | in their present order — and those flags live in Bosun's registry, which
+-- | this app never reads. A number here would be a coupling to a launch
+-- | argument, silent when it broke, and wrong in the way that records four bars
+-- | of the wrong room.
+-- |
+-- | A name is the durable half of the same fact. The daemon reports its sources
+-- | with their names in every snapshot, so the lookup is live: if nothing is
+-- | called this, nothing is sent and nothing is claimed.
+grabSource :: String
+grabSource = "ipad"
 
 -- | Which switch selects a loop, or `Nothing` for the two the pedal cannot
 -- | reach.
@@ -1661,11 +1677,20 @@ own = case _ of
   -- so the take begins on the drum machine's bar one rather than a bar and a
   -- bit into it.
   --
-  -- **Layering is free and needs no switch.** A second grab on a loop that
-  -- already holds one is an overdub, because that is what `r` does to a loop
-  -- with material — so grabbing a kick and then grabbing a hat over it is the
-  -- same gesture twice, and a fumbled one comes off with a double on the loop
-  -- switch, as everywhere else.
+  -- **Two machines go in the two loops, and that is what the pair is for.**
+  -- Both open on the grid always — see `Machine.gridded` — so their bar lines
+  -- are the same bar lines and two beats grabbed one after the other agree
+  -- about where one is.
+  --
+  -- A second grab into the *same* loop is an overdub, and it works, but not
+  -- for this: an overdub starts at the play head rather than on a boundary
+  -- (measured 2026-08-30, and the daemon says why — it writes from `origin`,
+  -- so where the audio lands is already right), while the transport restarts
+  -- the iPad at the next **bar**. A pattern longer than a bar therefore comes
+  -- back rotated by however far into the loop you happened to be. Layering a
+  -- second machine over the first, in phase, would need the transport
+  -- scheduled for the loop's next *cycle* rather than its next bar, and that
+  -- is a frame-deadline-to-Link-time join nothing here has yet.
   --
   -- ```
   --   far    Loop 4    4 bars    Halt

@@ -95,6 +95,14 @@ type Rig =
   -- | What a launch waits for, in beats: `-1` a bar, `0` none. Rig-wide, so it
   -- | sits here beside the click and the arm threshold rather than on a loop.
   , launchQ :: Int
+  -- | The daemon's inputs, in the order it numbers them, by name.
+  -- |
+  -- | Here so that a loop's source can be asked for by name rather than by
+  -- | number — `src` is one-based over the `--source` flags itajara was
+  -- | launched with, and those live in a registry this app never reads. See
+  -- | `LB.grabSource`. Empty until the daemon has spoken, which reads as "no
+  -- | source is called that" and sends nothing, which is the right answer.
+  , sources :: Array String
   }
 
 -- | The whole meaning table.
@@ -219,10 +227,18 @@ perform rig subject = case _ of
   -- loop on the way in would save a press, but the same switch would then stop
   -- a playing one — so you could not look at a loop without acting on it, which
   -- is exactly the thing this page exists to end.
-  LB.SelectLoop n -> [ Focus n, Handled ("loop " <> show (n + 1)) ]
+  -- **It still does nothing to the audio**, which is what that paragraph was
+  -- about. Choosing a grab loop does set it up — the grid on and the input on
+  -- the iPad — and that is a different kind of act: it starts nothing, stops
+  -- nothing and erases nothing, so you can still look at a loop without
+  -- committing to anything. What it saves is the menu dive that otherwise sits
+  -- between deciding to grab a beat and being able to.
+  LB.SelectLoop n ->
+    [ Focus n, Handled ("loop " <> show (n + 1)) ]
+      <> (if Array.elem n LB.grabLoops then gridded rig n <> sourced rig n else [])
 
-  LB.RecordLoop -> onRecord i (loopAt rig i)
-  LB.OverdubLoop -> onOverdub i (loopAt rig i)
+  LB.RecordLoop -> gridded rig i <> onRecord i (loopAt rig i)
+  LB.OverdubLoop -> gridded rig i <> onOverdub i (loopAt rig i)
   LB.Transport -> onTransport i (loopAt rig i)
 
   -- The mode and the gesture in one press. `lev1` before `r`, so the record
@@ -235,7 +251,8 @@ perform rig subject = case _ of
       | Looper.phaseOf st /= Looper.Idle ->
           [ Unavailable ("loop " <> show (i + 1) <> " is busy — close it first") ]
       | otherwise ->
-          [ Command (cmd i (Verb.LevelArm true)), Command (cmd i Verb.Record) ]
+          gridded rig i
+            <> [ Command (cmd i (Verb.LevelArm true)), Command (cmd i Verb.Record) ]
 
   -- Navigation the MC6 performs itself, from the jumps it was programmed with.
   -- The app only has to agree that it happened.
@@ -367,16 +384,19 @@ perform rig subject = case _ of
   -- knows how to do, it is the ordinary opening of a take with the beat
   -- started underneath it.
   --
-  -- Nothing here is conditional on what the loop holds. `r` on a loop with
-  -- material is an overdub, `g1` on a loop already following the grid is a
-  -- no-op, and `len` on a loop already that long changes nothing — so the
-  -- second grab layers onto the first with no branch to get wrong.
+  -- Nothing here is conditional on what the loop holds: `g1` and the source go
+  -- out only when the snapshot says they are not already true, `len` on a loop
+  -- already that long changes nothing, and `r` on a loop with material is an
+  -- overdub. So there is no branch to get wrong — but see `own GrabBank` on
+  -- why the second machine belongs in the *other* grab loop rather than as a
+  -- layer over the first.
   LB.Grab bars ->
-    [ Command (Verb.render (Verb.Playing true))
-    , Command (cmd i (Verb.OnGrid true))
-    , Command (cmd i (Verb.Bars bars))
-    , Command (cmd i Verb.Record)
-    ]
+    [ Command (Verb.render (Verb.Playing true)) ]
+      <> onGrid rig i
+      <> sourced rig i
+      <> [ Command (cmd i (Verb.Bars bars))
+         , Command (cmd i Verb.Record)
+         ]
 
   -- Rig-wide, so it is not addressed to a loop — and the ack says so, because
   -- a bare command in a log beside seven loop-prefixed ones reads like one that
@@ -617,6 +637,52 @@ cmd = Verb.at
 
 loopAt :: Rig -> Int -> Maybe LoopState
 loopAt rig i = Array.index rig.loops i
+
+-- | **A grab loop is always on the grid**, asserted before anything writes to
+-- | it.
+-- |
+-- | This is a lock and not a default, and the reason is what goes in these two
+-- | loops: material from a machine, which was already on a grid when it
+-- | arrived. Stacking a second drum machine's beat over the first only works
+-- | if both takes opened on the same bar line — and a take that opened a
+-- | fraction late is not fixable afterwards, so it is not a thing to leave to
+-- | whether the flag survived the last Clear.
+-- |
+-- | Silent when the loop is already there, because it reads the engine's own
+-- | answer out of the snapshot rather than flipping. Nothing at all for the
+-- | other six: a guitar take that quietly waited for a bar line would be the
+-- | same surprise in the opposite direction.
+gridded :: Rig -> Int -> Array Action
+gridded rig i
+  | Array.elem i LB.grabLoops = onGrid rig i
+  | otherwise = []
+
+-- | The same, asked of any loop, for the one caller that is not about which
+-- | loop it is. A grab is a machine take by definition — whatever it is aimed
+-- | at wants the grid, including a loop somebody left focused on the way in.
+onGrid :: Rig -> Int -> Array Action
+onGrid rig i = case loopAt rig i of
+  Just st | not st.quant -> [ Command (cmd i (Verb.OnGrid true)) ]
+  _ -> []
+
+-- | **And it records from the iPad**, asserted when you choose it and when you
+-- | grab into it — but not on an ordinary Record.
+-- |
+-- | A default rather than a lock, which is the difference between this and
+-- | `gridded`. Setting the input is a menu dive on the Twister's fourth page,
+-- | and having to do it before every beat is the friction this removes; but
+-- | wanting a guitar in loop 8 once is a legitimate thing to want, and forcing
+-- | the source on every press would make it impossible rather than unusual.
+-- | So it is re-asserted at the two moments you are plainly setting the loop
+-- | up, and left alone at the moment you are playing.
+-- |
+-- | Looked up by name, so a rig launched with different `--source` flags gets
+-- | the right number or nothing. Refused by the daemon mid-take, which is why
+-- | it goes out before the record and not after.
+sourced :: Rig -> Int -> Array Action
+sourced rig i = case loopAt rig i, Array.findIndex (_ == LB.grabSource) rig.sources of
+  Just st, Just n | st.src /= n + 1 -> [ Command (cmd i (Verb.Source (n + 1))) ]
+  _, _ -> []
 
 show' :: BankSlot -> String
 show' = case _ of
