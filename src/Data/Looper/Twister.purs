@@ -55,6 +55,8 @@ module Data.Looper.Twister
   , flagName
   , RingSource(..)
   , Control
+  , Nudge(..)
+  , nudgeLabel
   , controlAt
   , pressedAt
   , turnedAt
@@ -64,6 +66,7 @@ module Data.Looper.Twister
   , rateSteps
   , Led
   , leds
+  , ledsWith
   , pager
   , pagerRing
   , pagerIndex
@@ -88,7 +91,7 @@ import Data.Array as Array
 import Data.Int (round, toNumber)
 import Data.Looper.Duty (Duty(..), Subject(..), dutyLabel, dutyName, nLoops)
 import Data.Looper.Machine (Rig)
-import Data.Maybe (Maybe(..), fromMaybe, maybe)
+import Data.Maybe (Maybe(..), fromMaybe, isJust, maybe)
 import Data.Tuple (Tuple(..))
 import Data.Twister (Knob, encodersPerBank)
 import Foreign.LooperSocket (LayerShape, LoopPhase(..), LoopState, allPhases, phaseName, phaseOf)
@@ -222,6 +225,8 @@ data RingSource
   -- | device's own idea of where the encoder is standing equal to the engine's,
   -- | every poll — the thing that makes a nudge harmless rather than arbitrary.
   | Value Param
+  -- | Always the middle: a nudge encoder's resting place.
+  | Centred
   -- | Which page is showing. The one ring whose value is a fact about the app
   -- | rather than about the engine, which is why `leds` fills it in — that is
   -- | the function that knows the page.
@@ -281,6 +286,10 @@ type Control =
   { subject :: Subject
   , press :: Maybe Duty
   , turn :: Maybe Param
+  -- | A nudge rather than a value: the encoder is a spring, centred after
+  -- | every click, and each click moves an edit by a step. Press toggles the
+  -- | step between coarse and fine, app-wide. See `Nudge`.
+  , nudge :: Maybe Nudge
   , ring :: RingSource
   , light :: Light
   -- | Whether this control's press is its way *home* — back to the parameter's
@@ -303,9 +312,32 @@ type Control =
 
 blank :: Control
 blank =
-  { subject: Focused, press: Nothing, turn: Nothing
+  { subject: Focused, press: Nothing, turn: Nothing, nudge: Nothing
   , ring: NoRing, light: Dark, home: false, pager: false
   }
+
+-- | The three edits an encoder can nudge: the window's in point, its out
+-- | point, and where a pass starts inside it. **Relative, not absolute**,
+-- | because a loop is seconds long and a knob is 128 steps wide: an absolute
+-- | knob could not place an in point to a beat, let alone to a frame. So the
+-- | ring sits at centre, a click is a step, and the app puts the ring back.
+-- |
+-- | The step is coarse or fine, toggled by pressing any of the three: coarse
+-- | is a beat when the loop is on the grid and a hundredth of the loop when
+-- | it is not, fine is ten milliseconds. Blue when fine, so the hand can see
+-- | which without a screen.
+data Nudge = NIn | NOut | NStart
+
+derive instance Eq Nudge
+
+nudgeLabel :: Nudge -> String
+nudgeLabel = case _ of
+  NIn -> "In"
+  NOut -> "Out"
+  NStart -> "Start"
+
+nudgeKnob :: Nudge -> Tone -> Control
+nudgeKnob n tone = blank { nudge = Just n, ring = Centred, light = Steady tone }
 
 -- | The pager, in the bottom-right corner of every page: the corner a hand can
 -- | find without looking, and the same corner on all of them so it is one
@@ -733,6 +765,11 @@ shapeBank = case _ of
   -- that from being a thing you have to remember.
   10 -> verb SaveTake Blue
   11 -> verb ExportSet Blue
+  -- The edit row: three spring encoders for the window and the start, the
+  -- Edit panel's sliders under the hand. Press any to toggle coarse and fine.
+  12 -> nudgeKnob NIn Orange
+  13 -> nudgeKnob NOut Orange
+  14 -> nudgeKnob NStart Orange
 
   15 -> pager
   _ -> blank
@@ -1235,7 +1272,13 @@ type Led = { index :: Int, ring :: Int, hue :: Int, ringHeld :: Boolean }
 -- | switches, and it redraws when it does — so lighting a block nobody is
 -- | looking at is sixteen messages a frame spent on nothing.
 leds :: Rig -> Int -> Array Led
-leds rig bank = do
+leds = ledsWith { fine: false }
+
+-- | The same, told whether the nudge encoders are in fine mode — an app-side
+-- | fact, not the daemon's, and the one thing a light shows that the
+-- | snapshot does not know.
+ledsWith :: { fine :: Boolean } -> Rig -> Int -> Array Led
+ledsWith mode rig bank = do
   index <- Array.range 0 (encodersPerBank - 1)
   let c = controlAt { bank, index }
       loop = Array.index rig.loops (subjectIndex rig c.subject)
@@ -1247,10 +1290,12 @@ leds rig bank = do
     , ring: case c.ring of
         PageRing -> 0
         RigValue p -> rigKnob p rig
+        Centred -> 64
         _ -> maybe 0 (ringOf c) loop
     , ringHeld: c.pager
     -- The colour is the app's to say, and says the page.
     , hue: if c.pager then hue (pageTone bank)
+           else if isJust c.nudge && mode.fine then hue Blue
            else case c.light of
              -- The two rig-wide flags, answered from the rig. Everything else
              -- on this surface is about a loop and reads one.
@@ -1266,6 +1311,7 @@ leds rig bank = do
 ringOf :: Control -> LoopState -> Int
 ringOf c st = case c.ring of
   NoRing -> 0
+  Centred -> 64
   PageRing -> 0
   RigValue _ -> 0
   Value p -> toKnob p st
@@ -1490,6 +1536,14 @@ cellAt bank index =
       , turn: map (\p -> paramLabel p <> " — " <> paramRange p) c.turn
       , shows: Just "colour is what it is doing; the ring is the value under your hand"
       , tone: Nothing
+      }
+    Focused | Just nd <- c.nudge ->
+      { index
+      , name: nudgeLabel nd
+      , press: Just "coarse or fine, for all three"
+      , turn: Just "nudge — a beat (or 1% off the grid) coarse, 10 ms fine; the ring springs back"
+      , shows: Just "orange coarse, blue fine"
+      , tone: toneOf c.light
       }
     Focused -> case c.press, c.turn of
       -- A knob: the parameter names the control. Whether the press is its way

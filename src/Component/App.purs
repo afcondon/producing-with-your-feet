@@ -3474,15 +3474,18 @@ handleEncoderTurnOnPedal st knob val =
   if st.focusPedalId == Just Looper.itajaraId
     then
       let here = onPage st knob
-      in if (LoopTwister.controlAt here).pager
+          control = LoopTwister.controlAt here
+      in if control.pager
         -- The pager asks nothing of the looper, so it never reaches `perform`.
         -- Its position IS the page — `LoopTwister.pageFor` — and adopting
         -- rather than showing is what keeps the app from writing back to the
         -- knob that just moved.
         then when (LoopTwister.pageFor val /= st.twisterPage)
                (adoptTwisterPage (LoopTwister.pageFor val))
-        else for_ (LoopTwister.turnedAt here val) \(Tuple subject duty) ->
-          traverse_ (runAction 0.0) (Machine.perform (rigOf st) subject duty)
+        else case control.nudge of
+          Just nd -> nudgeTurn st knob nd val
+          Nothing -> for_ (LoopTwister.turnedAt here val) \(Tuple subject duty) ->
+            traverse_ (runAction 0.0) (Machine.perform (rigOf st) subject duty)
     else onPedal st \pid def ps ->
       -- Bank one only. A pedal is a page of knobs; the other three pages are
       -- the looper's, and a pedal has no opinion about them.
@@ -3494,6 +3497,42 @@ handleEncoderTurnOnPedal st knob val =
           H.modify_ _ { suppressTwister = false }
           for_ result.ringSnap \snap ->
             sendRingPosition knob snap
+
+-- | One click of a nudge encoder: a delta against the value it last reported,
+-- | times the step, applied to the loop in hand as the same duty the Edit
+-- | panel's slider would send — then the ring is put back to centre so the
+-- | next click is a delta again and the knob never runs out of travel.
+nudgeTurn
+  :: forall o m
+   . MonadAff m
+  => AppState
+  -> Knob
+  -> LoopTwister.Nudge
+  -> Int
+  -> H.HalogenM AppState Action Slots o m Unit
+nudgeTurn st knob nd val = do
+  let cc = knobCC knob
+      last = fromMaybe 64 (Map.lookup cc st.twisterNudge)
+      delta = val - last
+  for_ st.looper \top -> for_ (Array.index top.loops st.looperFocus) \lp -> do
+    let beat = if top.barFrames > 0 && top.linkQuantum > 0.0
+          then max 1 (Int.round (Int.toNumber top.barFrames / top.linkQuantum))
+          else 1
+        coarse = if lp.quant then beat else max 1 (lp.loopFrames / 100)
+        step = if st.twisterEditFine then max 1 (top.sampleRate / 100) else coarse
+        frames = delta * step
+        len = lp.loopFrames
+        winI = if lp.winOut == 0 then 0 else lp.winIn
+        winO = if lp.winOut == 0 then len else lp.winOut
+        duty = case nd of
+          LoopTwister.NIn -> LoopBanks.WindowIn (clamp (negate len) (winO - 1) (winI + frames))
+          LoopTwister.NOut -> LoopBanks.WindowOut (clamp (winI + 1) (2 * len) (winO + frames))
+          LoopTwister.NStart -> LoopBanks.ShiftStart frames
+    when (delta /= 0 && len > 0) $
+      traverse_ (runAction 0.0) (Machine.perform (rigOf st) LoopBanks.Focused duty)
+  -- Back to centre, and remember that is where it is.
+  sendRingPosition { bank: TwisterData.deviceBank, index: knob.index } 64
+  H.modify_ \s -> s { twisterNudge = Map.insert cc 64 s.twisterNudge }
 
 handleEncoderPress :: forall o m. MonadAff m => Knob -> H.HalogenM AppState Action Slots o m Unit
 handleEncoderPress knob = do
@@ -3519,7 +3558,15 @@ handleEncoderPressOnPedal
   => AppState -> Knob -> H.HalogenM AppState Action Slots o m Unit
 handleEncoderPressOnPedal st knob =
   if st.focusPedalId == Just Looper.itajaraId
-    then if (LoopTwister.controlAt (onPage st knob)).pager
+    then if isJust (LoopTwister.controlAt (onPage st knob)).nudge
+      -- A press on any nudge encoder flips the step for all three, and the
+      -- lights say which: orange coarse, blue fine.
+      then do
+        let fine = not st.twisterEditFine
+        H.modify_ (\s -> s { twisterEditFine = fine })
+        H.modify_ (pushLooperLog (if fine then "edit encoders: fine, 10 ms a click" else "edit encoders: coarse, a beat a click"))
+        sendLooperLEDs
+    else if (LoopTwister.controlAt (onPage st knob)).pager
       -- Home, because that is the page you want in a hurry and the turn is
       -- there for going anywhere else.
       then showTwisterPage 0

@@ -133,6 +133,11 @@ type AppState =
   -- | nudge as well — and the value under a loop's press is exactly the value
   -- | that nudge would move. See `Component.App.handleTwisterMsg`.
   , twisterPending :: Map Int Int
+  -- | The nudge encoders: whether a click is fine (10 ms) or coarse (a beat,
+  -- | or 1% of the loop off the grid), and the value each one last reported
+  -- | so a click is a delta against it. See `Data.Looper.Twister.Nudge`.
+  , twisterEditFine :: Boolean
+  , twisterNudge :: Map Int Int
   -- | Encoders whose turns are being ignored because a press just landed on
   -- | them. Cleared on a timer.
   , twisterGuard :: Set Int
@@ -431,6 +436,8 @@ initAppState =
   , suppressTwister: false
   , twisterLit: Map.empty
   , twisterPending: Map.empty
+  , twisterEditFine: false
+  , twisterNudge: Map.empty
   , twisterGuard: Set.empty
   , twisterHeardBank: Nothing
   , twisterPage: 0

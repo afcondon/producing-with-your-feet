@@ -273,7 +273,7 @@ sendLooperLEDs = do
   -- and before that `twisterHeardBank`, both on the theory that the lights
   -- should land on whichever block the device was showing. There is no such
   -- question now: the device is only ever on one.
-  let wanted = LoopTwister.leds (rigOf st) st.twisterPage
+  let wanted = LoopTwister.ledsWith { fine: st.twisterEditFine } (rigOf st) st.twisterPage
       changed = Array.filter (\l -> Map.lookup l.index st.twisterLit /= Just { ring: l.ring, hue: l.hue }) wanted
   unless (Array.null changed) do
     for_ changed \l -> do
