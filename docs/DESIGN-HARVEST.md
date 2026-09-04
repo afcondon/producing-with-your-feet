@@ -388,9 +388,14 @@ before promising strangers anything: the daemon's calibration path
 
 Each step is usable on its own, and each unblocks the next.
 
-1. **Daemon flags** `--loops`, `--layers`, `--fixed-secs`; app reads
+1. ~~**Daemon flags** `--loops`, `--layers`, `--fixed-secs`; app reads
    `nLoops`/`maxLayers` from the snapshot and turns the constant into a
-   check. Small; unblocks every configuration.
+   check.~~ Done 2026-09-04: the two constants are `Shared::n_loops` and
+   `Shared::max_layers`, `MAX_LOOPS` is ten because the wire names a loop
+   by one digit, `--fixed-secs` threads every loop as an empty tape at
+   startup and after `c` and stands in for `--max-secs`; the app says once,
+   in the log, when the daemon's loop count is not the eight it is laid
+   out for. Smoke-tested on BlackHole at 6 × 6 × 13 s.
 2. **Window verbs, peaks message, Edit panel.** Editing, end to end.
 3. **`exl` and manifest v2.** The per-loop-per-layer render.
 4. **msm `harvest`**: the importer, the Arbhar scene and library model with

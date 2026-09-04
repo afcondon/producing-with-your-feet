@@ -39,7 +39,7 @@ import Data.Traversable (for)
 import Data.Map as Map
 import Data.Int as Int
 import Data.Number as Number
-import Data.Maybe (Maybe(..), fromMaybe, isJust, isNothing)
+import Data.Maybe (Maybe(..), fromMaybe, isJust, isNothing, maybe)
 import Data.Midi (CC, MidiValue, ProgramNumber, makeCC, makeChannel, makeMidiValue, makeProgramNumber, unCC, unChannel, unMidiValue, unProgramNumber, unsafeCC, unsafeMidiValue)
 import Data.Pedal (PedalDef, PedalId)
 import Pedals.Registry as PsRegistry
@@ -2052,6 +2052,18 @@ handleAction = case _ of
     let age' = Number.floor (age / 500.0) * 500.0
     when (cur.looper /= snap || cur.looperStatus /= st' || cur.looperSnapshotAge /= age') do
       H.modify_ _ { looper = snap, looperStatus = st', looperSnapshotAge = age' }
+      -- **The loop count is a check now, not a fact.** `LoopBanks.nLoops` is
+      -- what this surface is laid out for — the bank tables, the Twister's
+      -- rows — and the daemon's `--loops` is what there is. Said once, when
+      -- the daemon first speaks or its shape changes, rather than drawn as
+      -- ghost loops or found as a bank sweep that clears nothing.
+      for_ snap \s ->
+        when (s.nLoops /= LoopBanks.nLoops && maybe true (\p -> p.nLoops /= s.nLoops) cur.looper) do
+          H.modify_ $ pushLooperLog
+            ( "this surface is laid out for " <> show LoopBanks.nLoops
+                <> " loops; the daemon has " <> show s.nLoops
+                <> ". Loops past that cannot be reached from here."
+            )
       -- **What the daemon had to say, which nothing was reading.**
       --
       -- The engine refuses things the app cannot know about — one converter, so
