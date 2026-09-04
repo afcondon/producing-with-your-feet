@@ -734,6 +734,13 @@ Disk streaming is the honest answer for **loop slots** (§17), where total memor
 is `loops × layers × length` and does explode. Layers-to-disk-as-WAVs is wanted
 anyway as the export path, so the two should be designed together.
 
+**2026-09-04:** the limit is memory and only memory now. `--loops` and
+`--layers` are uncapped, the arena is allocated zeroed so the kernel commits
+pages only as loops fill (an 11 GB ceiling measured at 45 MB resident), the
+daemon says the ceiling at startup, asks on a terminal past a quarter of
+physical memory, and refuses past all of it with no override. Disk streaming
+is a *someday*: the prefetch design it needs is a project, not a flag.
+
 ---
 
 ## 16. Controlling the interface itself

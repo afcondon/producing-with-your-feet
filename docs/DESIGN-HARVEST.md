@@ -256,9 +256,12 @@ checked at the seams rather than assumed.
 itajara loop --loops 6 --layers 6 --fixed-secs 13 --max-secs 13 …
 ```
 
-- `--loops` and `--layers` replace `N_LOOPS` and `MAX_LAYERS`. The arena is
-  sized at runtime already; the loop array becomes a `Vec`, and every
-  `0..N_LOOPS` reads the field. Mechanical.
+- `--loops` and `--layers` replace `N_LOOPS` and `MAX_LAYERS`. Done, and
+  uncapped: the arena is committed lazily, the daemon reports its ceiling
+  and asks or refuses by physical memory, and the wire takes any run of
+  digits as the loop. The snapshot carries the shape — `nLoops`,
+  `maxLayers`, `sampleRate`, `maxSecs`, `fixedSecs`, `ringSecs` — so a
+  surface lays itself out from it.
 - `--fixed-secs L` threads every loop to `L` at startup and again after
   `c` — the `threaded` empty-tape state exists, and `len` on an empty loop
   already means *"record and it closes itself."* Fixed length is nearly free.
