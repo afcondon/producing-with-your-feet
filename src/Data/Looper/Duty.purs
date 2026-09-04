@@ -231,6 +231,14 @@ data Duty
   -- | it goes through the machine like everything else so that it is one
   -- | route in.
   | LayerOn Int Boolean
+  -- | The editing duties: the window's two ends, the whole loop again, a
+  -- | shift of where a pass starts, and a request for the waveform. From the
+  -- | Edit panel only; no switch or encoder carries them.
+  | WindowIn Int
+  | WindowOut Int
+  | ClearWindow
+  | ShiftStart Int
+  | AskPeaks Int
   | Reverse
   | Pendulum
   -- | One pass per trigger, rather than turning for ever.
@@ -604,6 +612,11 @@ dutyLabel = case _ of
   NotYet l _ -> l
   Nothing_ -> ""
   LayerOn l on -> "Lyr " <> show l <> (if on then "+" else "-")
+  WindowIn _ -> "In"
+  WindowOut _ -> "Out"
+  ClearWindow -> "Whole"
+  ShiftStart _ -> "Shift"
+  AskPeaks _ -> "Peaks"
 
 -- | Twenty-four characters, for the device's long name and for reporting a
 -- | press the app did not expect as words rather than as a CC number.
@@ -679,6 +692,11 @@ dutyName = case _ of
   NotYet l _ -> l
   Nothing_ -> ""
   LayerOn l on -> "Layer " <> show l <> (if on then " in the mix" else " parked")
+  WindowIn f -> "Window starts at frame " <> show f
+  WindowOut f -> "Window ends at frame " <> show f
+  ClearWindow -> "The whole loop again"
+  ShiftStart k -> "Start shifted by " <> show k <> " frames"
+  AskPeaks n -> "Waveform in " <> show n <> " buckets"
 
 -- | A level in words. The daemon's own vocabulary — "full" and "silent" rather
 -- | than "0.0 dB" and "-60.0 dB", because those are things a meter says and not

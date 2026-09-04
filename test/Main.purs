@@ -1026,7 +1026,7 @@ main = do
                , chance: 1.0, skipping: false, fadeMs: 0.0, decayDb: 0.0
                , volDb: 0.0, cycles: 0, src: 1, mono: false, revox: false
                , fbDb: -3.0, toneHz: 6500.0, recEnv: []
-               , pendingAt: -1, shapes: [] }
+               , winIn: 0, winOut: 0, rot: 0, pendingAt: -1, shapes: [] }
       withState n s ls = (idle n) { state = s, layers = ls }
       rigOf ls = { loops: ls, focus: 0, click: false, monitor: false, armDb: -36.0
                  , launchQ: -1, sources: [ "board", "di", "ipad" ]
@@ -1371,7 +1371,12 @@ main = do
       && LoopVerb.render (LoopVerb.Click false) == "k0"
       && LoopVerb.render (LoopVerb.Monitor true) == "m1"
       && LoopVerb.render (LoopVerb.LayerOn 3 true) == "ly31"
-      && LoopVerb.render (LoopVerb.LayerOn 12 false) == "ly120")
+      && LoopVerb.render (LoopVerb.LayerOn 12 false) == "ly120"
+      && LoopVerb.render (LoopVerb.WindowIn 4800) == "in4800"
+      && LoopVerb.render (LoopVerb.WindowOut 96000) == "out96000"
+      && LoopVerb.render LoopVerb.ClearWindow == "win"
+      && LoopVerb.render (LoopVerb.Shift (-2400)) == "rot-2400"
+      && LoopVerb.render (LoopVerb.AskPeaks 600) == "pk600")
 
   assert "numeric verbs carry their argument with no separator"
     (LoopVerb.render (LoopVerb.Rate 0.5) == "sp0.5"

@@ -38,7 +38,7 @@ import Data.Set as Set
 import Halogen as H
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
-import Foreign.LooperSocket (LooperState, SocketStatus)
+import Foreign.LooperSocket (LooperState, Peaks, SocketStatus)
 import Data.Midi (CC, MidiValue)
 import Data.Twister.Scene (Scene)
 import Data.Pedal (PedalDef, PedalId)
@@ -70,7 +70,7 @@ derive instance Eq View
 -- | enough to keep beside the loops permanently, and a control you have to open
 -- | is a control you do not use while both hands are busy. It lives in the
 -- | page's right column now, with the log under it.
-data LooperPanel = PanelTwister | PanelBanks | PanelRecipes | PanelBoard
+data LooperPanel = PanelTwister | PanelBanks | PanelRecipes | PanelBoard | PanelEdit
 
 derive instance Eq LooperPanel
 
@@ -299,6 +299,11 @@ type AppState =
   -- | things you look up, and two of them open at once is the clutter they were
   -- | moved off the page to end.
   , looperPanel :: Maybe LooperPanel
+  -- | The last waveform the daemon drew, and the key it was asked under —
+  -- | loop, layer count, newest layer — so the Edit panel asks again only
+  -- | when the picture would differ, not thirty times a second.
+  , looperPeaks :: Maybe Peaks
+  , looperPeaksKey :: String
   -- | Which of the six looper banks the MC6 is *showing*.
   -- |
   -- | Not asked for and not remembered from a bank change we commanded: taken
@@ -462,6 +467,8 @@ initAppState =
   , mc6ProbeBankNum: 10
   , looperShowsSlots: true
   , looperPanel: Nothing
+  , looperPeaks: Nothing
+  , looperPeaksKey: ""
   , looperBankShown: Just LooperBanks.LoopBank
   , looperProgramStatus: Nothing
   , midiTest: Nothing

@@ -64,7 +64,7 @@ import Effect.Exception as Exception
 import Config.Decode as Decode
 import Data.Either (Either(..))
 import Data.String.CodeUnits as SCU
-import Engine (AppState, EngineState, LooperPanel, MC6Assignment, PedalState, View(..), getValue, initAppState, initEngineFromPedals, pedalsOnChannel, pushLooperLog)
+import Engine (AppState, EngineState, LooperPanel(..), MC6Assignment, PedalState, View(..), getValue, initAppState, initEngineFromPedals, pedalsOnChannel, pushLooperLog)
 import Config.Preset as CPreset
 import Engine.Storage as Storage
 import Data.Twister.Scene as Scene
@@ -127,6 +127,11 @@ data Action
   | SetFeedback String
   | SetTone String
   | SetLayerOn Int Int Boolean
+  | SetWindowIn Int Int
+  | SetWindowOut Int Int
+  | ClearLoopWindow Int
+  | ShiftLoopStart Int Int
+  | AskLoopPeaks Int
   | HandleHeader Header.Output
   | HandleDetail DetailView.Output
   | HandleGrid GridView.Output
@@ -478,6 +483,11 @@ renderLooperView state = LooperPage.render handlers ports state
     , programLoopBanks: ProgramLoopBanks
     , printSheet: PrintSheet
     , setLayer: SetLayerOn
+    , windowIn: SetWindowIn
+    , windowOut: SetWindowOut
+    , clearWindow: ClearLoopWindow
+    , shiftStart: ShiftLoopStart
+    , askPeaks: AskLoopPeaks
     }
 
   ports =
@@ -680,6 +690,18 @@ renderMidiDiagnostics state =
   portList ports =
     if Array.null ports then HH.p_ [ HH.text "(none)" ]
     else HH.div_ (map (\p -> line ("name=\"" <> p.name <> "\"") ("id=\"" <> p.id <> "\"")) ports)
+
+-- | One editing duty on one loop, through the machine like everything else.
+-- | The Edit panel's route in, and the layer checkboxes'.
+editVerb
+  :: forall o m
+   . MonadAff m
+  => Int
+  -> LoopBanks.Duty
+  -> H.HalogenM AppState Action Slots o m Unit
+editVerb loop duty = do
+  st <- H.get
+  traverse_ (runAction 0.0) (Machine.perform (rigOf st) (LoopBanks.OnLoop loop) duty)
 
 handleAction :: forall o m. MonadAff m => Action -> H.HalogenM AppState Action Slots o m Unit
 handleAction = case _ of
@@ -1526,7 +1548,10 @@ handleAction = case _ of
 
   ShowTwisterPage bank -> showTwisterPage bank
 
-  ShowLooperPanel which -> H.modify_ _ { looperPanel = which }
+  ShowLooperPanel which -> do
+    -- Opening the Edit panel forgets the last key, so the next poll asks for
+    -- the picture afresh even if it is the same loop as last time.
+    H.modify_ _ { looperPanel = which, looperPeaksKey = "" }
 
   -- Through the machine like everything else, even though it is a slider on a
   -- page rather than a press: `perform` is the only route to the socket, and a
@@ -1549,10 +1574,13 @@ handleAction = case _ of
       traverse_ (runAction 0.0)
         (Machine.perform (rigOf st) LoopBanks.Focused (LoopBanks.Tone hz))
 
-  SetLayerOn loop layer on -> do
-    st <- H.get
-    traverse_ (runAction 0.0)
-      (Machine.perform (rigOf st) (LoopBanks.OnLoop loop) (LoopBanks.LayerOn layer on))
+  SetLayerOn loop layer on -> editVerb loop (LoopBanks.LayerOn layer on)
+
+  SetWindowIn loop f -> editVerb loop (LoopBanks.WindowIn f)
+  SetWindowOut loop f -> editVerb loop (LoopBanks.WindowOut f)
+  ClearLoopWindow loop -> editVerb loop LoopBanks.ClearWindow
+  ShiftLoopStart loop k -> editVerb loop (LoopBanks.ShiftStart k)
+  AskLoopPeaks loop -> editVerb loop (LoopBanks.AskPeaks 600)
 
   FlushTwisterTurn knob -> do
     st <- H.get
@@ -2045,13 +2073,27 @@ handleAction = case _ of
     st' <- liftEffect LooperSocket.status
     age <- liftEffect LooperSocket.snapshotAge
     snap <- liftEffect LooperSocket.latest
+    pk <- liftEffect LooperSocket.latestPeaks
     cur <- H.get
+    when (cur.looperPeaks /= pk) $ H.modify_ _ { looperPeaks = pk }
     -- The age is rounded before comparing, or a number that changes every tick
     -- would re-render the whole page ten times a second for ever — which is
     -- how the Overview's footswitches died once already.
     let age' = Number.floor (age / 500.0) * 500.0
     when (cur.looper /= snap || cur.looperStatus /= st' || cur.looperSnapshotAge /= age') do
       H.modify_ _ { looper = snap, looperStatus = st', looperSnapshotAge = age' }
+      -- **The Edit panel asks for its picture here**, and only when the
+      -- picture would differ: the key is the loop in focus, its layer count
+      -- and its newest layer's birth. A loop with nothing in it has no
+      -- picture and no key, so it is not asked about thirty times a second.
+      when (cur.looperPanel == Just PanelEdit) $
+        for_ snap \s -> for_ (Array.index s.loops cur.looperFocus) \lp -> do
+          let key = if lp.layers == 0 then ""
+                    else show cur.looperFocus <> ":" <> show lp.layers <> ":"
+                      <> show (maybe 0 _.born (Array.last lp.shapes))
+          when (key /= "" && key /= cur.looperPeaksKey) do
+            H.modify_ _ { looperPeaksKey = key }
+            editVerb cur.looperFocus (LoopBanks.AskPeaks 600)
       -- **The loop count is a check now, not a fact.** `LoopBanks.nLoops` is
       -- what this surface is laid out for — the bank tables, the Twister's
       -- rows — and the daemon's `--loops` is what there is. Said once, when

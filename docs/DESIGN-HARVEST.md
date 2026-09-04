@@ -164,6 +164,13 @@ Three consequences to decide up front rather than discover:
   needs the crossfade more, not less. Check where `xf` is applied before
   assuming it moves for free.
 
+**Rotation, added on the day.** A window chooses which stretch of the
+loop plays; `rot<frames>` chooses where inside it a pass *starts*. Position
+zero of a pass is arena position `in + rot`, the render begins there and
+wraps inside the window, and no sample moves. It is the "shift the start
+point" that editing a loop always wants and that a window alone cannot give
+without a crop.
+
 **Wire.** Numeric verbs, per the grammar in `Data.Looper.Verb`: `<n>in<frames>`,
 `<n>out<frames>`, `<n>win` to clear (the daemon counts loops from zero; the
 surface from one — the usual seam). PureScript: `WindowIn Int | WindowOut Int
@@ -399,7 +406,18 @@ Each step is usable on its own, and each unblocks the next.
    startup and after `c` and stands in for `--max-secs`; the app says once,
    in the log, when the daemon's loop count is not the eight it is laid
    out for. Smoke-tested on BlackHole at 6 × 6 × 13 s.
-2. **Window verbs, peaks message, Edit panel.** Editing, end to end.
+2. ~~**Window verbs, peaks message, Edit panel.**~~ Done 2026-09-04, plus
+   a **rotation** (`rot<frames>`): where a pass starts inside the window,
+   without moving a sample, so a render begins where you chose rather than
+   where the take closed. The Edit panel is three sliders over the
+   waveform — in, out, start — stepping by a beat on the grid and a frame
+   off it, with the window shaded and the playhead drawn. Two
+   simplifications against §3: a windowed loop is simply not `plain()`, so
+   it gets no `acid` chunk even when bar-aligned; and the seam crossfade
+   reuses `xf` at loop level in `loop_at` rather than moving the per-layer
+   one. Peaks are `mix_at` over every arena position — the flattened,
+   levelled loop at unity — so the picture is in the positions the sliders
+   set.
 3. **`exl` and manifest v2.** The per-loop-per-layer render.
 4. **msm `harvest`**: the importer, the Arbhar scene and library model with
    a generated `preset.txt`, the 13 s truncation replaced by "10 s + wrap",

@@ -219,6 +219,11 @@ perform rig subject = case _ of
   Duty.StopAll -> map (\n -> Command (cmd n (Verb.Sounding false))) (sounding rig)
   Duty.Undo -> [ Command (cmd i Verb.Undo) ]
   Duty.LayerOn l on -> [ Command (cmd i (Verb.LayerOn l on)) ]
+  Duty.WindowIn f -> [ Command (cmd i (Verb.WindowIn f)) ]
+  Duty.WindowOut f -> [ Command (cmd i (Verb.WindowOut f)) ]
+  Duty.ClearWindow -> [ Command (cmd i Verb.ClearWindow) ]
+  Duty.ShiftStart k -> [ Command (cmd i (Verb.Shift k)) ]
+  Duty.AskPeaks n -> [ Command (cmd i (Verb.AskPeaks n)) ]
   Duty.ClearLoop -> [ Command (cmd i Verb.Clear) ]
   -- **Read from the loop, not remembered** — the same shape as the click and
   -- the monitor since `Rig` started carrying the flags, and for the same

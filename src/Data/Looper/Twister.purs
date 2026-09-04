@@ -1574,5 +1574,5 @@ stub =
   , chance: 1.0, skipping: false, fadeMs: 0.0, decayDb: 0.0, volDb: 0.0
   , cycles: 0, src: 1, mono: false, revox: false, fbDb: -3.0, toneHz: 6500.0
   , recEnv: []
-  , pendingAt: -1, shapes: []
+  , winIn: 0, winOut: 0, rot: 0, pendingAt: -1, shapes: []
   }

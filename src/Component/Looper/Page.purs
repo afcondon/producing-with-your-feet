@@ -61,9 +61,11 @@ import Data.Int as Int
 import Data.Looper as Looper
 import Data.Looper.Banks as LoopBanks
 import Data.Maybe (Maybe(..), maybe)
+import Data.String (joinWith)
 import Engine (LogLine, LooperPanel(..))
 import Foreign.LooperSocket (LooperState, SocketStatus)
 import Foreign.LooperSocket as LooperSocket
+import Halogen (AttrName(..), ElemName(..), Namespace(..))
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
@@ -80,6 +82,7 @@ type State r =
   , looperFocus :: Int
   , looperShowsSlots :: Boolean
   , looperPanel :: Maybe LooperPanel
+  , looperPeaks :: Maybe LooperSocket.Peaks
   , looperBankShown :: Maybe LoopBanks.BankSlot
   , looperLog :: Array LogLine
   , looperProgramStatus :: Maybe String
@@ -131,6 +134,14 @@ type Handlers i =
   -- | One layer of one loop in or out of the mix: the daemon's loop index,
   -- | the layer number the slot shows (from one), and the wanted state.
   , setLayer :: Int -> Int -> Boolean -> i
+  -- | The Edit panel's five: window in and out (loop, frames), the whole
+  -- | loop again, a shift of the start (loop, signed frames), and a fresh
+  -- | waveform (loop).
+  , windowIn :: Int -> Int -> i
+  , windowOut :: Int -> Int -> i
+  , clearWindow :: Int -> i
+  , shiftStart :: Int -> Int -> i
+  , askPeaks :: Int -> i
   }
 
 render
@@ -192,6 +203,8 @@ render h ports state =
         [ BoardSim.render h.simulate (LoopBanks.face state.looperBankShown) ]
     Just PanelBanks ->
       modal "" "MC6 banks" [ footswitchCard, loopFamilyCard ]
+    Just PanelEdit ->
+      modal "is-edit" ("Edit — loop " <> show (state.looperFocus + 1)) [ editPanel ]
     -- **In the app rather than on paper, and that is the whole reason it
     -- exists.** Following a written sequence means looking away from the
     -- browser, and Chrome throttles a background tab — the looper stops
@@ -294,6 +307,97 @@ render h ports state =
   -- | dismisses — a reference you cannot get rid of with the hand that opened it
   -- | is a reference you stop opening. `title` survives as the accessible name
   -- | rather than as furniture.
+  -- | **The Edit panel: a window, a start, and a picture to set them by.**
+  -- |
+  -- | The daemon plays what the sliders say — an in point, an out point and
+  -- | where a pass starts inside them — so what you hear while you drag is
+  -- | what `Export` will write; nothing here is a preview of a different
+  -- | renderer. Sliders rather than handles on the waveform: they are exact,
+  -- | keyboard-nudgeable, and need no drag machinery. Steps are a beat when
+  -- | the loop is on the grid, a frame when it is not.
+  editPanel = case state.looper of
+    Nothing -> HH.div_ [ HH.text "No daemon to edit on." ]
+    Just top -> case Array.index top.loops state.looperFocus of
+      Nothing -> HH.text ""
+      Just lp
+        | lp.loopFrames <= 0 -> HH.div_ [ HH.text "This loop has no length yet; record something first." ]
+        | otherwise -> editBody top lp
+
+  editBody top lp =
+    HH.div [ HP.class_ (HH.ClassName "looper-edit") ]
+      [ waveform
+      , sliderRow "In" 0 (max 0 (winO - 1)) winI (\v -> h.windowIn li v) (timeWord winI)
+      , sliderRow "Out" (winI + 1) len winO (\v -> h.windowOut li v) (timeWord winO)
+      , sliderRow "Start" 0 (max 0 (span - 1)) lp.rot (\v -> h.shiftStart li (v - lp.rot))
+          (timeWord (winI + lp.rot) <> " into the loop")
+      , HH.div [ HP.class_ (HH.ClassName "looper-edit-actions") ]
+          [ HH.button [ HP.class_ (HH.ClassName "looper-help-btn"), HE.onClick \_ -> h.shiftStart li (negate step) ] [ HH.text ("⟵ " <> stepWord) ]
+          , HH.button [ HP.class_ (HH.ClassName "looper-help-btn"), HE.onClick \_ -> h.shiftStart li step ] [ HH.text (stepWord <> " ⟶") ]
+          , HH.button [ HP.class_ (HH.ClassName "looper-help-btn"), HE.onClick \_ -> h.clearWindow li ] [ HH.text "Whole loop" ]
+          , HH.button [ HP.class_ (HH.ClassName "looper-help-btn"), HE.onClick \_ -> h.askPeaks li ] [ HH.text "Redraw" ]
+          , HH.span [ HP.class_ (HH.ClassName "looper-edit-note") ]
+              [ HH.text (if windowed then "Windowed: the daemon will not record into this loop until it plays whole again." else "The whole loop.") ]
+          ]
+      ]
+    where
+    li = state.looperFocus
+    len = lp.loopFrames
+    windowed = lp.winOut > 0
+    winI = if windowed then lp.winIn else 0
+    winO = if windowed then lp.winOut else len
+    span = max 1 (winO - winI)
+    -- A beat, from the bar the rig reports, when the loop is on the grid;
+    -- otherwise a frame, which is the exact thing.
+    beat = if top.barFrames > 0 && top.linkQuantum > 0.0
+      then max 1 (Int.round (Int.toNumber top.barFrames / top.linkQuantum))
+      else 1
+    step = if lp.quant then beat else 1
+    stepWord = if step == 1 then "1 frame" else "1 beat"
+    timeWord f = secsOf f <> " s"
+    secsOf f = show (Int.toNumber (Int.round (Int.toNumber f / Int.toNumber top.sampleRate * 1000.0)) / 1000.0)
+
+    sliderRow label lo hi v onV word =
+      HH.div [ HP.class_ (HH.ClassName "looper-edit-row") ]
+        [ HH.span [ HP.class_ (HH.ClassName "looper-edit-label") ] [ HH.text label ]
+        , HH.input
+            [ HP.type_ HP.InputRange
+            , HP.class_ (HH.ClassName "looper-edit-slider")
+            , HP.min (Int.toNumber lo)
+            , HP.max (Int.toNumber hi)
+            , HP.step (HP.Step (Int.toNumber step))
+            , HP.value (show v)
+            , HE.onValueInput \raw -> onV (maybe v identity (Int.fromString raw))
+            ]
+        , HH.span [ HP.class_ (HH.ClassName "looper-edit-word") ] [ HH.text word ]
+        ]
+
+    -- The picture: the whole loop, always, with the window shaded, the
+    -- start marked, and the playhead where the daemon says it is. Drawn from
+    -- the last `peaks` answer; a stale one for another loop is not drawn.
+    waveform = case state.looperPeaks of
+      Just pk | pk.loop == li && pk.buckets > 0 ->
+        let
+          w = Int.toNumber pk.buckets
+          x f = Int.toNumber f / Int.toNumber (max 1 len) * w
+          y v = 100.0 - Int.toNumber v / 10.0
+          pt i v = show (Int.toNumber i) <> "," <> show (y v)
+          top' = joinWith " " (Array.mapWithIndex pt pk.hi)
+          bot = joinWith " " (Array.reverse (Array.mapWithIndex pt pk.lo))
+          svgEl name = HH.elementNS (Namespace "http://www.w3.org/2000/svg") (ElemName name)
+          sAttr n v = HP.attr (AttrName n) v
+        in
+          svgEl "svg"
+            [ sAttr "viewBox" ("0 0 " <> show pk.buckets <> " 200")
+            , sAttr "preserveAspectRatio" "none"
+            , sAttr "class" "looper-wave"
+            ]
+            [ svgEl "rect" [ sAttr "x" (show (x winI)), sAttr "y" "0", sAttr "width" (show (x winO - x winI)), sAttr "height" "200", sAttr "class" "looper-wave-window" ] []
+            , svgEl "polygon" [ sAttr "points" (top' <> " " <> bot), sAttr "class" "looper-wave-body" ] []
+            , svgEl "line" [ sAttr "x1" (show (x (winI + lp.rot))), sAttr "x2" (show (x (winI + lp.rot))), sAttr "y1" "0", sAttr "y2" "200", sAttr "class" "looper-wave-start" ] []
+            , svgEl "line" [ sAttr "x1" (show (x lp.pos)), sAttr "x2" (show (x lp.pos)), sAttr "y1" "0", sAttr "y2" "200", sAttr "class" "looper-wave-head" ] []
+            ]
+      _ -> HH.div [ HP.class_ (HH.ClassName "looper-wave-missing") ] [ HH.text "Waveform on its way…" ]
+
   modal klass title body =
     HH.div [ HP.class_ (HH.ClassName "looper-modal-overlay") ]
       [ HH.div
@@ -372,7 +476,8 @@ render h ports state =
     HH.div [ HP.class_ (HH.ClassName "looper-status") ]
       [ HH.div [ HP.class_ (HH.ClassName "looper-status-row") ] readings
       , HH.div [ HP.class_ (HH.ClassName "looper-help-row") ]
-          [ panelBtn PanelRecipes "Recipes"
+          [ panelBtn PanelEdit "Edit"
+          , panelBtn PanelRecipes "Recipes"
           , panelBtn PanelTwister "Twister"
           , panelBtn PanelBanks "MC6 banks"
           -- **Behind a button rather than on the page**, since the Twister
