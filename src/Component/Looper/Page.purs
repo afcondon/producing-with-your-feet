@@ -398,9 +398,17 @@ render h ports state =
             , sAttr "preserveAspectRatio" "none"
             , sAttr "class" "looper-wave"
             ]
+            -- Drawn in this order so the feedback is unmissable: the loop's
+            -- extent in white, the audio, then everything *outside* the
+            -- window dimmed hard on top of it, the two ends as lines, the
+            -- start in red, and the playhead — which only ever moves inside
+            -- the window, which is the other half of the feedback.
             [ svgEl "rect" [ sAttr "x" (show (x 0)), sAttr "y" "0", sAttr "width" (show (x len - x 0)), sAttr "height" "200", sAttr "class" "looper-wave-loop" ] []
-            , svgEl "rect" [ sAttr "x" (show (x winI)), sAttr "y" "0", sAttr "width" (show (x winO - x winI)), sAttr "height" "200", sAttr "class" "looper-wave-window" ] []
             , svgEl "polygon" [ sAttr "points" (top' <> " " <> bot), sAttr "class" "looper-wave-body" ] []
+            , svgEl "rect" [ sAttr "x" "0", sAttr "y" "0", sAttr "width" (show (x winI)), sAttr "height" "200", sAttr "class" "looper-wave-outside" ] []
+            , svgEl "rect" [ sAttr "x" (show (x winO)), sAttr "y" "0", sAttr "width" (show (w - x winO)), sAttr "height" "200", sAttr "class" "looper-wave-outside" ] []
+            , svgEl "line" [ sAttr "x1" (show (x winI)), sAttr "x2" (show (x winI)), sAttr "y1" "0", sAttr "y2" "200", sAttr "class" "looper-wave-edge" ] []
+            , svgEl "line" [ sAttr "x1" (show (x winO)), sAttr "x2" (show (x winO)), sAttr "y1" "0", sAttr "y2" "200", sAttr "class" "looper-wave-edge" ] []
             , svgEl "line" [ sAttr "x1" (show (x (winI + lp.rot))), sAttr "x2" (show (x (winI + lp.rot))), sAttr "y1" "0", sAttr "y2" "200", sAttr "class" "looper-wave-start" ] []
             , svgEl "line" [ sAttr "x1" (show (x lp.pos)), sAttr "x2" (show (x lp.pos)), sAttr "y1" "0", sAttr "y2" "200", sAttr "class" "looper-wave-head" ] []
             ]
