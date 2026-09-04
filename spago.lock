@@ -1,23 +1,6 @@
 {
   "workspace": {
     "packages": {
-      "itajara-client": {
-        "path": "itajara-client",
-        "core": {
-          "dependencies": [
-            "control",
-            "effect",
-            "integers",
-            "maybe",
-            "nullable",
-            "prelude",
-            "strings"
-          ]
-        },
-        "test": {
-          "dependencies": []
-        }
-      },
       "producing-with-your-feet": {
         "path": "./",
         "core": {
@@ -795,7 +778,10 @@
       "httpurple": "4.0.0",
       "hylograph-graph": "0.3.0",
       "hylograph-selection": "0.5.3",
-      "hylograph-transitions": "0.1.0"
+      "hylograph-transitions": "0.1.0",
+      "itajara-client": {
+        "path": "../itajara/client"
+      }
     }
   },
   "packages": {
@@ -1509,6 +1495,19 @@
       "dependencies": [
         "control",
         "prelude"
+      ]
+    },
+    "itajara-client": {
+      "type": "local",
+      "path": "../itajara/client",
+      "dependencies": [
+        "control",
+        "effect",
+        "integers",
+        "maybe",
+        "nullable",
+        "prelude",
+        "strings"
       ]
     },
     "js-date": {

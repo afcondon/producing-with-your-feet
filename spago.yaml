@@ -55,3 +55,7 @@ workspace:
     hylograph-graph: 0.3.0
     hylograph-transitions: 0.1.0
     httpurple: 4.0.0
+    # The Itajara client lives with the daemon now (music/itajara); this app
+    # is its first consumer and reaches it by path.
+    itajara-client:
+      path: ../itajara/client
