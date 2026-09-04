@@ -1600,9 +1600,13 @@ handleAction = case _ of
   -- down; the click's own fork will settle later.
   SettleNudge knob seq -> do
     st <- H.get
-    when (st.twisterNudgeSeq == seq) do
+    -- The ring goes back to centre; what the device last *reported* is kept,
+    -- because whether the device adopts the centre as its value is not
+    -- knowable from here and the next click is measured against whichever
+    -- of the two it turns out to be nearer (see `nudgeTurn`). Overwriting it
+    -- with centre was the wrong direction on the first click back.
+    when (st.twisterNudgeSeq == seq) $
       sendRingPosition { bank: TwisterData.deviceBank, index: knob.index } 64
-      H.modify_ \s -> s { twisterNudge = Map.insert (knobCC knob) 64 s.twisterNudge }
 
   FlushTwisterTurn knob -> do
     st <- H.get
