@@ -53,6 +53,7 @@ import Data.Foldable (for_)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), maybe)
 import Data.Looper as Looper
+import Data.Looper.Banks as LoopBanks
 import Data.Looper.Machine as Machine
 import Data.Looper.Twister as LoopTwister
 import Data.Pedal (PedalId)
@@ -88,6 +89,8 @@ rigOf st =
   -- many channels it has is a thing the page draws and the machine has no
   -- opinion about.
   , sources: maybe [] (map _.name <<< _.sources) st.looper
+  , grab: LoopBanks.grabLoops
+  , grabSource: LoopBanks.grabSource
   }
 
 -- | Hand the controller over to whatever is now in focus.

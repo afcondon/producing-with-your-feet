@@ -37,17 +37,17 @@
 module Data.Looper.Machine
   ( Action(..)
   , Rig
-  , act
   , perform
   , performPress
+  , slotWord
   , describe
   ) where
 
 import Prelude
 
 import Data.Array as Array
-import Data.Looper.Banks (BankSlot(..), Subject(..), SwitchGesture, nLoops)
-import Data.Looper.Banks as LB
+import Data.Looper.Duty (BankSlot(..), Subject(..), nLoops)
+import Data.Looper.Duty as Duty
 import Data.Looper.Verb as Verb
 import Data.Maybe (Maybe(..), maybe)
 import Foreign.LooperSocket (LoopState)
@@ -100,71 +100,18 @@ type Rig =
   -- | Here so that a loop's source can be asked for by name rather than by
   -- | number — `src` is one-based over the `--source` flags itajara was
   -- | launched with, and those live in a registry this app never reads. See
-  -- | `LB.grabSource`. Empty until the daemon has spoken, which reads as "no
+  -- | `Data.Looper.Banks.grabSource`. Empty until the daemon has spoken, which reads as "no
   -- | source is called that" and sends nothing, which is the right answer.
   , sources :: Array String
+  -- | The loops that arrive gridded and listening to a named source, and that
+  -- | source's name. Facts about how the rig is laid out — which loops the
+  -- | feet cannot reach, and that the iPad is what fills them — so they come
+  -- | in from the caller rather than being known here: `Data.Looper.Banks`
+  -- | derives them from the MC6 layout, and a surface with no MC6 passes what
+  -- | it likes, including nothing.
+  , grab :: Array Int
+  , grabSource :: String
   }
-
--- | The whole meaning table.
--- |
--- | **Keyed by what the switch is for, never by which switch it is.** This used
--- | to be a set of per-bank tables indexed by a switch number, running in
--- | parallel with the labels in `Data.Looper.Banks` and joined to them by
--- | nothing but that number. The layout said switch 9 was "Clear"; this said
--- | switch 9 sent `c`; moving Clear would have left a switch labelled one thing
--- | and doing another, and nothing would have failed to compile.
--- |
--- | Now a press is resolved to a `Duty` first and the meaning is a total
--- | function of that. The label on the pedal, the words on screen and the
--- | command on the wire are three renderings of one value, so they cannot
--- | disagree — and a new duty is a compile error here until it is given a
--- | meaning, rather than a switch that silently does nothing.
--- | **One decoder of three.** `perform` is the meaning; this is the MC6's way
--- | in, and the page and the Twister have their own. See `DESIGN-TWISTER` §4.
-act :: Rig -> SwitchGesture -> Array Action
-act rig p = case LB.dutiesAt p.slot p.switch of
-  Nothing -> [ missing p.slot p.switch ]
-  Just s -> case p.gesture, LB.dutyFor p.gesture s of
-
-    -- **All three go the same way now**, which they did not when a loop switch
-    -- carried a different verb on each. A double no longer means overdub and a
-    -- hold no longer opens the config bank, because both have a switch of their
-    -- own on `LoopPage` with their name printed on it — so the gesture chooses
-    -- which duty the switch is showing, and the duty decides everything else.
-    -- The MC6 always speaks about the focused loop: six switches cannot name
-    -- eight loops as well as saying what to do to one.
-    -- **A loop switch names its loop, so a gesture on it acts on that loop.**
-    --
-    -- The line above this used to be the whole story and said why: six switches
-    -- cannot name eight loops *as well as* saying what to do to one. That is
-    -- still true of every other switch in the family — they act on whatever is
-    -- in hand — but a loop switch is the exception it was always going to be,
-    -- because naming the loop is the only thing it does.
-    --
-    -- It matters because of how the device reports a double: the tap is
-    -- suppressed, so nothing ever says you touched loop 3, and `Focused` would
-    -- have undone whichever loop you happened to have chosen before. Through
-    -- `performPress` the subject prepends its own focus, so a double takes the
-    -- loop in hand *and* undoes it, which is what a foot on that switch means.
-    g, Just d -> case s.tap of
-      LB.SelectLoop n | g /= LB.Tap -> performPress rig (OnLoop n) d
-      _ -> perform rig Focused d
-
-    -- **The board and this table have fallen out of step.** A gesture only
-    -- arrives because the device was programmed to send it, and the device is
-    -- programmed from this table — so an unbound one means the board is running
-    -- an older upload. Said out loud rather than swallowed: that is exactly the
-    -- disagreement a press should be able to report.
-    g, Nothing ->
-      [ Unavailable
-          ( "the board sent a " <> LB.gestureName g <> " on "
-              <> LB.dutyLabel s.tap
-              <> ", which this bank does not carry — reprogram the MC6"
-          )
-      ]
-
-missing :: BankSlot -> Int -> Action
-missing slot i = Unavailable (show' slot <> " switch " <> show i <> " has nothing on it")
 
 -- | **What a duty means. The only way to the socket.**
 -- |
@@ -206,18 +153,18 @@ missing slot i = Unavailable (show' slot <> " switch " <> show i <> " has nothin
 -- | encoder when you press it (measured, not guessed), so a brush of loop 5's
 -- | level would have stolen the focus and pointed the next Clear at it. A
 -- | press is a statement; a turn is sometimes an accident.
-performPress :: Rig -> Subject -> LB.Duty -> Array Action
+performPress :: Rig -> Subject -> Duty.Duty -> Array Action
 performPress rig subject duty =
   let out = perform rig subject duty
   in case subject of
-       LB.OnLoop n | not (Array.any isFocus out) -> Array.cons (Focus n) out
+       Duty.OnLoop n | not (Array.any isFocus out) -> Array.cons (Focus n) out
        _ -> out
   where
   isFocus = case _ of
     Focus _ -> true
     _ -> false
 
-perform :: Rig -> Subject -> LB.Duty -> Array Action
+perform :: Rig -> Subject -> Duty.Duty -> Array Action
 perform rig subject = case _ of
   -- **Selecting a loop does nothing to it.** The MC6 opens its page from the
   -- jump this table put on the switch; all the app has to do is agree whose
@@ -233,18 +180,18 @@ perform rig subject = case _ of
   -- nothing and erases nothing, so you can still look at a loop without
   -- committing to anything. What it saves is the menu dive that otherwise sits
   -- between deciding to grab a beat and being able to.
-  LB.SelectLoop n ->
+  Duty.SelectLoop n ->
     [ Focus n, Handled ("loop " <> show (n + 1)) ]
-      <> (if Array.elem n LB.grabLoops then gridded rig n <> sourced rig n else [])
+      <> (if Array.elem n rig.grab then gridded rig n <> sourced rig n else [])
 
-  LB.RecordLoop -> gridded rig i <> onRecord i (loopAt rig i)
-  LB.OverdubLoop -> gridded rig i <> onOverdub i (loopAt rig i)
-  LB.Transport -> onTransport i (loopAt rig i)
+  Duty.RecordLoop -> gridded rig i <> onRecord i (loopAt rig i)
+  Duty.OverdubLoop -> gridded rig i <> onOverdub i (loopAt rig i)
+  Duty.Transport -> onTransport i (loopAt rig i)
 
   -- The mode and the gesture in one press. `lev1` before `r`, so the record
   -- that follows finds the loop already listening and goes to ARMED rather than
   -- straight to a first take.
-  LB.ArmLoop -> case loopAt rig i of
+  Duty.ArmLoop -> case loopAt rig i of
     Nothing -> [ notInSnapshot i ]
     Just st
       | st.armed -> [ Handled ("loop " <> show (i + 1) <> " is already listening") ]
@@ -256,8 +203,8 @@ perform rig subject = case _ of
 
   -- Navigation the MC6 performs itself, from the jumps it was programmed with.
   -- The app only has to agree that it happened.
-  LB.Enter to -> [ Handled ("showing " <> show' to) ]
-  LB.Back _ -> [ Handled "out" ]
+  Duty.Enter to -> [ Handled ("showing " <> slotWord to) ]
+  Duty.Back _ -> [ Handled "out" ]
 
   -- Stop all, as six commands rather than one. There is no all-loops form in
   -- the daemon's dispatch, and inventing one for a gesture that is not
@@ -269,9 +216,9 @@ perform rig subject = case _ of
   -- whatever is recorded into it next — so Stop All used to reach across the
   -- whole set and disarm every slot the player had not touched yet. Skipping
   -- the empties keeps the gesture meaning what it says.
-  LB.StopAll -> map (\n -> Command (cmd n (Verb.Sounding false))) (sounding rig)
-  LB.Undo -> [ Command (cmd i Verb.Undo) ]
-  LB.ClearLoop -> [ Command (cmd i Verb.Clear) ]
+  Duty.StopAll -> map (\n -> Command (cmd n (Verb.Sounding false))) (sounding rig)
+  Duty.Undo -> [ Command (cmd i Verb.Undo) ]
+  Duty.ClearLoop -> [ Command (cmd i Verb.Clear) ]
   -- **Read from the loop, not remembered** — the same shape as the click and
   -- the monitor since `Rig` started carrying the flags, and for the same
   -- reason: a switch that flips a value it is not looking at is a switch that
@@ -280,9 +227,9 @@ perform rig subject = case _ of
   --
   -- Anything below unity goes back to one rather than only a half, so a loop
   -- sitting at a quarter from the encoder still has this as its way out.
-  LB.HalfSpeed ->
+  Duty.HalfSpeed ->
     let now = maybe 1.0 _.speed (loopAt rig i)
-    in perform rig subject (LB.Rate (if now < 0.75 then 1.0 else 0.5))
+    in perform rig subject (Duty.Rate (if now < 0.75 then 1.0 else 0.5))
   -- **Addressed to the focused loop, like everything else on this page.**
   --
   -- It used to go unprefixed. Without a leading digit the daemon applies a
@@ -299,12 +246,12 @@ perform rig subject = case _ of
   -- that only some callers depend on is a mode, and a mode that a footswitch
   -- could fall out of step with is the thing this design is trying not to
   -- have."
-  LB.SaveTake -> [ Command (cmd i (Verb.SaveTake "")) ]
+  Duty.SaveTake -> [ Command (cmd i (Verb.SaveTake "")) ]
   -- **Bare, where Save is prefixed** — and the contrast is the point. Save is
   -- an `lp.` command and had to be told which loop; this is an `sh.` one, about
   -- the set rather than any loop in it, so a leading digit would be noise in
   -- the same way it is for the click.
-  LB.ExportSet -> [ Command (Verb.render (Verb.ExportSet "")) ]
+  Duty.ExportSet -> [ Command (Verb.render (Verb.ExportSet "")) ]
   -- **Set, not flip — and `Rig` is why it can be.**
   --
   -- The metronome is global, `sh.click` rather than `lp.click`, so the daemon
@@ -314,24 +261,24 @@ perform rig subject = case _ of
   -- `Verb.ClickToggle` carried a paragraph explaining why the one rule the
   -- vocabulary has was broken here. `Rig` carries the flags now, so it sets,
   -- and the verb it apologised for has been deleted.
-  LB.ClickToggle -> perform rig subject (LB.Click (not rig.click))
-  LB.MonitorToggle -> perform rig subject (LB.Monitor (not rig.monitor))
+  Duty.ClickToggle -> perform rig subject (Duty.Click (not rig.click))
+  Duty.MonitorToggle -> perform rig subject (Duty.Monitor (not rig.monitor))
 
   -- Unprefixed on purpose: both are `sh.` fields in the engine, not `lp.` ones,
   -- so the daemon never consults its selection for them and a loop index would
   -- be noise. The only two per-*rig* commands the app sends.
-  LB.Click on -> [ Command (Verb.render (Verb.Click on)) ]
-  LB.Monitor on -> [ Command (Verb.render (Verb.Monitor on)) ]
+  Duty.Click on -> [ Command (Verb.render (Verb.Click on)) ]
+  Duty.Monitor on -> [ Command (Verb.render (Verb.Monitor on)) ]
 
   -- **Set, never flip.** All four of these read the current value out of the
   -- snapshot and send the explicit form, for the reason the daemon spells out
   -- on `k` and `h`: a client that flips drifts out of step the first time a
   -- command is dropped and never recovers. The app has the engine's own answer
   -- thirty times a second, so there is no excuse for asking it to guess.
-  LB.Reverse -> [ Command (cmd i (Verb.Reversed (not (is _.reverse)))) ]
-  LB.Pendulum -> [ Command (cmd i (Verb.Pendulum (not (is _.pendulum)))) ]
-  LB.OneShot -> [ Command (cmd i (Verb.OneShot (not (is _.oneShot)))) ]
-  LB.LevelArm -> [ Command (cmd i (Verb.LevelArm (not (is _.levelArm)))) ]
+  Duty.Reverse -> [ Command (cmd i (Verb.Reversed (not (is _.reverse)))) ]
+  Duty.Pendulum -> [ Command (cmd i (Verb.Pendulum (not (is _.pendulum)))) ]
+  Duty.OneShot -> [ Command (cmd i (Verb.OneShot (not (is _.oneShot)))) ]
+  Duty.LevelArm -> [ Command (cmd i (Verb.LevelArm (not (is _.levelArm)))) ]
 
   -- Chance is a value, not a toggle, so the switch steps rather than flips —
   -- but it is the same principle one step further: the next rung is computed
@@ -343,37 +290,37 @@ perform rig subject = case _ of
   -- knob reach the socket by the same line of code and cannot come to disagree
   -- about what chance means. The ladder is a rendering of the parameter for a
   -- surface that can only press; the value is the parameter.
-  LB.StepChance ->
-    let next = LB.stepChance (maybe 1.0 _.chance (loopAt rig i))
-    in perform rig subject (LB.Chance next)
-       <> [ Handled ("loop " <> show (i + 1) <> " plays " <> LB.chanceWord next) ]
+  Duty.StepChance ->
+    let next = Duty.stepChance (maybe 1.0 _.chance (loopAt rig i))
+    in perform rig subject (Duty.Chance next)
+       <> [ Handled ("loop " <> show (i + 1) <> " plays " <> Duty.chanceWord next) ]
 
   -- The same ladder machinery, and the same reason for it: the value is on the
   -- engine, so the step is computed from what the engine said rather than
   -- counted anywhere that could fall out of step with it.
-  LB.StepFade ->
-    let next = LB.stepFade (maybe 0.0 _.fadeMs (loopAt rig i))
-    in perform rig subject (LB.Fade next)
-       <> [ Handled ("loop " <> show (i + 1) <> " wraps " <> LB.fadeWord next) ]
+  Duty.StepFade ->
+    let next = Duty.stepFade (maybe 0.0 _.fadeMs (loopAt rig i))
+    in perform rig subject (Duty.Fade next)
+       <> [ Handled ("loop " <> show (i + 1) <> " wraps " <> Duty.fadeWord next) ]
 
-  LB.StepDecay ->
-    let next = LB.stepDecay (maybe 0.0 _.decayDb (loopAt rig i))
-    in perform rig subject (LB.Decay next)
-       <> [ Handled ("loop " <> show (i + 1) <> " decays " <> LB.decayWord next) ]
+  Duty.StepDecay ->
+    let next = Duty.stepDecay (maybe 0.0 _.decayDb (loopAt rig i))
+    in perform rig subject (Duty.Decay next)
+       <> [ Handled ("loop " <> show (i + 1) <> " decays " <> Duty.decayWord next) ]
 
   -- The one thing a pedal cannot do. With no loop yet it claims the daemon's
   -- default of the last few seconds; with one running it claims the last
   -- complete cycle, which lands on the grid because the fill is addressed in
   -- output frames.
-  LB.ClaimPast -> [ Command (cmd i Verb.ClaimPast) ]
-  LB.Redo -> [ Command (cmd i Verb.Redo) ]
+  Duty.ClaimPast -> [ Command (cmd i Verb.ClaimPast) ]
+  Duty.Redo -> [ Command (cmd i Verb.Redo) ]
   -- **One command, where this was eight.** It sent `h1` to every non-empty
   -- loop, which restored audibility and left each playhead where it was — so a
   -- four-bar, a three-bar and a one-bar loop resumed in whatever relationship
   -- they had drifted into. The daemon now owns the gesture, because the thing
   -- that makes it a *start* is that all the origins get the same stamp, and
   -- only something with one clock in front of it can hand out one stamp.
-  LB.StartAll -> [ Command (Verb.render Verb.StartAll) ]
+  Duty.StartAll -> [ Command (Verb.render Verb.StartAll) ]
 
   -- **Four commands, and the order is the whole of it.**
   --
@@ -390,7 +337,7 @@ perform rig subject = case _ of
   -- overdub. So there is no branch to get wrong — but see `own GrabBank` on
   -- why the second machine belongs in the *other* grab loop rather than as a
   -- layer over the first.
-  LB.Grab bars ->
+  Duty.Grab bars ->
     [ Command (Verb.render (Verb.Playing true)) ]
       <> onGrid rig i
       <> sourced rig i
@@ -401,39 +348,39 @@ perform rig subject = case _ of
   -- Rig-wide, so it is not addressed to a loop — and the ack says so, because
   -- a bare command in a log beside seven loop-prefixed ones reads like one that
   -- forgot its prefix.
-  LB.LinkPlay on -> [ Command (Verb.render (Verb.Playing on)) ]
-  LB.ClearAll -> map (\n -> Command (cmd n Verb.Clear)) (Array.range 0 (nLoops - 1))
+  Duty.LinkPlay on -> [ Command (Verb.render (Verb.Playing on)) ]
+  Duty.ClearAll -> map (\n -> Command (cmd n Verb.Clear)) (Array.range 0 (nLoops - 1))
 
-  LB.Free -> perform rig subject (LB.OnGrid false)
-  LB.OnGrid on -> [ Command (cmd i (Verb.OnGrid on)) ]
-  LB.GridToggle -> perform rig subject (LB.OnGrid (not (is _.quant)))
+  Duty.Free -> perform rig subject (Duty.OnGrid false)
+  Duty.OnGrid on -> [ Command (cmd i (Verb.OnGrid on)) ]
+  Duty.GridToggle -> perform rig subject (Duty.OnGrid (not (is _.quant)))
   -- **The engine's grid is the anchor loop's cycle, not a bar**, decided when
   -- quantised close landed: tempo gives a bar's length but not where the bar
   -- falls, so until the frame-to-wall-clock join exists no loop can be put on
   -- "bar 1". The flag is real; the count is a promise, and saying so is more
   -- use than four switches that quietly all mean the same thing.
-  LB.Grid _ ->
-    perform rig subject (LB.OnGrid true)
+  Duty.Grid _ ->
+    perform rig subject (Duty.OnGrid true)
       <> [ Handled "on the grid — bar counts need the frame-to-bar join" ]
 
-  LB.Rate r -> [ Command (cmd i (Verb.Rate r)) ]
-  LB.Place p -> [ Command (cmd i (Verb.Place p)) ]
-  LB.Level db -> [ Command (cmd i (Verb.Level db)) ]
+  Duty.Rate r -> [ Command (cmd i (Verb.Rate r)) ]
+  Duty.Place p -> [ Command (cmd i (Verb.Place p)) ]
+  Duty.Level db -> [ Command (cmd i (Verb.Level db)) ]
 
   -- Rig-wide, so unprefixed — the third of the three, with the click and the
   -- input monitor.
-  LB.ArmLevel db -> [ Command (Verb.render (Verb.ArmLevel db)) ]
+  Duty.ArmLevel db -> [ Command (Verb.render (Verb.ArmLevel db)) ]
 
   -- The same set-never-flip pair as the click: the toggle reads the snapshot
   -- and delegates to the value.
-  LB.RevoxToggle -> perform rig subject (LB.Revox (not (is _.revox)))
-  LB.Revox on -> [ Command (cmd i (Verb.Revox on)) ]
-  LB.Feedback db -> [ Command (cmd i (Verb.Feedback db)) ]
-  LB.Tone hz -> [ Command (cmd i (Verb.Tone hz)) ]
+  Duty.RevoxToggle -> perform rig subject (Duty.Revox (not (is _.revox)))
+  Duty.Revox on -> [ Command (cmd i (Verb.Revox on)) ]
+  Duty.Feedback db -> [ Command (cmd i (Verb.Feedback db)) ]
+  Duty.Tone hz -> [ Command (cmd i (Verb.Tone hz)) ]
   -- Zero is not a tape. The knob's bottom end means "no tape here", which is
   -- not a command — it is the absence of one, and sending `blank0` would have
   -- the daemon refuse a length nobody asked for.
-  LB.Blank secs
+  Duty.Blank secs
     | secs <= 0.0 -> []
     | otherwise -> [ Command (cmd i (Verb.Blank secs)) ]
 
@@ -445,9 +392,9 @@ perform rig subject = case _ of
   -- there is no layer to take back and no version of it kept anywhere. Refused
   -- by name rather than silently doing nothing, which is the difference between
   -- a mode and a broken knob.
-  LB.Layers _ | is _.revox ->
+  Duty.Layers _ | is _.revox ->
     [ Unavailable ("loop " <> show (i + 1) <> " is a tape — undo went with the layers") ]
-  LB.Layers want ->
+  Duty.Layers want ->
     let have = maybe 0 _.layers (loopAt rig i)
         step = want - have
     in if step == 0 then []
@@ -456,48 +403,48 @@ perform rig subject = case _ of
            <> [ Handled ("loop " <> show (i + 1) <> ": " <> show want <> " layers") ]
          else Array.replicate step (Command (cmd i Verb.Redo))
            <> [ Handled ("loop " <> show (i + 1) <> ": " <> show want <> " layers") ]
-  LB.Chance p -> [ Command (cmd i (Verb.Chance p)) ]
-  LB.Fade ms -> [ Command (cmd i (Verb.Fade ms)) ]
-  LB.Decay db -> [ Command (cmd i (Verb.Decay db)) ]
+  Duty.Chance p -> [ Command (cmd i (Verb.Chance p)) ]
+  Duty.Fade ms -> [ Command (cmd i (Verb.Fade ms)) ]
+  Duty.Decay db -> [ Command (cmd i (Verb.Decay db)) ]
 
   -- The four the CC table had and this one did not, until the page was moved
   -- onto the machine. `x` is the one that mattered: the reference surface could
   -- ask for a multiply and the machine had no word for it.
-  LB.MultiplyLoop -> [ Command (cmd i Verb.Multiply) ]
-  LB.SpreadLoop n -> [ Command (cmd i (Verb.Spread n)) ]
+  Duty.MultiplyLoop -> [ Command (cmd i Verb.Multiply) ]
+  Duty.SpreadLoop n -> [ Command (cmd i (Verb.Spread n)) ]
 
   -- **The three that make a loop a number of bars.** All per-loop and all going
   -- through `cmd i` like everything else here; the daemon decides which of the
   -- three things `len` means from the loop's own state, because it is the only
   -- one that knows whether the loop is empty, is the anchor, or has a clock.
-  LB.SetBars n -> [ Command (cmd i (Verb.Bars n)) ]
-  LB.Every n -> [ Command (cmd i (Verb.Spread n)) ]
-  LB.PlaceAt n -> [ Command (cmd i (Verb.Place' n)) ]
+  Duty.SetBars n -> [ Command (cmd i (Verb.Bars n)) ]
+  Duty.Every n -> [ Command (cmd i (Verb.Spread n)) ]
+  Duty.PlaceAt n -> [ Command (cmd i (Verb.Place' n)) ]
 
   -- Rig-wide, so it goes bare rather than through `cmd i` — the same shape as
   -- the click and the arm threshold, and the daemon ignores a loop prefix on it
   -- anyway. Sent through `Command` unprefixed so nothing here has to pick a
   -- loop for a setting that has none.
-  LB.Launch n -> [ Command (Verb.render (Verb.LaunchQ n)) ]
-  LB.RotateLoop -> [ Command (cmd i Verb.Rotate) ]
-  LB.DenseLoop -> [ Command (cmd i Verb.Dense) ]
-  LB.ForgetLength -> [ Command (cmd i Verb.ForgetLength) ]
+  Duty.Launch n -> [ Command (Verb.render (Verb.LaunchQ n)) ]
+  Duty.RotateLoop -> [ Command (cmd i Verb.Rotate) ]
+  Duty.DenseLoop -> [ Command (cmd i Verb.Dense) ]
+  Duty.ForgetLength -> [ Command (cmd i Verb.ForgetLength) ]
   -- Addressed to a loop like everything else, though what it changes is the
   -- session. The loop is where the two numbers are — its length in frames and
   -- its length in bars — and those two numbers *are* a tempo; the daemon does
   -- the arithmetic because only it knows the sample rate and the metre.
-  LB.TakeTempo -> [ Command (cmd i Verb.TakeTempo) ]
-  LB.SetSource n -> [ Command (cmd i (Verb.Source n)) ]
+  Duty.TakeTempo -> [ Command (cmd i Verb.TakeTempo) ]
+  Duty.SetSource n -> [ Command (cmd i (Verb.Source n)) ]
   -- Set, never flip — the same rule every other mode here follows. The engine
   -- reports it thirty times a second, so there is no excuse for guessing.
-  LB.MonoToggle -> [ Command (cmd i (Verb.Mono (not (is _.mono)))) ]
-  LB.Mono on -> [ Command (cmd i (Verb.Mono on)) ]
+  Duty.MonoToggle -> [ Command (cmd i (Verb.Mono (not (is _.mono)))) ]
+  Duty.Mono on -> [ Command (cmd i (Verb.Mono on)) ]
 
-  LB.NotYet what why -> [ Unavailable (what <> ": " <> why) ]
+  Duty.NotYet what why -> [ Unavailable (what <> ": " <> why) ]
   -- No longer names the bank it came from: a duty has no bank, and the two
   -- callers that do have one — `act` above, for a switch with no duties at all —
   -- say so themselves.
-  LB.Nothing_ -> [ Unavailable "nothing is on that control" ]
+  Duty.Nothing_ -> [ Unavailable "nothing is on that control" ]
   where
   -- **Where the subject becomes an index, and the only place it does.**
   i = case subject of
@@ -654,7 +601,7 @@ loopAt rig i = Array.index rig.loops i
 -- | same surprise in the opposite direction.
 gridded :: Rig -> Int -> Array Action
 gridded rig i
-  | Array.elem i LB.grabLoops = onGrid rig i
+  | Array.elem i rig.grab = onGrid rig i
   | otherwise = []
 
 -- | The same, asked of any loop, for the one caller that is not about which
@@ -680,12 +627,12 @@ onGrid rig i = case loopAt rig i of
 -- | the right number or nothing. Refused by the daemon mid-take, which is why
 -- | it goes out before the record and not after.
 sourced :: Rig -> Int -> Array Action
-sourced rig i = case loopAt rig i, Array.findIndex (_ == LB.grabSource) rig.sources of
+sourced rig i = case loopAt rig i, Array.findIndex (_ == rig.grabSource) rig.sources of
   Just st, Just n | st.src /= n + 1 -> [ Command (cmd i (Verb.Source (n + 1))) ]
   _, _ -> []
 
-show' :: BankSlot -> String
-show' = case _ of
+slotWord :: BankSlot -> String
+slotWord = case _ of
   LoopBank -> "loops"
   LoopPage -> "the loop"
   ConfigBank -> "config"
@@ -712,7 +659,7 @@ describe = case _ of
   Command c -> case Verb.addressed c of
     Just r -> "loop " <> show (r.loop + 1) <> " · " <> r.verb
     Nothing -> "→ " <> c
-  ShowBank slot -> "showing the " <> show' slot <> " bank"
+  ShowBank slot -> "showing the " <> slotWord slot <> " bank"
   Focus i -> "loop " <> show (i + 1)
   Unavailable why -> why
   Handled what -> what

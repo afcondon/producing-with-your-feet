@@ -86,7 +86,7 @@ import Prelude
 
 import Data.Array as Array
 import Data.Int (round, toNumber)
-import Data.Looper.Banks (Duty(..), Subject(..), dutyLabel, dutyName, nLoops)
+import Data.Looper.Duty (Duty(..), Subject(..), dutyLabel, dutyName, nLoops)
 import Data.Looper.Machine (Rig)
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.Tuple (Tuple(..))

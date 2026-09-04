@@ -44,6 +44,7 @@ import Component.Twister.Lights (rigOf)
 import Data.Int as Int
 import Data.Looper.Banks as LoopBanks
 import Data.Looper.Machine as Machine
+import Data.Looper.Switchboard as Switchboard
 import Data.Maybe (Maybe(..))
 import Data.Traversable (traverse_)
 import Effect.Aff.Class (class MonadAff)
@@ -75,7 +76,7 @@ runGesture showBank g = do
   st <- H.get
   let rig = rigOf st
   followBoard g
-  traverse_ (runAction showBank (deferralOf st.looperDeferral g)) (Machine.act rig g)
+  traverse_ (runAction showBank (deferralOf st.looperDeferral g)) (Switchboard.act rig g)
 
 -- | How late this command already is, before it has gone anywhere.
 -- |

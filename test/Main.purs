@@ -33,6 +33,7 @@ import Foreign.LooperSocket (isWriting, phaseOf, phaseName, allPhases, LoopPhase
 import Data.Looper.Banks as LB
 import Data.MC6.Diagnostics as Diagnostics
 import Data.Looper.Machine as Machine
+import Data.Looper.Switchboard as Switchboard
 import Data.Looper.Recipes as Recipes
 import Data.Looper.Sheet as Sheet
 import Data.Looper.Twister as LoopTw
@@ -1028,7 +1029,8 @@ main = do
                , pendingAt: -1, shapes: [] }
       withState n s ls = (idle n) { state = s, layers = ls }
       rigOf ls = { loops: ls, focus: 0, click: false, monitor: false, armDb: -36.0
-                 , launchQ: -1, sources: [ "board", "di", "ipad" ] }
+                 , launchQ: -1, sources: [ "board", "di", "ipad" ]
+                 , grab: LB.grabLoops, grabSource: LB.grabSource }
       isCommand = case _ of
         Machine.Command _ -> true
         _ -> false
@@ -1048,7 +1050,7 @@ main = do
   -- claim.
   assert "a loop switch selects and does nothing else, whatever the loop is doing"
     (Array.all
-      (\st -> Machine.act (rigOf (Array.replicate 5 st)) (LB.switchGesture LB.LoopBank 0 LB.Tap)
+      (\st -> Switchboard.act (rigOf (Array.replicate 5 st)) (LB.switchGesture LB.LoopBank 0 LB.Tap)
                 == [ Machine.Focus 4, Machine.Handled "loop 5" ])
       [ idle 0
       , withState 0 "recordingFirst" 0
@@ -1064,7 +1066,7 @@ main = do
   assert "and selecting a loop never sends a command"
     (Array.null
       (Array.filter isCommand
-        (Machine.act (rigOf [ idle 0, withState 1 "playing" 2 ])
+        (Switchboard.act (rigOf [ idle 0, withState 1 "playing" 2 ])
           (LB.switchGesture LB.LoopBank 1 LB.Tap))))
 
   -- **A grab is four commands and the order is the claim.** The transport
@@ -1074,7 +1076,7 @@ main = do
   -- page. Nothing about it is new to the daemon — what is new is that the beat
   -- starts underneath it.
   assert "a grab starts the session, then opens a take of the length it names"
-    (Machine.act ((rigOf [ idle 0, idle 1, idle 2, idle 3 ]) { focus = 3 })
+    (Switchboard.act ((rigOf [ idle 0, idle 1, idle 2, idle 3 ]) { focus = 3 })
        (LB.switchGesture LB.GrabBank 4 LB.Tap)
       == [ Machine.Command "play1"
          , Machine.Command "3g1"
@@ -1082,7 +1084,7 @@ main = do
          , Machine.Command "3len4"
          , Machine.Command "3r"
          ]
-      && Machine.act ((rigOf [ idle 0, idle 1, idle 2, idle 3 ]) { focus = 3 })
+      && Switchboard.act ((rigOf [ idle 0, idle 1, idle 2, idle 3 ]) { focus = 3 })
            (LB.switchGesture LB.GrabBank 1 LB.Tap)
         == [ Machine.Command "play1"
            , Machine.Command "3g1"
@@ -1103,7 +1105,7 @@ main = do
   -- so a pattern longer than a bar comes back rotated. Two machines go in the
   -- two grab loops. See `own GrabBank`.
   assert "and a second grab says only what is not already true"
-    (Machine.act
+    (Switchboard.act
        ((rigOf [ (withState 0 "playing" 1) { quant = true, src = 3 } ]) { focus = 0 })
        (LB.switchGesture LB.GrabBank 4 LB.Tap)
       == [ Machine.Command "play1"
@@ -1157,7 +1159,7 @@ main = do
   -- where you reached the bank with something else in focus. Anything else
   -- would be a grab that quietly ran free.
   assert "and a grab prepares whatever it is aimed at, grab loop or not"
-    (Machine.act ((rigOf octet) { focus = 5 }) (LB.switchGesture LB.GrabBank 4 LB.Tap)
+    (Switchboard.act ((rigOf octet) { focus = 5 }) (LB.switchGesture LB.GrabBank 4 LB.Tap)
       == [ Machine.Command "play1"
          , Machine.Command "5g1"
          , Machine.Command "5src3"
@@ -1169,12 +1171,12 @@ main = do
   -- in a log beside a column of prefixed ones reads like one that forgot its
   -- prefix, which is why this is asserted rather than assumed.
   assert "and Halt stops the session, not a loop"
-    (Machine.act ((rigOf [ idle 0, idle 1 ]) { focus = 1 })
+    (Switchboard.act ((rigOf [ idle 0, idle 1 ]) { focus = 1 })
        (LB.switchGesture LB.GrabBank 5 LB.Tap)
       == [ Machine.Command "play0" ])
 
   assert "recording an empty loop opens a take"
-    (Machine.act (rigOf [ idle 0 ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
+    (Switchboard.act (rigOf [ idle 0 ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
       == [ Machine.Command "0r" ])
 
   -- The one that was wrong in use. Undo removes a layer and deliberately keeps
@@ -1183,7 +1185,7 @@ main = do
   -- layers == 0` made that a playing loop: Record offered stop, and a loop
   -- undone to nothing could never be recorded into from the board again.
   assert "a loop undone to nothing records again, length and state notwithstanding"
-    (Machine.act (rigOf [ (withState 0 "playing" 0) { loopFrames = 155215 } ])
+    (Switchboard.act (rigOf [ (withState 0 "playing" 0) { loopFrames = 155215 } ])
        (LB.switchGesture LB.LoopPage 0 LB.Tap)
       == [ Machine.Command "0r" ])
 
@@ -1192,58 +1194,58 @@ main = do
   -- tap's seven branches were this one verb.
   assert "and closes one that is open, whichever way it is open"
     (Array.all
-      (\s -> Machine.act (rigOf [ withState 0 s 1 ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
+      (\s -> Switchboard.act (rigOf [ withState 0 s 1 ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
                == [ Machine.Command "0r" ])
       [ "recordingFirst", "overdubbing", "multiplying" ])
 
   -- A listening loop holds the one converter the rig has and locks out the
   -- other five, so taking the wait back has to be reachable.
   assert "and takes back a wait that may never end"
-    (Machine.act (rigOf [ (idle 0) { armed = true } ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
+    (Switchboard.act (rigOf [ (idle 0) { armed = true } ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
       == [ Machine.Command "0r", Machine.Handled "loop 1 stopped listening" ])
 
   -- Transport. Explicit h0/h1 rather than a flipping h, because a stopped loop
   -- is invisible and a dropped toggle would leave the app and the engine
   -- disagreeing with nothing on screen to show it.
   assert "Stop/Go stops a playing loop and brings back a stopped one"
-    (Machine.act (rigOf [ withState 0 "playing" 1 ]) (LB.switchGesture LB.LoopPage 2 LB.Tap)
+    (Switchboard.act (rigOf [ withState 0 "playing" 1 ]) (LB.switchGesture LB.LoopPage 2 LB.Tap)
       == [ Machine.Command "0h0" ]
-      && Machine.act (rigOf [ (withState 0 "playing" 1) { muted = true } ])
+      && Switchboard.act (rigOf [ (withState 0 "playing" 1) { muted = true } ])
            (LB.switchGesture LB.LoopPage 2 LB.Tap)
         == [ Machine.Command "0h1" ])
 
   -- Not the overload sneaking back: a one-shot is silent between passes by
   -- definition, so it has no playing and stopped to move between.
   assert "and fires a one-shot, which has no playing and stopped to move between"
-    (Machine.act (rigOf [ (withState 0 "playing" 1) { oneShot = true } ])
+    (Switchboard.act (rigOf [ (withState 0 "playing" 1) { oneShot = true } ])
        (LB.switchGesture LB.LoopPage 2 LB.Tap)
       == [ Machine.Command "0f" ])
 
   assert "and refuses a loop with nothing in it rather than inventing a take"
-    (Machine.act (rigOf [ idle 0 ]) (LB.switchGesture LB.LoopPage 2 LB.Tap)
+    (Switchboard.act (rigOf [ idle 0 ]) (LB.switchGesture LB.LoopPage 2 LB.Tap)
       == [ Machine.Unavailable "loop 1 has nothing to play" ])
 
   -- Overdubbing onto something you cannot hear is a way to record a mistake
   -- twice, so the loop comes back first.
   assert "Overdub unmutes a stopped loop before going over it"
-    (Machine.act (rigOf [ (withState 0 "playing" 1) { muted = true } ])
+    (Switchboard.act (rigOf [ (withState 0 "playing" 1) { muted = true } ])
        (LB.switchGesture LB.LoopPage 1 LB.Tap)
       == [ Machine.Command "0h1", Machine.Command "0r" ])
 
   -- Starting a first take here would be Overdub quietly becoming Record, which
   -- is the switch immediately to its left.
   assert "and refuses an empty loop rather than becoming Record"
-    (Machine.act (rigOf [ idle 0 ]) (LB.switchGesture LB.LoopPage 1 LB.Tap)
+    (Switchboard.act (rigOf [ idle 0 ]) (LB.switchGesture LB.LoopPage 1 LB.Tap)
       == [ Machine.Unavailable "loop 1 is empty — record it first" ])
 
   -- The mode and the gesture in one press: `lev1` so the `r` that follows finds
   -- the loop listening and waits for a sound rather than starting on the foot.
   assert "Listen arms and starts waiting, in that order"
-    (Machine.act (rigOf [ idle 0 ]) (LB.switchGesture LB.LoopPage 3 LB.Tap)
+    (Switchboard.act (rigOf [ idle 0 ]) (LB.switchGesture LB.LoopPage 3 LB.Tap)
       == [ Machine.Command "0lev1", Machine.Command "0r" ])
 
   assert "and says so rather than arming twice"
-    (Machine.act (rigOf [ (idle 0) { armed = true } ]) (LB.switchGesture LB.LoopPage 3 LB.Tap)
+    (Switchboard.act (rigOf [ (idle 0) { armed = true } ]) (LB.switchGesture LB.LoopPage 3 LB.Tap)
       == [ Machine.Handled "loop 1 is already listening" ])
 
   -- **The one that actually bit, and it bit at a glance.** A loop undone to
@@ -1385,7 +1387,7 @@ main = do
   assert "the two s-verbs stay distinguishable"
     (LoopVerb.render (LoopVerb.Rate 0.5) /= LoopVerb.render (LoopVerb.Spread 2))
 
-  -- The bare verbs the board reaches only through `Machine.act`, pinned here
+  -- The bare verbs the board reaches only through `Switchboard.act`, pinned here
   -- too so their spelling is checked directly rather than incidentally.
   --
   -- `ClickToggle` used to be in this list, rendering `k`. It was the one
@@ -1444,42 +1446,42 @@ main = do
   -- whatever is recorded into it next — so a stop anywhere in the set used to
   -- arm a trap in all six, and the next take recorded perfectly and silently.
   assert "stop all reaches every loop that has anything in it"
-    (Machine.act (rigOf [ withState 0 "playing" 1, idle 1, withState 2 "playing" 3 ])
+    (Switchboard.act (rigOf [ withState 0 "playing" 1, idle 1, withState 2 "playing" 3 ])
        (LB.switchGesture LB.LoopBank 9 LB.Tap)
       == [ Machine.Command "0h0", Machine.Command "2h0" ])
 
   assert "and reaches nothing at all when there is nothing to stop"
-    (Machine.act (rigOf [ idle 0, idle 1 ]) (LB.switchGesture LB.LoopBank 9 LB.Tap) == [])
+    (Switchboard.act (rigOf [ idle 0, idle 1 ]) (LB.switchGesture LB.LoopBank 9 LB.Tap) == [])
 
   -- The other half of the same trap: Record on a loop that was silenced brings
   -- it back first, because working on something you cannot hear is never what
   -- was meant.
   assert "recording a muted loop unmutes it first"
-    (Machine.act (rigOf [ (idle 0) { muted = true } ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
+    (Switchboard.act (rigOf [ (idle 0) { muted = true } ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
       == [ Machine.Command "0h1", Machine.Command "0r" ]
-      && Machine.act (rigOf [ (withState 0 "playing" 2) { muted = true } ])
+      && Switchboard.act (rigOf [ (withState 0 "playing" 2) { muted = true } ])
            (LB.switchGesture LB.LoopPage 0 LB.Tap)
         == [ Machine.Command "0h1", Machine.Command "0r" ])
 
   assert "but closing a take that is already audible does not touch the mute"
-    (Machine.act (rigOf [ withState 0 "recordingFirst" 0 ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
+    (Switchboard.act (rigOf [ withState 0 "recordingFirst" 0 ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
       == [ Machine.Command "0r" ])
 
   -- Whatever the engine calls it, no layers means record.
   assert "any state with no layers records"
-    (Machine.act (rigOf [ withState 0 "weird" 0 ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
+    (Switchboard.act (rigOf [ withState 0 "weird" 0 ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
       == [ Machine.Command "0r" ])
 
   -- The page acts on the loop the loop bank selected. One page serving six
   -- loops only works because of that, and it is the same arrangement the config
   -- family has always had.
   assert "the page acts on the focused loop, not on the switch pressed"
-    (Machine.act ((rigOf [ idle 0, idle 1, withState 2 "playing" 2 ]) { focus = 2 })
+    (Switchboard.act ((rigOf [ idle 0, idle 1, withState 2 "playing" 2 ]) { focus = 2 })
        (LB.switchGesture LB.LoopPage 2 LB.Tap)
       == [ Machine.Command "2h0" ])
 
   assert "and its Config switch only agrees the MC6 changed bank"
-    (Machine.act (rigOf [ idle 0 ]) (LB.switchGesture LB.LoopPage 5 LB.Tap)
+    (Switchboard.act (rigOf [ idle 0 ]) (LB.switchGesture LB.LoopPage 5 LB.Tap)
       == [ Machine.Handled "showing config" ])
 
   -- Both off the MC6 now and on the Twister's first page, so both are asked
@@ -1494,7 +1496,7 @@ main = do
   -- Switch 3 is loop 1: the six are in grid order, not switch order, because A
   -- is the bottom-left switch and loop 5 is the bottom-left loop.
   assert "a double on a loop switch undoes that loop, and takes it in hand"
-    (Machine.act ((rigOf [ idle 0, idle 1, idle 2 ]) { focus = 2 })
+    (Switchboard.act ((rigOf [ idle 0, idle 1, idle 2 ]) { focus = 2 })
        (LB.switchGesture LB.LoopBank 3 LB.Double)
       == [ Machine.Focus 0, Machine.Command "0u" ])
 
@@ -1503,7 +1505,7 @@ main = do
   -- double back to undo, press the next loop — and the reason the jump moved
   -- to the hold.
   assert "and the tap on the same switch still just chooses it"
-    (Machine.act ((rigOf [ idle 0, idle 1, idle 2 ]) { focus = 2 })
+    (Switchboard.act ((rigOf [ idle 0, idle 1, idle 2 ]) { focus = 2 })
        (LB.switchGesture LB.LoopBank 3 LB.Tap)
       == [ Machine.Focus 0, Machine.Handled "loop 1" ])
 
@@ -1516,13 +1518,13 @@ main = do
   -- The config family acts on the focused loop, which is what a hold sets. One
   -- config bank serving six loops only works because of that.
   assert "reverse and clear act on the focused loop, not the pressed switch"
-    (Machine.act ((rigOf [ idle 0, idle 1, idle 2 ]) { focus = 2 }) (LB.switchGesture LB.ConfigBank 3 LB.Tap)
+    (Switchboard.act ((rigOf [ idle 0, idle 1, idle 2 ]) { focus = 2 }) (LB.switchGesture LB.ConfigBank 3 LB.Tap)
       == [ Machine.Command "2rev1" ]
       && Machine.perform ((rigOf []) { focus = 1 }) LB.Focused LB.ClearLoop
         == [ Machine.Command "1c" ])
 
   assert "the pan bank places the focused loop across the field"
-    (map (\i -> Machine.act ((rigOf []) { focus = 0 }) (LB.switchGesture LB.PanBank i LB.Tap))
+    (map (\i -> Switchboard.act ((rigOf []) { focus = 0 }) (LB.switchGesture LB.PanBank i LB.Tap))
        [ 0, 2, 4 ]
       == [ [ Machine.Command "0pan0" ]
          , [ Machine.Command "0pan64" ]
@@ -1531,14 +1533,14 @@ main = do
   -- Free and Grid are real; the bar counts have nothing to select, because the
   -- engine's grid is the anchor loop's cycle and not a bar.
   assert "quantise sets the grid flag and is honest about bar counts"
-    (Machine.act ((rigOf []) { focus = 3 }) (LB.switchGesture LB.QuantiseBank 0 LB.Tap)
+    (Switchboard.act ((rigOf []) { focus = 3 }) (LB.switchGesture LB.QuantiseBank 0 LB.Tap)
       == [ Machine.Command "3g0" ]
-      && Machine.act ((rigOf []) { focus = 3 }) (LB.switchGesture LB.QuantiseBank 1 LB.Tap)
+      && Switchboard.act ((rigOf []) { focus = 3 }) (LB.switchGesture LB.QuantiseBank 1 LB.Tap)
         == [ Machine.Command "3g1"
            , Machine.Handled "on the grid — bar counts need the frame-to-bar join" ])
 
   assert "and stop-all works the same from any bank"
-    (Machine.act (rigOf [ withState 0 "playing" 1 ]) (LB.switchGesture LB.QuantiseBank 9 LB.Tap)
+    (Switchboard.act (rigOf [ withState 0 "playing" 1 ]) (LB.switchGesture LB.QuantiseBank 9 LB.Tap)
       == [ Machine.Command "0h0" ])
 
   -- Direction is the sign of speed, not a second control, so the bottom row is
@@ -1595,7 +1597,7 @@ main = do
   -- The code has to say it too, or two tables agree until one of them does not.
   assert "and the meaning table answers the toolbar without consulting the bank"
     (Array.all
-      (\slot -> Machine.act ((rigOf [ withState 0 "playing" 1 ]) { focus = 2 })
+      (\slot -> Switchboard.act ((rigOf [ withState 0 "playing" 1 ]) { focus = 2 })
                   (LB.switchGesture slot 9 LB.Tap)
         == [ Machine.Command "0h0" ])
       LB.allSlots)
@@ -1613,7 +1615,7 @@ main = do
       (\r ->
          let
            labelled = maybe false (\d -> LB.dutyLabel d /= "") (LB.dutyAt r.slot r.i)
-           acts = Machine.act ((rigOf []) { focus = 0 }) (LB.switchGesture r.slot r.i LB.Tap)
+           acts = Switchboard.act ((rigOf []) { focus = 0 }) (LB.switchGesture r.slot r.i LB.Tap)
            blank = Array.any (String.contains (String.Pattern "has nothing on"))
              (map Machine.describe acts)
          in labelled /= blank)
@@ -1637,7 +1639,7 @@ main = do
   -- No reverse row: direction is the sign of speed, so backwards at half speed
   -- is Reverse on the config bank and then a half here.
   assert "the speed bank sends a rate"
-    (map (\i -> Machine.act ((rigOf []) { focus = 2 }) (LB.switchGesture LB.SpeedBank i LB.Tap))
+    (map (\i -> Switchboard.act ((rigOf []) { focus = 2 }) (LB.switchGesture LB.SpeedBank i LB.Tap))
        [ 0, 2, 4 ]
       == [ [ Machine.Command "2sp0.25" ]
          , [ Machine.Command "2sp1.0" ]
@@ -1647,7 +1649,7 @@ main = do
   -- snapshot and send the explicit form, so a dropped command cannot leave the
   -- app and the engine disagreeing for ever about which way a loop is facing.
   assert "and pendulum is a config switch of its own, sent as a value"
-    (Machine.act ((rigOf []) { focus = 4 }) (LB.switchGesture LB.ConfigBank 4 LB.Tap)
+    (Switchboard.act ((rigOf []) { focus = 4 }) (LB.switchGesture LB.ConfigBank 4 LB.Tap)
       == [ Machine.Command "4pend1" ])
 
   -- **The mode changes what the switch means, and the switch keeps its name.**
@@ -1658,10 +1660,10 @@ main = do
   -- does depends on a fact only the engine holds, and no amount of remembering
   -- on this side would be as good as being told.
   assert "Stop/Go fires a one-shot, where on any other loop it stops it"
-    (Machine.act (rigOf [ (withState 0 "playing" 1) { oneShot = true } ])
+    (Switchboard.act (rigOf [ (withState 0 "playing" 1) { oneShot = true } ])
        (LB.switchGesture LB.LoopPage 2 LB.Tap)
       == [ Machine.Command "0f" ]
-      && Machine.act (rigOf [ withState 0 "playing" 1 ])
+      && Switchboard.act (rigOf [ withState 0 "playing" 1 ])
            (LB.switchGesture LB.LoopPage 2 LB.Tap)
         == [ Machine.Command "0h0" ])
 
@@ -1679,7 +1681,7 @@ main = do
   -- page opens on selection with Record right there under A, and the screen says
   -- the loop is still writing.
   assert "Record takes back an arm that is still waiting"
-    (Machine.act (rigOf [ (idle 0) { armed = true } ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
+    (Switchboard.act (rigOf [ (idle 0) { armed = true } ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
       == [ Machine.Command "0r", Machine.Handled "loop 1 stopped listening" ])
 
   -- **Through `perform`, not through a switch, since 2026-08-30.** The modes
@@ -1760,7 +1762,7 @@ main = do
   -- switch that shrugs must not be tellable from a broken cable only by reading
   -- two files.
   assert "an unimplemented switch names itself and what it waits for"
-    (map Machine.describe (Machine.act (rigOf []) (LB.switchGesture LB.SpeedBank 5 LB.Tap))
+    (map Machine.describe (Switchboard.act (rigOf []) (LB.switchGesture LB.SpeedBank 5 LB.Tap))
       == [ "out" ]
       && LB.dutyLabel (LB.NotYet "Groups" "no membership model yet") == "Groups"
       && LB.dutyName (LB.NotYet "Groups" "no membership model yet") == "Groups"
@@ -1769,7 +1771,7 @@ main = do
   -- A switch with nothing on it is a different answer from one that is waiting
   -- for the engine, and both are different from silence.
   assert "and a switch with nothing on it says that instead"
-    (map Machine.describe (Machine.act (rigOf []) (LB.switchGesture LB.PanBank 99 LB.Tap))
+    (map Machine.describe (Switchboard.act (rigOf []) (LB.switchGesture LB.PanBank 99 LB.Tap))
       == [ "pan switch 99 has nothing on it" ])
 
   -- The letters are only true where the board can reach the loops. With the
@@ -1802,7 +1804,7 @@ main = do
 
   -- A loop the snapshot does not contain is not a loop we may guess about.
   assert "a gesture for a loop that is not in the snapshot is refused, not assumed"
-    (Machine.act (rigOf []) (LB.switchGesture LB.LoopPage 0 LB.Tap)
+    (Switchboard.act (rigOf []) (LB.switchGesture LB.LoopPage 0 LB.Tap)
       == [ Machine.Unavailable "loop 1 is not in the snapshot" ])
 
   log ""
