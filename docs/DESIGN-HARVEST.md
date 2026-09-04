@@ -409,8 +409,11 @@ Each step is usable on its own, and each unblocks the next.
    the grab facts ride in `Rig`, and `Data.Looper.Twister` no longer
    imports Banks at all (`677b313`). It took an hour, not a day.
 10. **Arbhar's Friend**: A + B + one page + the `?module=` profile of §5,
-    the Twister optional. `itajara` becomes its own repository first, so
-    the Friend has a daemon without PWYF.
+    the Twister optional. ~~`itajara` becomes its own repository first, so
+    the Friend has a daemon without PWYF.~~ Done 2026-09-04:
+    `music/itajara` — `daemon/`, `client/`, `tools/` — with its history
+    (`git filter-repo`), this app consuming the client by path (`4aa37a2`),
+    and Bosun's registered command pointed at the new home.
 11. **The `looper` / `controllers` split** for PWYF's own bundle, when C
     wants it.
 
