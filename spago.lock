@@ -1,6 +1,23 @@
 {
   "workspace": {
     "packages": {
+      "itajara-client": {
+        "path": "itajara-client",
+        "core": {
+          "dependencies": [
+            "control",
+            "effect",
+            "integers",
+            "maybe",
+            "nullable",
+            "prelude",
+            "strings"
+          ]
+        },
+        "test": {
+          "dependencies": []
+        }
+      },
       "producing-with-your-feet": {
         "path": "./",
         "core": {
@@ -50,6 +67,7 @@
             {
               "integers": ">=6.0.0 <7.0.0"
             },
+            "itajara-client",
             {
               "js-date": ">=8.0.0 <9.0.0"
             },
