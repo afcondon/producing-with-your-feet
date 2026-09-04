@@ -326,8 +326,11 @@ render h ports state =
   editBody top lp =
     HH.div [ HP.class_ (HH.ClassName "looper-edit") ]
       [ waveform
-      , sliderRow "In" 0 (max 0 (winO - 1)) winI (\v -> h.windowIn li v) (timeWord winI)
-      , sliderRow "Out" (winI + 1) len winO (\v -> h.windowOut li v) (timeWord winO)
+      -- **Past the ends is silence, and allowed.** In can go a whole loop
+      -- before zero and Out a whole loop past the length; what that adds is
+      -- rest, and it is how a loop grows room without a crop or a re-take.
+      , sliderRow "In" (negate len) (winO - 1) winI (\v -> h.windowIn li v) (timeWord winI <> (if winI < 0 then " (rest before)" else ""))
+      , sliderRow "Out" (winI + 1) (2 * len) winO (\v -> h.windowOut li v) (timeWord winO <> (if winO > len then " (rest after)" else ""))
       , sliderRow "Start" 0 (max 0 (span - 1)) lp.rot (\v -> h.shiftStart li (v - lp.rot))
           (timeWord (winI + lp.rot) <> " into the loop")
       , HH.div [ HP.class_ (HH.ClassName "looper-edit-actions") ]
@@ -378,10 +381,14 @@ render h ports state =
       Just pk | pk.loop == li && pk.buckets > 0 ->
         let
           w = Int.toNumber pk.buckets
-          x f = Int.toNumber f / Int.toNumber (max 1 len) * w
+          -- The picture spans `from..to`, which is the loop plus the
+          -- silence the window reaches into; positions map onto that.
+          x f = Int.toNumber (f - pk.from) / Int.toNumber (max 1 (pk.to - pk.from)) * w
           y v = 100.0 - Int.toNumber v / 10.0
           pt i v = show (Int.toNumber i) <> "," <> show (y v)
           top' = joinWith " " (Array.mapWithIndex pt pk.hi)
+          -- Positions in the picture are bucket indices, so the polygon is
+          -- already in place; only the rects and lines need `x`.
           bot = joinWith " " (Array.reverse (Array.mapWithIndex pt pk.lo))
           svgEl name = HH.elementNS (Namespace "http://www.w3.org/2000/svg") (ElemName name)
           sAttr n v = HP.attr (AttrName n) v
@@ -391,7 +398,8 @@ render h ports state =
             , sAttr "preserveAspectRatio" "none"
             , sAttr "class" "looper-wave"
             ]
-            [ svgEl "rect" [ sAttr "x" (show (x winI)), sAttr "y" "0", sAttr "width" (show (x winO - x winI)), sAttr "height" "200", sAttr "class" "looper-wave-window" ] []
+            [ svgEl "rect" [ sAttr "x" (show (x 0)), sAttr "y" "0", sAttr "width" (show (x len - x 0)), sAttr "height" "200", sAttr "class" "looper-wave-loop" ] []
+            , svgEl "rect" [ sAttr "x" (show (x winI)), sAttr "y" "0", sAttr "width" (show (x winO - x winI)), sAttr "height" "200", sAttr "class" "looper-wave-window" ] []
             , svgEl "polygon" [ sAttr "points" (top' <> " " <> bot), sAttr "class" "looper-wave-body" ] []
             , svgEl "line" [ sAttr "x1" (show (x (winI + lp.rot))), sAttr "x2" (show (x (winI + lp.rot))), sAttr "y1" "0", sAttr "y2" "200", sAttr "class" "looper-wave-start" ] []
             , svgEl "line" [ sAttr "x1" (show (x lp.pos)), sAttr "x2" (show (x lp.pos)), sAttr "y1" "0", sAttr "y2" "200", sAttr "class" "looper-wave-head" ] []
