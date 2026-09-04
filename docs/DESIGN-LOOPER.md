@@ -780,6 +780,9 @@ Stages 1–3 are **done** (2026-08-14). Ordered so each is usable on its own:
    page can already assign any of it to any switch.
 5. **Per-layer mute and level** in the output sum. The dedicated page's reason
    to exist.
+   **Half done 2026-09-04:** per-layer *enable* — a switch, not a gain; the
+   layer stays whole and comes back with one verb. Level per layer is still
+   open. See `DESIGN-HARVEST.md` §7.
 6. **All eight input channels captured; source per layer.** §7.
 7. **Per-layer pan and width**, stored native. §5.
 8. **The send** — and with it re-amping, the board as outboard FX, and the

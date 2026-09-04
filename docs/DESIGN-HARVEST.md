@@ -402,11 +402,12 @@ Each step is usable on its own, and each unblocks the next.
    surface.
 7. **Morphagene, Rample, QD** — each one mapping row in §4 and one msm
    profile, in the order they are wanted.
-8. **Stratum A as a package** (§6): the Itajara client — socket, verbs,
-   recipes — with nothing of PWYF in it. An afternoon, and the first thing
-   a Friend needs.
-9. **`Duty` out of `Banks`** (§6): the type move that frees the meaning
-   layer from the MC6. A day; the tests say what moved.
+8. ~~**Stratum A as a package** (§6)~~ Done 2026-09-04: `itajara-client/`,
+   seven registry dependencies, module names unchanged (`74afc74`).
+9. ~~**`Duty` out of `Banks`** (§6)~~ Done 2026-09-04: `Data.Looper.Duty`
+   holds the vocabulary, `Data.Looper.Switchboard` holds the MC6's way in,
+   the grab facts ride in `Rig`, and `Data.Looper.Twister` no longer
+   imports Banks at all (`677b313`). It took an hour, not a day.
 10. **Arbhar's Friend**: A + B + one page + the `?module=` profile of §5,
     the Twister optional. `itajara` becomes its own repository first, so
     the Friend has a daemon without PWYF.
@@ -415,6 +416,11 @@ Each step is usable on its own, and each unblocks the next.
 
 Not on the list: Arbhar's MIDI interface (§8), dropped the same day it was
 raised.
+
+Also done 2026-09-04, off this list because it was asked for separately:
+**per-layer enable** (`ly<n>1`/`ly<n>0`, `on` per shape in the snapshot, a
+checkbox per layer row; `2878e43`). Necessary once layers are the grouping
+a harvest uses — six takes in one loop and a way to hear five of them.
 
 ---
 
