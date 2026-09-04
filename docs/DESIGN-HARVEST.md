@@ -426,11 +426,24 @@ Each step is usable on its own, and each unblocks the next.
    windowed**: the layers go to disk whole and the edit goes in the manifest,
    because the harvest needs the audio outside the window (Arbhar's tail is
    the loop's own wrap). The Friend's Save is this one verb.
-4. **msm `harvest`**: the importer, the Arbhar scene and library model with
-   a generated `preset.txt`, the 13 s truncation replaced by "10 s + wrap",
-   and the `prepare_for_export` omission fixed on the way.
-5. **Store endpoint + "Export for Arbhar" button.** The first configuration
-   is now real end to end.
+4. ~~**msm `harvest`**~~ Done 2026-09-04: `msm harvest <take> --module
+   arbhar --stick <path> [--bank N] [--scene b_s] [--overwrite] [--dry-run]`.
+   **A loop is a library bank *and* a scene** — the same six files in both
+   places, because the library loads them one at a time and the scene all
+   at once — each file the 10 s pass plus the 3 s that follow it, 24-bit
+   48 kHz. **No `preset.txt`**: the manual says audio with no file *is* Load
+   Layers, and Instruo's own scenes name the file after the preset anyway.
+   Off layers left out unless `--all-layers`; taken slots kept unless
+   `--overwrite`. Plus a **datasheet** (`datasheet.json` + `DATASHEET.md` in
+   the take, `_harvest/<take>.*` on the stick) joining the daemon's facts to
+   a `notes.json` of the player's — key, BPM, timbre, use, tags, per loop —
+   for an archive manager to read later. The `prepare_for_export` gap is
+   untouched: the harvest does its own shaping and `convert` is not its path.
+5. ~~**Store endpoint + "Export for Arbhar" button.**~~ Done 2026-09-04, in
+   the Friend rather than PWYF: `friend/server.mjs` holds `PUT notes` and
+   `POST /harvest`; the page has Notes and Harvest panels. PWYF has no
+   harvest button yet — its takes are in the same folder, so the Friend or
+   the CLI harvests them.
 6. **Profiles**: Bosun-registered `itajara-arbhar`, `?profile=` gating on the
    surface.
 7. **Morphagene, Rample, QD** — each one mapping row in §4 and one msm
