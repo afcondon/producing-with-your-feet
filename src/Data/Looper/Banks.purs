@@ -180,18 +180,20 @@ module Data.Looper.Banks
   , sendsTo
   , banks
   , module Data.Looper.Duty
+  , module Data.Looper.Surface
   ) where
 
 import Prelude
 
 import Data.Array as Array
 import Data.Looper.Duty
-  ( nLoops, BankSlot(..), allSlots, slotIndex, slotFromIndex, slotName, slotId
+  ( BankSlot(..), allSlots, slotIndex, slotFromIndex, slotName, slotId
   , shortSlot, Jump(..), Duty(..), Subject(..), dutyLabel, dutyName, levelWord
   , onOff, Rung, ladderLine, nextRung, rungWord, onRung, chanceLadder, stepChance
   , chanceWord, fadeLadder, stepFade, fadeWord, decayLadder, stepDecay, decayWord
   , rateWord, placeWord
   )
+import Data.Looper.Surface (nLoops)
 import Data.MC6.ControlBank (ControlBank, ControlBankSwitch, switchCount)
 import Data.MC6.Message as MC6Msg
 import Data.MC6.Types (MC6Action(..), MC6Message)

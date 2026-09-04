@@ -51,6 +51,7 @@
               "integers": ">=6.0.0 <7.0.0"
             },
             "itajara-client",
+            "itajara-surface",
             {
               "js-date": ">=8.0.0 <9.0.0"
             },
@@ -781,6 +782,9 @@
       "hylograph-transitions": "0.1.0",
       "itajara-client": {
         "path": "../itajara/client"
+      },
+      "itajara-surface": {
+        "path": "../itajara/surface"
       }
     }
   },
@@ -1501,11 +1505,28 @@
       "type": "local",
       "path": "../itajara/client",
       "dependencies": [
+        "arrays",
         "control",
         "effect",
         "integers",
         "maybe",
         "nullable",
+        "numbers",
+        "prelude",
+        "strings"
+      ]
+    },
+    "itajara-surface": {
+      "type": "local",
+      "path": "../itajara/surface",
+      "dependencies": [
+        "arrays",
+        "halogen",
+        "integers",
+        "itajara-client",
+        "maybe",
+        "numbers",
+        "ordered-collections",
         "prelude",
         "strings"
       ]

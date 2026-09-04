@@ -19,6 +19,7 @@ package:
     - hylograph-transitions
     - integers: ">=6.0.0 <7.0.0"
     - itajara-client
+    - itajara-surface
     - js-date: ">=8.0.0 <9.0.0"
     - maybe: ">=6.0.0 <7.0.0"
     - newtype: ">=5.0.0 <6.0.0"
@@ -59,3 +60,5 @@ workspace:
     # is its first consumer and reaches it by path.
     itajara-client:
       path: ../itajara/client
+    itajara-surface:
+      path: ../itajara/surface

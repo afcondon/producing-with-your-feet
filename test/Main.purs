@@ -29,6 +29,7 @@ import Data.MC6.Settings as Settings
 import Test.MC6Capture as Capture
 import Data.Looper as Looper
 import Component.Looper.Slots as Slots
+import Itajara.Surface.Wave as Wave
 import Foreign.LooperSocket (isWriting, phaseOf, phaseName, allPhases, LoopPhase(..)) as LooperSock
 import Data.Looper.Banks as LB
 import Data.MC6.Diagnostics as Diagnostics
@@ -1727,14 +1728,14 @@ main = do
   -- than a quiet one — inverted, and obvious the moment it was on screen. The
   -- floor is because a layer that is quiet is still a layer.
   assert "a louder bucket draws a taller mark, and a silent one is still visible"
-    (Slots.waveEdge 255 < Slots.waveEdge 192
-      && Slots.waveEdge 192 < Slots.waveEdge 0
-      && Slots.waveEdge 255 == 0.0
+    (Wave.waveEdge 255 < Wave.waveEdge 192
+      && Wave.waveEdge 192 < Wave.waveEdge 0
+      && Wave.waveEdge 255 == 0.0
       -- -15 dBFS is a fifth of full scale on a linear picture, not four
       -- fifths of the way up as the byte alone would say.
-      && Slots.waveEdge 192 > 0.75
-      && Slots.waveEdge 0 < 0.95
-      && Slots.waveEdge 0 > 0.9)
+      && Wave.waveEdge 192 > 0.75
+      && Wave.waveEdge 0 < 0.95
+      && Wave.waveEdge 0 > 0.9)
 
   -- A stepper cannot say where it is, so its long name says where it can go.
   -- The MC6 flashes this on every press and has no way to update it, so the

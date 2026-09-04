@@ -435,7 +435,15 @@ Each step is usable on its own, and each unblocks the next.
    the grab facts ride in `Rig`, and `Data.Looper.Twister` no longer
    imports Banks at all (`677b313`). It took an hour, not a day.
 10. **Arbhar's Friend**: A + B + one page + the `?module=` profile of §5,
-    the Twister optional. ~~`itajara` becomes its own repository first, so
+    the Twister optional. **First light 2026-09-04**: `itajara/friend/`, one
+    app with a face per module (`?face=arbhar`), designed in that repo's
+    `docs/DESIGN-FRIEND.md`. On the way, stratum B moved into the client
+    package (`Data.Looper.Duty`, `Data.Looper.Machine`; the machine reads
+    the loop count from the snapshot and this app keeps its eight in
+    `Data.Looper.Surface`), and a third package `itajara/surface` holds the
+    Edit panel and the wave drawing, which this app now imports rather than
+    owns. The harvest itself (steps 3–5) is still to do; the Friend's Save
+    writes `w<take>-<n>` per loop and says so. ~~`itajara` becomes its own repository first, so
     the Friend has a daemon without PWYF.~~ Done 2026-09-04:
     `music/itajara` — `daemon/`, `client/`, `tools/` — with its history
     (`git filter-repo`), this app consuming the client by path (`4aa37a2`),
