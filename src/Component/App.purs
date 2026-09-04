@@ -132,6 +132,7 @@ data Action
   | ClearLoopWindow Int
   | ShiftLoopStart Int Int
   | AskLoopPeaks Int
+  | EditSliderDone String
   | HandleHeader Header.Output
   | HandleDetail DetailView.Output
   | HandleGrid GridView.Output
@@ -488,6 +489,7 @@ renderLooperView state = LooperPage.render handlers ports state
     , clearWindow: ClearLoopWindow
     , shiftStart: ShiftLoopStart
     , askPeaks: AskLoopPeaks
+    , editDone: EditSliderDone
     }
 
   ports =
@@ -1576,11 +1578,20 @@ handleAction = case _ of
 
   SetLayerOn loop layer on -> editVerb loop (LoopBanks.LayerOn layer on)
 
-  SetWindowIn loop f -> editVerb loop (LoopBanks.WindowIn f)
-  SetWindowOut loop f -> editVerb loop (LoopBanks.WindowOut f)
+  SetWindowIn loop f -> do
+    H.modify_ \s -> s { looperEditLocal = Map.insert "in" f s.looperEditLocal }
+    editVerb loop (LoopBanks.WindowIn f)
+  SetWindowOut loop f -> do
+    H.modify_ \s -> s { looperEditLocal = Map.insert "out" f s.looperEditLocal }
+    editVerb loop (LoopBanks.WindowOut f)
   ClearLoopWindow loop -> editVerb loop LoopBanks.ClearWindow
-  ShiftLoopStart loop k -> editVerb loop (LoopBanks.ShiftStart k)
+  ShiftLoopStart loop k -> do
+    st <- H.get
+    let rotNow = maybe 0 _.rot (st.looper >>= \s -> Array.index s.loops loop)
+    H.modify_ \s -> s { looperEditLocal = Map.insert "rot" (rotNow + k) s.looperEditLocal }
+    editVerb loop (LoopBanks.ShiftStart k)
   AskLoopPeaks loop -> editVerb loop (LoopBanks.AskPeaks 600)
+  EditSliderDone key -> H.modify_ \s -> s { looperEditLocal = Map.delete key s.looperEditLocal }
 
   FlushTwisterTurn knob -> do
     st <- H.get

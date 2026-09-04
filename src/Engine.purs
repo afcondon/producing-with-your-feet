@@ -304,6 +304,13 @@ type AppState =
   -- | when the picture would differ, not thirty times a second.
   , looperPeaks :: Maybe Peaks
   , looperPeaksKey :: String
+  -- | What the hand has set on an Edit slider that the snapshot has not yet
+  -- | caught up with, keyed "in" / "out" / "rot". **A slider being dragged
+  -- | must not be written to**: setting its value from a snapshot mid-drag
+  -- | is what ended the drag. So while a key is here the slider shows this,
+  -- | which is what the browser already holds, and the write is a no-op;
+  -- | the key goes on release.
+  , looperEditLocal :: Map String Int
   -- | Which of the six looper banks the MC6 is *showing*.
   -- |
   -- | Not asked for and not remembered from a bank change we commanded: taken
@@ -469,6 +476,7 @@ initAppState =
   , looperPanel: Nothing
   , looperPeaks: Nothing
   , looperPeaksKey: ""
+  , looperEditLocal: Map.empty
   , looperBankShown: Just LooperBanks.LoopBank
   , looperProgramStatus: Nothing
   , midiTest: Nothing

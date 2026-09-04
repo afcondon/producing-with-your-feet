@@ -226,6 +226,29 @@ mix st =
   where
   pc v = show (toNumber (round (toNumber v / 127.0 * 1000.0)) / 10.0)
 
+-- | The layer's envelope as the loop now plays it: through the window and
+-- | from the rotated start, with the silence a window adds drawn as silence.
+-- | The envelope arrives in arena positions; the slot shows the cycle.
+-- |
+-- | Only for a layer the length of the loop — a sparse layer tiles by its
+-- | own length and its blocks already say where it sounds.
+viewOf :: LoopState -> LayerShape -> Array Int
+viewOf st sh
+  | (st.winOut == 0 && st.rot == 0) || sh.len /= st.loopFrames || Array.null sh.env = sh.env
+  | otherwise =
+      let
+        n = Array.length sh.env
+        len = st.loopFrames
+        start = if st.winOut == 0 then 0 else st.winIn
+        span = max 1 (if st.winOut == 0 then len else st.winOut - st.winIn)
+        -- Cycle position `c` of `n` -> arena position, as the daemon places it.
+        arena c = start + ((c * span / n + st.rot) `mod` span)
+        bucket a
+          | a < 0 || a >= len = 0
+          | otherwise = fromMaybe 0 (Array.index sh.env (a * n / len))
+      in
+        map (bucket <<< arena) (Array.range 0 (n - 1))
+
 -- | The layer's shape, mirrored about the middle the way a waveform is read.
 -- |
 -- | `preserveAspectRatio="none"` so one path stretches to whatever width the
@@ -398,7 +421,7 @@ layerRow onLayer st i sh =
       -- the reason the chart was drawn this way in the first place. The
       -- envelope goes in it and answers a different question: which loop is
       -- this, and how loud.
-      (if sounds s && drawn then wave sh.env else [])
+      (if sounds s && drawn then wave (viewOf st sh) else [])
 
 -- | Present only when there is a cycle to sweep, and positioned outright from
 -- | `phase` rather than from anything that keeps its own time.

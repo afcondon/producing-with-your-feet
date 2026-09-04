@@ -60,7 +60,9 @@ import Data.Array as Array
 import Data.Int as Int
 import Data.Looper as Looper
 import Data.Looper.Banks as LoopBanks
-import Data.Maybe (Maybe(..), maybe)
+import Data.Map (Map)
+import Data.Map as Map
+import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.String (joinWith)
 import Engine (LogLine, LooperPanel(..))
 import Foreign.LooperSocket (LooperState, SocketStatus)
@@ -83,6 +85,7 @@ type State r =
   , looperShowsSlots :: Boolean
   , looperPanel :: Maybe LooperPanel
   , looperPeaks :: Maybe LooperSocket.Peaks
+  , looperEditLocal :: Map String Int
   , looperBankShown :: Maybe LoopBanks.BankSlot
   , looperLog :: Array LogLine
   , looperProgramStatus :: Maybe String
@@ -142,6 +145,8 @@ type Handlers i =
   , clearWindow :: Int -> i
   , shiftStart :: Int -> Int -> i
   , askPeaks :: Int -> i
+  -- | A slider was released: the snapshot owns its value again.
+  , editDone :: String -> i
   }
 
 render
@@ -329,9 +334,9 @@ render h ports state =
       -- **Past the ends is silence, and allowed.** In can go a whole loop
       -- before zero and Out a whole loop past the length; what that adds is
       -- rest, and it is how a loop grows room without a crop or a re-take.
-      , sliderRow "In" (negate len) (winO - 1) winI (\v -> h.windowIn li v) (timeWord winI <> (if winI < 0 then " (rest before)" else ""))
-      , sliderRow "Out" (winI + 1) (2 * len) winO (\v -> h.windowOut li v) (timeWord winO <> (if winO > len then " (rest after)" else ""))
-      , sliderRow "Start" 0 (max 0 (span - 1)) lp.rot (\v -> h.shiftStart li (v - lp.rot))
+      , sliderRow "in" "In" (negate len) (winO - 1) winI (\v -> h.windowIn li v) (timeWord winI <> (if winI < 0 then " (rest before)" else ""))
+      , sliderRow "out" "Out" (winI + 1) (2 * len) winO (\v -> h.windowOut li v) (timeWord winO <> (if winO > len then " (rest after)" else ""))
+      , sliderRow "rot" "Start" 0 (max 0 (span - 1)) lp.rot (\v -> h.shiftStart li (v - lp.rot))
           (timeWord (winI + lp.rot) <> " into the loop")
       , HH.div [ HP.class_ (HH.ClassName "looper-edit-actions") ]
           [ HH.button [ HP.class_ (HH.ClassName "looper-help-btn"), HE.onClick \_ -> h.shiftStart li (negate step) ] [ HH.text ("⟵ " <> stepWord) ]
@@ -359,7 +364,9 @@ render h ports state =
     timeWord f = secsOf f <> " s"
     secsOf f = show (Int.toNumber (Int.round (Int.toNumber f / Int.toNumber top.sampleRate * 1000.0)) / 1000.0)
 
-    sliderRow label lo hi v onV word =
+    -- The slider shows the hand's value while the hand is on it (see
+    -- `looperEditLocal`) and the snapshot's otherwise.
+    sliderRow key label lo hi v onV word =
       HH.div [ HP.class_ (HH.ClassName "looper-edit-row") ]
         [ HH.span [ HP.class_ (HH.ClassName "looper-edit-label") ] [ HH.text label ]
         , HH.input
@@ -368,8 +375,9 @@ render h ports state =
             , HP.min (Int.toNumber lo)
             , HP.max (Int.toNumber hi)
             , HP.step (HP.Step (Int.toNumber step))
-            , HP.value (show v)
+            , HP.value (show (fromMaybe v (Map.lookup key state.looperEditLocal)))
             , HE.onValueInput \raw -> onV (maybe v identity (Int.fromString raw))
+            , HE.onValueChange \_ -> h.editDone key
             ]
         , HH.span [ HP.class_ (HH.ClassName "looper-edit-word") ] [ HH.text word ]
         ]
