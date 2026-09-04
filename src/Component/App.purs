@@ -3582,7 +3582,9 @@ handleEncoderPressOnPedal
   => AppState -> Knob -> H.HalogenM AppState Action Slots o m Unit
 handleEncoderPressOnPedal st knob =
   if st.focusPedalId == Just Looper.itajaraId
-    then if isJust (LoopTwister.controlAt (onPage st knob)).nudge
+    then if (LoopTwister.controlAt (onPage st knob)).opens == Just LoopTwister.OpensEdit
+      then handleAction (ShowLooperPanel (if st.looperPanel == Just PanelEdit then Nothing else Just PanelEdit))
+    else if isJust (LoopTwister.controlAt (onPage st knob)).nudge
       -- A press on any nudge encoder flips the step for all three, and the
       -- lights say which: orange coarse, blue fine.
       then do

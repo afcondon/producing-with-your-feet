@@ -57,6 +57,7 @@ module Data.Looper.Twister
   , Control
   , Nudge(..)
   , nudgeLabel
+  , Opens(..)
   , controlAt
   , pressedAt
   , turnedAt
@@ -290,6 +291,9 @@ type Control =
   -- | every click, and each click moves an edit by a step. Press toggles the
   -- | step between coarse and fine, app-wide. See `Nudge`.
   , nudge :: Maybe Nudge
+  -- | A press that opens something on the page rather than doing something
+  -- | to a loop: the app's business, so it is named here and acted on there.
+  , opens :: Maybe Opens
   , ring :: RingSource
   , light :: Light
   -- | Whether this control's press is its way *home* — back to the parameter's
@@ -312,9 +316,16 @@ type Control =
 
 blank :: Control
 blank =
-  { subject: Focused, press: Nothing, turn: Nothing, nudge: Nothing
+  { subject: Focused, press: Nothing, turn: Nothing, nudge: Nothing, opens: Nothing
   , ring: NoRing, light: Dark, home: false, pager: false
   }
+
+-- | What a press can open on the page. One so far: the Edit panel, from the
+-- | top-right encoder of Shape, so the hand that is about to nudge the
+-- | window can bring the picture up without reaching for the mouse.
+data Opens = OpensEdit
+
+derive instance Eq Opens
 
 -- | The three edits an encoder can nudge: the window's in point, its out
 -- | point, and where a pass starts inside it. **Relative, not absolute**,
@@ -721,6 +732,8 @@ shapeBank = case _ of
   -- this page's test.
   1 -> flagged Pendulum FPendulum Violet
   2 -> knob PDecay (Decay 0.0) Orange
+  -- Top right: the Edit panel, open or closed. Green, and steady.
+  3 -> blank { opens = Just OpensEdit, light = Steady Green }
 
   -- **Row two: how often it sounds**, from the least deliberate to the most,
   -- and then the way back.
@@ -1536,6 +1549,14 @@ cellAt bank index =
       , turn: map (\p -> paramLabel p <> " — " <> paramRange p) c.turn
       , shows: Just "colour is what it is doing; the ring is the value under your hand"
       , tone: Nothing
+      }
+    Focused | Just OpensEdit <- c.opens ->
+      { index
+      , name: "Edit"
+      , press: Just "open or close the Edit panel"
+      , turn: Nothing
+      , shows: Nothing
+      , tone: toneOf c.light
       }
     Focused | Just nd <- c.nudge ->
       { index
