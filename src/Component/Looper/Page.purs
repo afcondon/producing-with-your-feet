@@ -128,6 +128,9 @@ type Handlers i =
   -- | Open the printable sheet. No argument: what goes on it is generated from
   -- | the same tables this page draws from, so there is nothing to pass.
   , printSheet :: i
+  -- | One layer of one loop in or out of the mix: the daemon's loop index,
+  -- | the layer number the slot shows (from one), and the wanted state.
+  , setLayer :: Int -> Int -> Boolean -> i
   }
 
 render
@@ -150,7 +153,7 @@ render h ports state =
         [ HH.div [ HP.class_ (HH.ClassName "looper-main") ]
             [ faceToggle
             , case state.looper of
-                Just lp | state.looperShowsSlots -> Slots.render lp state.looperFocus (LoopBanks.face state.looperBankShown)
+                Just lp | state.looperShowsSlots -> Slots.render h.setLayer lp state.looperFocus (LoopBanks.face state.looperBankShown)
                 _ -> HH.text ""
             , case state.looper of
                 Just lp | not state.looperShowsSlots -> HH.div_ [ transport lp, readout lp ]

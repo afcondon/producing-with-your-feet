@@ -1369,7 +1369,9 @@ main = do
       && LoopVerb.render (LoopVerb.OneShot false) == "one0"
       && LoopVerb.render (LoopVerb.LevelArm true) == "lev1"
       && LoopVerb.render (LoopVerb.Click false) == "k0"
-      && LoopVerb.render (LoopVerb.Monitor true) == "m1")
+      && LoopVerb.render (LoopVerb.Monitor true) == "m1"
+      && LoopVerb.render (LoopVerb.LayerOn 3 true) == "ly31"
+      && LoopVerb.render (LoopVerb.LayerOn 12 false) == "ly120")
 
   assert "numeric verbs carry their argument with no separator"
     (LoopVerb.render (LoopVerb.Rate 0.5) == "sp0.5"

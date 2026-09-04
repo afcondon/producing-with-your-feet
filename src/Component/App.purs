@@ -126,6 +126,7 @@ data Action
   | SetArmThreshold String
   | SetFeedback String
   | SetTone String
+  | SetLayerOn Int Int Boolean
   | HandleHeader Header.Output
   | HandleDetail DetailView.Output
   | HandleGrid GridView.Output
@@ -476,6 +477,7 @@ renderLooperView state = LooperPage.render handlers ports state
     , programLooperBank: ProgramLooperBank
     , programLoopBanks: ProgramLoopBanks
     , printSheet: PrintSheet
+    , setLayer: SetLayerOn
     }
 
   ports =
@@ -1546,6 +1548,11 @@ handleAction = case _ of
       st <- H.get
       traverse_ (runAction 0.0)
         (Machine.perform (rigOf st) LoopBanks.Focused (LoopBanks.Tone hz))
+
+  SetLayerOn loop layer on -> do
+    st <- H.get
+    traverse_ (runAction 0.0)
+      (Machine.perform (rigOf st) (LoopBanks.OnLoop loop) (LoopBanks.LayerOn layer on))
 
   FlushTwisterTurn knob -> do
     st <- H.get

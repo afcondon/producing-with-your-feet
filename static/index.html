@@ -2316,6 +2316,8 @@ body {
   display: flex; flex-direction: column; gap: 1px; padding: 1px; overflow: hidden;
 }
 .loop-layer { display: flex; flex: 0 0 var(--layer-h); height: var(--layer-h); gap: 1px; }
+.loop-layer-on { flex: 0 0 auto; width: 10px; height: 10px; margin: 0 3px 0 0; align-self: center; accent-color: #3a7d6c; cursor: pointer; }
+.loop-layer.is-off .loop-block { opacity: 0.25; }
 .loop-block { height: 100%; position: relative; overflow: hidden; }
 /* The envelope sits inside the block rather than replacing it: the block says
    where in the cycle this layer sounds, which is what a waveform cannot show.
@@ -4259,6 +4261,6 @@ body {
   <!-- Stamped by tools/bundle.sh with the bundle's own mtime. Without it a
        reload can serve yesterday's app and say nothing, which has cost this
        project whole afternoons more than once. -->
-  <script src="./index.js?v=1788090754"></script>
+  <script src="./index.js?v=1788523746"></script>
 </body>
 </html>

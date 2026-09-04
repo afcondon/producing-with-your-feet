@@ -104,6 +104,7 @@ import Data.Looper.Twister as TW
 import Foreign.LooperSocket (LoopState, LayerShape, LooperState)
 import Foreign.LooperSocket as Looper
 import Halogen.HTML as HH
+import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 
 -- | The six slots, in board order.
@@ -125,8 +126,11 @@ import Halogen.HTML.Properties as HP
 -- |
 -- | The app's `looperFocus` is what `Data.Looper.Machine` actually acts on, so
 -- | it is the only honest answer to "which loop does this bank talk about".
-render :: forall w i. LooperState -> Int -> LB.Face -> HH.HTML w i
-render lp focus fc =
+-- | `onLayer loop layer on` is the one thing a slot can *do*: the layer
+-- | checkboxes. Loop is the daemon's index; layer is the number the slot
+-- | shows, from one.
+render :: forall w i. (Int -> Int -> Boolean -> i) -> LooperState -> Int -> LB.Face -> HH.HTML w i
+render onLayer lp focus fc =
   HH.div [ HP.class_ (HH.ClassName "loops") ]
     [ HH.div [ HP.class_ (HH.ClassName "loops-grid") ]
         (Array.mapMaybe cell (join LB.loopRows))
@@ -139,11 +143,11 @@ render lp focus fc =
     , legend lp focus
     ]
   where
-  cell i = slot lp focus fc i <$> Array.index lp.loops i
+  cell i = slot onLayer lp focus fc i <$> Array.index lp.loops i
 
 -- | One loop.
-slot :: forall w i. LooperState -> Int -> LB.Face -> Int -> LoopState -> HH.HTML w i
-slot top focus fc idx st =
+slot :: forall w i. (Int -> Int -> Boolean -> i) -> LooperState -> Int -> LB.Face -> Int -> LoopState -> HH.HTML w i
+slot onLayer top focus fc idx st =
   HH.div
     [ HP.class_ (HH.ClassName ("loop-slot " <> stateClass st
         <> (if focus == idx then " is-selected" else "")
@@ -162,7 +166,7 @@ slot top focus fc idx st =
         , HH.span [ HP.class_ (HH.ClassName "loop-layers") ]
             [ HH.text (if st.layers == 0 then "" else show st.layers <> plural st.layers " layer") ]
         ]
-    , track top st
+    , track (onLayer idx) top st
     , mix st
     , HH.div [ HP.class_ (HH.ClassName "loop-foot") ]
         [ HH.span_ [ HH.text (lengthWord top st) ]
@@ -300,10 +304,10 @@ mark m =
 -- | An empty loop still draws the track. Six slots that vanish when empty would
 -- | make the board's shape change under your feet, and the whole point of the
 -- | grid is that it does not.
-track :: forall w i. LooperState -> LoopState -> HH.HTML w i
-track top st =
+track :: forall w i. (Int -> Boolean -> i) -> LooperState -> LoopState -> HH.HTML w i
+track onLayer top st =
   HH.div [ HP.class_ (HH.ClassName "loop-track") ]
-    (Array.mapWithIndex (layerRow st) st.shapes <> liveRow st <> playhead top st)
+    (Array.mapWithIndex (layerRow onLayer st) st.shapes <> liveRow st <> playhead top st)
 
 -- | The take being recorded **right now**, drawn as it is played.
 -- |
@@ -340,10 +344,24 @@ liveRow st
       ]
 
 -- | One layer, as the blocks in which it sounds.
-layerRow :: forall w i. LoopState -> Int -> LayerShape -> HH.HTML w i
-layerRow st i sh =
-  HH.div [ HP.class_ (HH.ClassName "loop-layer") ]
-    (map block (Array.range 0 (blocks - 1)))
+-- | A row per layer: its checkbox, then the blocks of the cycle it sounds in.
+-- |
+-- | **The checkbox is the layer's, not the block's.** A layer that plays one
+-- | bar in four is still one layer, and taking it out of the mix is one act.
+-- | Off dims the blocks rather than hiding them: where the layer *would* sound
+-- | is still a fact about the loop, and the reason you might want it back.
+layerRow :: forall w i. (Int -> Boolean -> i) -> LoopState -> Int -> LayerShape -> HH.HTML w i
+layerRow onLayer st i sh =
+  HH.div [ HP.class_ (HH.ClassName ("loop-layer" <> (if sh.on then "" else " is-off"))) ]
+    ( [ HH.input
+          [ HP.type_ HP.InputCheckbox
+          , HP.class_ (HH.ClassName "loop-layer-on")
+          , HP.checked sh.on
+          , HP.title ("layer " <> show (i + 1) <> (if sh.on then " is in the mix" else " is parked"))
+          , HE.onChecked (onLayer (i + 1))
+          ]
+      ] <> map block (Array.range 0 (blocks - 1))
+    )
   where
   -- How many of this layer's own lengths fit in the cycle. At least one, so a
   -- layer as long as the loop is one block rather than none.

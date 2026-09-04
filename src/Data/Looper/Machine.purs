@@ -218,6 +218,7 @@ perform rig subject = case _ of
   -- the empties keeps the gesture meaning what it says.
   Duty.StopAll -> map (\n -> Command (cmd n (Verb.Sounding false))) (sounding rig)
   Duty.Undo -> [ Command (cmd i Verb.Undo) ]
+  Duty.LayerOn l on -> [ Command (cmd i (Verb.LayerOn l on)) ]
   Duty.ClearLoop -> [ Command (cmd i Verb.Clear) ]
   -- **Read from the loop, not remembered** — the same shape as the click and
   -- the monitor since `Rig` started carrying the flags, and for the same

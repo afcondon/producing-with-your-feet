@@ -226,6 +226,11 @@ data Duty
   -- | means and how it differs from Save.
   | ExportSet
   | ClickToggle
+  -- | One layer in or out of the mix, by the number the slot shows. No switch
+  -- | carries this and no encoder does yet; it is a checkbox on the page, and
+  -- | it goes through the machine like everything else so that it is one
+  -- | route in.
+  | LayerOn Int Boolean
   | Reverse
   | Pendulum
   -- | One pass per trigger, rather than turning for ever.
@@ -598,6 +603,7 @@ dutyLabel = case _ of
   Decay _ -> "Decay"
   NotYet l _ -> l
   Nothing_ -> ""
+  LayerOn l on -> "Lyr " <> show l <> (if on then "+" else "-")
 
 -- | Twenty-four characters, for the device's long name and for reporting a
 -- | press the app did not expect as words rather than as a CC number.
@@ -672,6 +678,7 @@ dutyName = case _ of
   Decay db -> "Decays " <> decayWord db
   NotYet l _ -> l
   Nothing_ -> ""
+  LayerOn l on -> "Layer " <> show l <> (if on then " in the mix" else " parked")
 
 -- | A level in words. The daemon's own vocabulary — "full" and "silent" rather
 -- | than "0.0 dB" and "-60.0 dB", because those are things a meter says and not
