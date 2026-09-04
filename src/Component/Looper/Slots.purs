@@ -96,6 +96,7 @@ import Prelude
 
 import Data.Array as Array
 import Data.Int (round, toNumber)
+import Data.Number (pow)
 import Data.String (joinWith)
 import Halogen (AttrName(..), ElemName(..), Namespace(..))
 import Data.Maybe (Maybe(..), fromMaybe)
@@ -295,8 +296,17 @@ wave env
 -- | The floor is because a layer that is quiet is still a layer: a mark you
 -- | cannot see reads as one that is not there, which is the opposite of what
 -- | this picture is for.
+-- | **Linear, from a byte that is logarithmic.** The daemon sends a layer's
+-- | peaks on a decibel scale with the floor at -60 dBFS, which keeps quiet
+-- | material from vanishing into one byte — and drawn as it arrives, that
+-- | made every loop a fat band, because -30 dB sat halfway up the block. The
+-- | Edit panel draws linear and looked like the audio; so does this now. A
+-- | small floor keeps a silent layer visible as a line.
 waveEdge :: Int -> Number
-waveEdge v = 1.0 - max 0.06 (toNumber v / 255.0)
+waveEdge v = 1.0 - max 0.06 amplitude
+  where
+  db = -60.0 + toNumber v / 255.0 * 60.0
+  amplitude = if v <= 0 then 0.0 else pow 10.0 (db / 20.0)
 
 -- | Just enough SVG to draw one shape, on the same house pattern as
 -- | `Component.Controls.Survey`: Halogen ships the namespace-aware constructor

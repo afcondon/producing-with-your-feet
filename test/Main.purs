@@ -1727,9 +1727,12 @@ main = do
   -- than a quiet one — inverted, and obvious the moment it was on screen. The
   -- floor is because a layer that is quiet is still a layer.
   assert "a louder bucket draws a taller mark, and a silent one is still visible"
-    (Slots.waveEdge 255 < Slots.waveEdge 128
-      && Slots.waveEdge 128 < Slots.waveEdge 0
+    (Slots.waveEdge 255 < Slots.waveEdge 192
+      && Slots.waveEdge 192 < Slots.waveEdge 0
       && Slots.waveEdge 255 == 0.0
+      -- -15 dBFS is a fifth of full scale on a linear picture, not four
+      -- fifths of the way up as the byte alone would say.
+      && Slots.waveEdge 192 > 0.75
       && Slots.waveEdge 0 < 0.95
       && Slots.waveEdge 0 > 0.9)
 
@@ -3298,7 +3301,10 @@ main = do
       (\pg -> Array.all
         (\c -> let k = { bank: pg.bank, index: c.index }
                    ctl = LoopTw.controlAt k
+                   -- A nudge and an opener are controls too, though neither is a
+                   -- duty: the card names them and the test counts them.
                    has = LoopTw.pressedAt k /= Nothing || ctl.turn /= Nothing || ctl.pager
+                     || isJust ctl.nudge || isJust ctl.opens
                in if has then c.name /= "" && (isJust c.press || isJust c.turn)
                   else c.name == "")
         pg.cells)
