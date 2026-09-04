@@ -418,7 +418,14 @@ Each step is usable on its own, and each unblocks the next.
    one. Peaks are `mix_at` over every arena position — the flattened,
    levelled loop at unity — so the picture is in the positions the sliders
    set.
-3. **`exl` and manifest v2.** The per-loop-per-layer render.
+3. ~~**`exl` and manifest v2.** The per-loop-per-layer render.~~ Done
+   2026-09-04: `exl<name>` writes `<name>/loop-<n>/` as a version-1 take
+   each (so every folder reloads as `w` wrote it) and one `export.json` at
+   version 2 — per loop its window, rotation, bars, tempo, source, quant,
+   chance, one-shot and mute; per layer gain, birth and on. **Raw, not
+   windowed**: the layers go to disk whole and the edit goes in the manifest,
+   because the harvest needs the audio outside the window (Arbhar's tail is
+   the loop's own wrap). The Friend's Save is this one verb.
 4. **msm `harvest`**: the importer, the Arbhar scene and library model with
    a generated `preset.txt`, the 13 s truncation replaced by "10 s + wrap",
    and the `prepare_for_export` omission fixed on the way.

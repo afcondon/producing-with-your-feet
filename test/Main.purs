@@ -1404,7 +1404,9 @@ main = do
   assert "capture and save spell as the daemon expects"
     (LoopVerb.render LoopVerb.ClaimPast == "t"
       && LoopVerb.render (LoopVerb.SaveTake "") == "w"
-      && LoopVerb.render (LoopVerb.SaveTake "riff") == "wriff")
+      && LoopVerb.render (LoopVerb.SaveTake "riff") == "wriff"
+      && LoopVerb.render (LoopVerb.ExportSet "riff") == "exriff"
+      && LoopVerb.render (LoopVerb.ExportLayers "riff") == "exlriff")
 
   -- A loop prefix on every board command, because the daemon's own selection is
   -- a mode a footswitch could fall out of step with.
