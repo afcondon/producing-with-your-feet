@@ -334,8 +334,12 @@ render h ports state =
       -- **Past the ends is silence, and allowed.** In can go a whole loop
       -- before zero and Out a whole loop past the length; what that adds is
       -- rest, and it is how a loop grows room without a crop or a re-take.
-      , sliderRow "in" "In" (negate len) (winO - 1) winI (\v -> h.windowIn li v) (timeWord winI <> (if winI < 0 then " (rest before)" else ""))
-      , sliderRow "out" "Out" (winI + 1) (2 * len) winO (\v -> h.windowOut li v) (timeWord winO <> (if winO > len then " (rest after)" else ""))
+      -- **The sliders run the length of the picture**, so where the thumb is
+      -- is where the line is. The picture is the loop plus whatever silence
+      -- the window has reached into, with an eighth of a loop of room past
+      -- each end so it can always be pushed further; it grows as it goes.
+      , sliderRow "in" "In" picFrom (winO - 1) winI (\v -> h.windowIn li v) (timeWord winI <> (if winI < 0 then " (rest before)" else ""))
+      , sliderRow "out" "Out" (winI + 1) picTo winO (\v -> h.windowOut li v) (timeWord winO <> (if winO > len then " (rest after)" else ""))
       , sliderRow "rot" "Start" 0 (max 0 (span - 1)) lp.rot (\v -> h.shiftStart li (v - lp.rot))
           (timeWord (winI + lp.rot) <> " into the loop")
       , HH.div [ HP.class_ (HH.ClassName "looper-edit-actions") ]
@@ -354,6 +358,8 @@ render h ports state =
     winI = if windowed then lp.winIn else 0
     winO = if windowed then lp.winOut else len
     span = max 1 (winO - winI)
+    picFrom = max (negate len) (min 0 winI - len / 8)
+    picTo = min (2 * len) (max len winO + len / 8)
     -- A beat, from the bar the rig reports, when the loop is on the grid;
     -- otherwise a frame, which is the exact thing.
     beat = if top.barFrames > 0 && top.linkQuantum > 0.0
@@ -389,11 +395,12 @@ render h ports state =
       Just pk | pk.loop == li && pk.buckets > 0 ->
         let
           w = Int.toNumber pk.buckets
-          -- The picture spans `from..to`, which is the loop plus the
-          -- silence the window reaches into; positions map onto that.
-          x f = Int.toNumber (f - pk.from) / Int.toNumber (max 1 (pk.to - pk.from)) * w
+          -- The picture spans `picFrom..picTo`, the same range the sliders
+          -- run, so a thumb and a line agree. The peaks were drawn over
+          -- their own range and are placed onto this one bucket by bucket.
+          x f = Int.toNumber (f - picFrom) / Int.toNumber (max 1 (picTo - picFrom)) * w
           y v = 100.0 - Int.toNumber v / 10.0
-          pt i v = show (Int.toNumber i) <> "," <> show (y v)
+          pt i v = show (x (pk.from + i * (pk.to - pk.from) / max 1 pk.buckets)) <> "," <> show (y v)
           top' = joinWith " " (Array.mapWithIndex pt pk.hi)
           -- Positions in the picture are bucket indices, so the polygon is
           -- already in place; only the rects and lines need `x`.

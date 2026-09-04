@@ -138,6 +138,9 @@ type AppState =
   -- | so a click is a delta against it. See `Data.Looper.Twister.Nudge`.
   , twisterEditFine :: Boolean
   , twisterNudge :: Map Int Int
+  -- | Bumped on every nudge click; a spring reset fires only if nothing has
+  -- | bumped it since, so a moving knob is never reset mid-turn.
+  , twisterNudgeSeq :: Int
   -- | Encoders whose turns are being ignored because a press just landed on
   -- | them. Cleared on a timer.
   , twisterGuard :: Set Int
@@ -438,6 +441,7 @@ initAppState =
   , twisterPending: Map.empty
   , twisterEditFine: false
   , twisterNudge: Map.empty
+  , twisterNudgeSeq: 0
   , twisterGuard: Set.empty
   , twisterHeardBank: Nothing
   , twisterPage: 0

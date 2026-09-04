@@ -40,6 +40,7 @@ import Data.Map as Map
 import Data.Int as Int
 import Data.Number as Number
 import Data.Maybe (Maybe(..), fromMaybe, isJust, isNothing, maybe)
+import Data.Ord (abs)
 import Data.Midi (CC, MidiValue, ProgramNumber, makeCC, makeChannel, makeMidiValue, makeProgramNumber, unCC, unChannel, unMidiValue, unProgramNumber, unsafeCC, unsafeMidiValue)
 import Data.Pedal (PedalDef, PedalId)
 import Pedals.Registry as PsRegistry
@@ -133,6 +134,7 @@ data Action
   | ShiftLoopStart Int Int
   | AskLoopPeaks Int
   | EditSliderDone String
+  | SettleNudge Knob Int
   | HandleHeader Header.Output
   | HandleDetail DetailView.Output
   | HandleGrid GridView.Output
@@ -1592,6 +1594,15 @@ handleAction = case _ of
     editVerb loop (LoopBanks.ShiftStart k)
   AskLoopPeaks loop -> editVerb loop (LoopBanks.AskPeaks 600)
   EditSliderDone key -> H.modify_ \s -> s { looperEditLocal = Map.delete key s.looperEditLocal }
+
+  -- The knob has been still long enough: put the ring back to centre. A
+  -- click that arrived meanwhile bumped the sequence, and this one stands
+  -- down; the click's own fork will settle later.
+  SettleNudge knob seq -> do
+    st <- H.get
+    when (st.twisterNudgeSeq == seq) do
+      sendRingPosition { bank: TwisterData.deviceBank, index: knob.index } 64
+      H.modify_ \s -> s { twisterNudge = Map.insert (knobCC knob) 64 s.twisterNudge }
 
   FlushTwisterTurn knob -> do
     st <- H.get
@@ -3513,7 +3524,16 @@ nudgeTurn
 nudgeTurn st knob nd val = do
   let cc = knobCC knob
       last = fromMaybe 64 (Map.lookup cc st.twisterNudge)
-      delta = val - last
+      -- **Against whichever base is nearer.** The device reports each click
+      -- against its own value, and that is `last` — unless a spring reset
+      -- has landed since, in which case it is centre. Which of the two
+      -- happened is not knowable from here, but a click is a step or two,
+      -- so the base that is within a step or two of what arrived is the one
+      -- it was counted from. Counting against centre alone was the
+      -- overshoot: a click that beat the reset was measured from a base the
+      -- device had not adopted yet.
+      base = if abs (val - last) <= abs (val - 64) then last else 64
+      delta = val - base
   for_ st.looper \top -> for_ (Array.index top.loops st.looperFocus) \lp -> do
     let beat = if top.barFrames > 0 && top.linkQuantum > 0.0
           then max 1 (Int.round (Int.toNumber top.barFrames / top.linkQuantum))
@@ -3530,9 +3550,13 @@ nudgeTurn st knob nd val = do
           LoopTwister.NStart -> LoopBanks.ShiftStart frames
     when (delta /= 0 && len > 0) $
       traverse_ (runAction 0.0) (Machine.perform (rigOf st) LoopBanks.Focused duty)
-  -- Back to centre, and remember that is where it is.
-  sendRingPosition { bank: TwisterData.deviceBank, index: knob.index } 64
-  H.modify_ \s -> s { twisterNudge = Map.insert cc 64 s.twisterNudge }
+  -- Remember what the device said, and spring back to centre only once the
+  -- knob has been still for a moment — never under a moving hand.
+  let seq = st.twisterNudgeSeq + 1
+  H.modify_ \s -> s { twisterNudge = Map.insert cc val s.twisterNudge, twisterNudgeSeq = seq }
+  void $ H.fork do
+    H.liftAff (delay (Milliseconds 250.0))
+    handleAction (SettleNudge knob seq)
 
 handleEncoderPress :: forall o m. MonadAff m => Knob -> H.HalogenM AppState Action Slots o m Unit
 handleEncoderPress knob = do
