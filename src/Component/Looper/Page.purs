@@ -143,6 +143,10 @@ type Handlers i =
   , clearWindow :: Int -> i
   , shiftStart :: Int -> Int -> i
   , askPeaks :: Int -> i
+  -- | Both ends at once (loop, in, out) — the shared panel's fixed-window
+  -- | slider. This page never shows that mode, but the handler record is
+  -- | the panel's contract, so it is supplied.
+  , windowTo :: Int -> Int -> Int -> i
   -- | A slider was released: the snapshot owns its value again.
   , editDone :: String -> i
   }
@@ -302,7 +306,7 @@ render h ports state =
   -- The panel itself is `Itajara.Surface.Edit`, shared with the Friend so
   -- the two draw one picture; this page supplies the three things it reads.
   editPanel = Edit.editPanel h
-    { focus: state.looperFocus, peaks: state.looperPeaks, local: state.looperEditLocal }
+    { focus: state.looperFocus, peaks: state.looperPeaks, local: state.looperEditLocal, fixedFrames: Nothing }
     state.looper
 
   modal klass title body =

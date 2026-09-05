@@ -129,6 +129,7 @@ data Action
   | SetTone String
   | SetLayerOn Int Int Boolean
   | SetWindowIn Int Int
+  | SetWindow Int Int Int
   | SetWindowOut Int Int
   | ClearLoopWindow Int
   | ShiftLoopStart Int Int
@@ -488,6 +489,7 @@ renderLooperView state = LooperPage.render handlers ports state
     , setLayer: SetLayerOn
     , windowIn: SetWindowIn
     , windowOut: SetWindowOut
+    , windowTo: SetWindow
     , clearWindow: ClearLoopWindow
     , shiftStart: ShiftLoopStart
     , askPeaks: AskLoopPeaks
@@ -1587,6 +1589,10 @@ handleAction = case _ of
     H.modify_ \s -> s { looperEditLocal = Map.insert "out" f s.looperEditLocal }
     editVerb loop (LoopBanks.WindowOut f)
   ClearLoopWindow loop -> editVerb loop LoopBanks.ClearWindow
+  SetWindow loop i o -> do
+    H.modify_ \s -> s { looperEditLocal = Map.insert "in" i s.looperEditLocal }
+    editVerb loop (LoopBanks.WindowIn i)
+    editVerb loop (LoopBanks.WindowOut o)
   ShiftLoopStart loop k -> do
     st <- H.get
     let rotNow = maybe 0 _.rot (st.looper >>= \s -> Array.index s.loops loop)
