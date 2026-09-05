@@ -1409,7 +1409,10 @@ main = do
       && LoopVerb.render (LoopVerb.ExportLayers "riff") == "exlriff"
       && LoopVerb.render (LoopVerb.CopyLoop 2) == "cp2"
       && LoopVerb.render (LoopVerb.CopyLayer 2 3) == "cp2l3"
-      && LoopVerb.at 4 (LoopVerb.CopyLayer 2 3) == "4cp2l3")
+      && LoopVerb.at 4 (LoopVerb.CopyLayer 2 3) == "4cp2l3"
+      && LoopVerb.render (LoopVerb.LayerWindow 2 1000 625000) == "lw2:1000:625000"
+      && LoopVerb.render (LoopVerb.ClearLayerWindow 2) == "lw2"
+      && LoopVerb.render (LoopVerb.DupLayer 3) == "dp3")
 
   -- A loop prefix on every board command, because the daemon's own selection is
   -- a mode a footswitch could fall out of step with.

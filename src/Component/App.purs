@@ -130,6 +130,8 @@ data Action
   | SetLayerOn Int Int Boolean
   | SetWindowIn Int Int
   | SetWindow Int Int Int
+  | SetLayerWindow Int Int Int Int
+  | ClearLayerWindow Int Int
   | SetWindowOut Int Int
   | ClearLoopWindow Int
   | ShiftLoopStart Int Int
@@ -490,6 +492,8 @@ renderLooperView state = LooperPage.render handlers ports state
     , windowIn: SetWindowIn
     , windowOut: SetWindowOut
     , windowTo: SetWindow
+    , layerWindowTo: SetLayerWindow
+    , clearLayerWindow: ClearLayerWindow
     , clearWindow: ClearLoopWindow
     , shiftStart: ShiftLoopStart
     , askPeaks: AskLoopPeaks
@@ -1589,6 +1593,10 @@ handleAction = case _ of
     H.modify_ \s -> s { looperEditLocal = Map.insert "out" f s.looperEditLocal }
     editVerb loop (LoopBanks.WindowOut f)
   ClearLoopWindow loop -> editVerb loop LoopBanks.ClearWindow
+  SetLayerWindow loop k i o -> do
+    H.modify_ \s -> s { looperEditLocal = Map.insert "in" i s.looperEditLocal }
+    editVerb loop (LoopBanks.LayerWindow k i o)
+  ClearLayerWindow loop k -> editVerb loop (LoopBanks.ClearLayerWindow k)
   SetWindow loop i o -> do
     H.modify_ \s -> s { looperEditLocal = Map.insert "in" i s.looperEditLocal }
     editVerb loop (LoopBanks.WindowIn i)
