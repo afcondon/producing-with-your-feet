@@ -151,6 +151,9 @@ type Handlers i =
   , clearLayerWindow :: Int -> Int -> i
   -- | A slider was released: the snapshot owns its value again.
   , editDone :: String -> i
+  -- | Dragging the window along the picture; the fixed panel's hand, which
+  -- | this page never shows, so it offers none.
+  , waveDrag :: Maybe (Edit.WaveDrag i)
   }
 
 render

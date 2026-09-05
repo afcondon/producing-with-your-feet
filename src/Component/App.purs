@@ -498,6 +498,7 @@ renderLooperView state = LooperPage.render handlers ports state
     , shiftStart: ShiftLoopStart
     , askPeaks: AskLoopPeaks
     , editDone: EditSliderDone
+    , waveDrag: Nothing
     }
 
   ports =
