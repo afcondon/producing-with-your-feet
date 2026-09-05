@@ -149,11 +149,19 @@ just shows less of the cycle.
 
 Three consequences to decide up front rather than discover:
 
-- **Record is refused while a loop is windowed** — *"clear the window
-  first."* A new layer's length is the window, its placement is relative to
-  the cycle, and reconciling the two is a crop, which this deliberately is
-  not. If cropping is ever wanted it is a separate verb that rewrites layers
-  off the audio thread, for which Revox's flatten-on-entry is the precedent.
+- ~~**Record is refused while a loop is windowed**~~ Revised 2026-09-05:
+  an **overdub goes into a windowed loop**. The premise here was that a new
+  layer would be sized to the window; it is not — a layer is the length of
+  the loop and the write head follows the play head, so the fix was to make
+  the write head follow it *through the window and the rotation*
+  (`Loop::write_pos`, held equal to `play_pos` frame by frame by a test).
+  What you play lands where you heard it and nothing outside the window is
+  touched; a window that reaches into silence has no slot there and writes
+  nothing. The same change fixed a latent fault: a rotation with no window
+  had been sending overdubs to the unrotated position. **Multiply and
+  claim-the-past are still refused** under a window — one changes the length
+  the window is set against, the other writes from the ring against the
+  cycle. Cropping remains a separate verb nobody has asked for.
 - **A windowed loop is off the grid unless the window is whole bars.**
   `plain()` grows a clause, and the `acid` chunk is written only when the
   window is bar-aligned. Handles snap to beats from `barFrames` and the Link
