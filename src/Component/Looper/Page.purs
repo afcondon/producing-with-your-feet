@@ -179,7 +179,12 @@ render h ports state =
                 Just lp | state.looperShowsSlots -> Slots.render h.setLayer lp state.looperFocus (LoopBanks.face state.looperBankShown)
                 _ -> HH.text ""
             , case state.looper of
-                Just lp | not state.looperShowsSlots -> HH.div_ [ transport lp, readout lp ]
+                Just lp | not state.looperShowsSlots ->
+                  -- The focused loop, read from `loops`: the top level is the
+                  -- rig and says nothing about any one loop.
+                  case Array.index lp.loops state.looperFocus of
+                    Just fl -> HH.div_ [ transport lp fl, readout lp fl ]
+                    Nothing -> HH.text ""
                 _ -> HH.text ""
             ]
         -- **The board and the log, in that order, and the order is the
@@ -531,19 +536,20 @@ render h ports state =
   -- Every button here goes through the Itajara pedal's CC — the same path a
   -- footswitch or a Twister encoder takes. There is deliberately no shortcut to
   -- the socket from the UI: one route in means one place to debug.
-  transport lp =
+  -- `lp` is the rig, `fl` the focused loop.
+  transport lp fl =
     HH.div [ HP.class_ (HH.ClassName "looper-transport") ]
-      [ gestureBtn ("looper-btn" <> if lp.recording then " recording" else "")
-          (not st.connected) 1 (nextPress lp)
+      [ gestureBtn ("looper-btn" <> if fl.recording then " recording" else "")
+          (not st.connected) 1 (nextPress fl)
       , gestureBtn "looper-btn small"
-          (not st.connected || lp.loopFrames == 0) 2
-          (if LooperSocket.phaseOf lp == LooperSocket.Multiplying then "End multiply" else "Multiply")
+          (not st.connected || fl.loopFrames == 0) 2
+          (if LooperSocket.phaseOf fl == LooperSocket.Multiplying then "End multiply" else "Multiply")
       , gestureBtn "looper-btn small" (not st.connected) 5 "Take"
-      , gestureBtn "looper-btn small" (not st.connected || lp.layers == 0) 3 "Undo"
+      , gestureBtn "looper-btn small" (not st.connected || fl.layers == 0) 3 "Undo"
       -- Only offered when there is a length and nothing sitting in it, which is
       -- the only moment it is meaningful and also the only moment it is wanted.
       , gestureBtn "looper-btn small"
-          (not st.connected || lp.layers /= 0 || lp.loopFrames == 0) 13 "Forget length"
+          (not st.connected || fl.layers /= 0 || fl.loopFrames == 0) 13 "Forget length"
       , HH.button
           [ HP.class_ (HH.ClassName "looper-btn small")
           , HP.disabled (not st.connected)
@@ -633,7 +639,7 @@ render h ports state =
       [ HH.text label ]
 
   -- | What the next press does, which is the thing every looper hides.
-  nextPress lp = case LooperSocket.phaseOf lp of
+  nextPress fl = case LooperSocket.phaseOf fl of
     LooperSocket.RecordingFirst -> "Close the loop"
     LooperSocket.Overdubbing -> "Finish overdub"
     LooperSocket.Multiplying -> "End multiply"
@@ -647,21 +653,21 @@ render h ports state =
     LooperSocket.Idle -> byContents
     where
     byContents
-      | lp.loopFrames == 0 = "Record"
-      | lp.layers == 0 = "Record on the grid"
+      | fl.loopFrames == 0 = "Record"
+      | fl.layers == 0 = "Record on the grid"
       | otherwise = "Overdub"
 
-  readout lp =
+  readout lp fl =
     HH.div [ HP.class_ (HH.ClassName "looper-readout") ]
-      [ phaseBar lp
+      [ phaseBar fl
       , HH.table [ HP.class_ (HH.ClassName "docs-table") ]
           [ HH.tbody_
-              [ row "State" lp.state
-              , row "Layers" (show lp.layers <> " of " <> show lp.maxLayers)
+              [ row "State" fl.state
+              , row "Layers" (show fl.layers <> " of " <> show lp.maxLayers)
               , row "Loop"
-                  ( if lp.loopFrames == 0 then "not set"
-                    else fmt2 lp.loopSecs <> " s  (" <> show lp.loopFrames <> " frames)"
-                           <> (if lp.layers == 0
+                  ( if fl.loopFrames == 0 then "not set"
+                    else fmt2 fl.loopSecs <> " s  (" <> show fl.loopFrames <> " frames)"
+                           <> (if fl.layers == 0
                                  then "  \x2014 empty, grid kept for the next take"
                                  else "")
                   )
@@ -677,11 +683,11 @@ render h ports state =
 
   -- Where we are in the cycle. Crude next to the concentric rings §12 wants,
   -- but it is the one thing a looper must never leave you guessing about.
-  phaseBar lp =
+  phaseBar fl =
     HH.div [ HP.class_ (HH.ClassName "looper-phase") ]
       [ HH.div
           [ HP.class_ (HH.ClassName "looper-phase-fill")
-          , HP.style ("width:" <> show (max 0.0 (min 100.0 (lp.phase * 100.0))) <> "%")
+          , HP.style ("width:" <> show (max 0.0 (min 100.0 (fl.phase * 100.0))) <> "%")
           ]
           []
       ]
