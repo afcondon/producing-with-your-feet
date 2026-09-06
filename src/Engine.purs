@@ -141,6 +141,12 @@ type AppState =
   -- | Bumped on every nudge click; a spring reset fires only if nothing has
   -- | bumped it since, so a moving knob is never reset mid-turn.
   , twisterNudgeSeq :: Int
+  -- | The layer count the undo knob last asked of each loop, until the
+  -- | snapshot shows it. While one is outstanding, further turns of that
+  -- | knob are ignored: each turn was re-deriving its steps from a stale
+  -- | count, so one detent past the first sent two undos, and a hand that
+  -- | meant "one back" rolled through to the redo.
+  , layersAsked :: Map Int Int
   -- | Encoders whose turns are being ignored because a press just landed on
   -- | them. Cleared on a timer.
   , twisterGuard :: Set Int
@@ -442,6 +448,7 @@ initAppState =
   , twisterEditFine: false
   , twisterNudge: Map.empty
   , twisterNudgeSeq: 0
+  , layersAsked: Map.empty
   , twisterGuard: Set.empty
   , twisterHeardBank: Nothing
   , twisterPage: 0

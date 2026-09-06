@@ -2127,6 +2127,9 @@ handleAction = case _ of
       -- picture would differ: the key is the loop in focus, its layer count
       -- and its newest layer's birth. A loop with nothing in it has no
       -- picture and no key, so it is not asked about thirty times a second.
+      -- The undo knob's outstanding asks, released as the snapshot meets them.
+      for_ snap \sn ->
+        H.modify_ (\x -> x { layersAsked = Map.filterWithKey (\i want -> maybe true (\lp -> lp.layers /= want) (Array.index sn.loops i)) x.layersAsked })
       when (cur.looperPanel == Just PanelEdit) $
         for_ snap \s -> for_ (Array.index s.loops cur.looperFocus) \lp -> do
           let key = if lp.layers == 0 then ""
@@ -3514,8 +3517,20 @@ handleEncoderTurnOnPedal st knob val =
                (adoptTwisterPage (LoopTwister.pageFor val))
         else case control.nudge of
           Just nd -> nudgeTurn st knob nd val
-          Nothing -> for_ (LoopTwister.turnedAt here val) \(Tuple subject duty) ->
-            traverse_ (runAction 0.0) (Machine.perform (rigOf st) subject duty)
+          Nothing -> for_ (LoopTwister.turnedAt here val) \(Tuple subject duty) -> case duty of
+            -- The undo knob waits for the engine to catch up before it
+            -- takes another step; see `layersAsked`.
+            LoopBanks.Layers want -> do
+              let i = case subject of
+                    LoopBanks.OnLoop n -> n
+                    _ -> st.looperFocus
+                  have = maybe 0 _.layers (st.looper >>= \top -> Array.index top.loops i)
+              case Map.lookup i st.layersAsked of
+                Just asked | asked /= have -> pure unit
+                _ -> do
+                  when (want /= have) $ H.modify_ \x -> x { layersAsked = Map.insert i want x.layersAsked }
+                  traverse_ (runAction 0.0) (Machine.perform (rigOf st) subject duty)
+            _ -> traverse_ (runAction 0.0) (Machine.perform (rigOf st) subject duty)
     else onPedal st \pid def ps ->
       -- Bank one only. A pedal is a page of knobs; the other three pages are
       -- the looper's, and a pedal has no opinion about them.
