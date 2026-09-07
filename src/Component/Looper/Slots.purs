@@ -166,7 +166,7 @@ slot onLayer top focus fc idx st =
             [ HH.text (if st.layers == 0 then "" else show st.layers <> plural st.layers " layer") ]
         ]
     , track (onLayer idx) top st
-    , mix st
+    , mix top st
     , HH.div [ HP.class_ (HH.ClassName "loop-foot") ]
         [ HH.span_ [ HH.text (lengthWord top st) ]
         -- The resolutions, shown only when they are not the default. A row of
@@ -196,8 +196,8 @@ slot onLayer top focus fc idx st =
 -- | the encoder ring is drawn from — so the bar on the screen and the ring under
 -- | the hand cannot disagree about the same loop. A second conversion here
 -- | would be a second chance to bend the fader law differently.
-mix :: forall w i. LoopState -> HH.HTML w i
-mix st =
+mix :: forall w i. LooperState -> LoopState -> HH.HTML w i
+mix lp st =
   HH.div [ HP.class_ (HH.ClassName "loop-mix") ]
     -- The words survive as the hover, which is where an exact number belongs on
     -- a control you read by shape: the picture answers "which is loudest" and
@@ -208,7 +208,7 @@ mix st =
         ]
         [ HH.div
             [ HP.class_ (HH.ClassName "loop-level-fill")
-            , HP.style ("width:" <> pc (TW.toKnob TW.PLevel st) <> "%")
+            , HP.style ("width:" <> pc (TW.toKnob { maxLayers: lp.maxLayers } TW.PLevel st) <> "%")
             ] []
         ]
     , HH.div

@@ -58,6 +58,8 @@ module Data.Looper.Twister
   , Nudge(..)
   , nudgeLabel
   , Opens(..)
+  , Shape
+  , shapeOf
   , controlAt
   , pressedAt
   , turnedAt
@@ -199,7 +201,10 @@ detented p v = case homePosition p of
 paramRange :: Param -> String
 paramRange = case _ of
   PTape -> "none to " <> show (round tapeTop) <> " s, threaded empty"
-  PLayers -> "none to " <> show maxLayers <> ", one step a layer"
+  -- No number: the card is a static description of the layout and the ceiling
+  -- is the daemon's, known only per snapshot. It used to say "none to 4" on a
+  -- rig that had six.
+  PLayers -> "none to the daemon's ceiling, one step a layer"
   PLevel -> "silent to full, -12 dB at half travel"
   PRate -> "×4 back, through stopped, to ×4 forward — in fifths and octaves"
   PPlace -> "hard left to hard right, and centre sticks"
@@ -877,10 +882,10 @@ pressedAt k =
 
 -- | What a turn means, if anything. The value is the encoder's absolute
 -- | position, 0–127.
-turnedAt :: Knob -> Int -> Maybe (Tuple Subject Duty)
-turnedAt k v =
+turnedAt :: Shape -> Knob -> Int -> Maybe (Tuple Subject Duty)
+turnedAt sh k v =
   let c = controlAt k
-  in map (\p -> Tuple c.subject (fromKnob p v)) c.turn
+  in map (\p -> Tuple c.subject (fromKnob sh p v)) c.turn
 
 -- | **The only place a knob position becomes a value**, and the counterpart of
 -- | `Data.Looper.Verb.render`: one direction, one function, no second spelling.
@@ -889,13 +894,13 @@ turnedAt k v =
 -- | exponential with unity at the centre, because the useful resolution is near
 -- | one and the range is five octaves; pan is the identity, because the
 -- | daemon's own units are already 0–127 with 64 centre.
-fromKnob :: Param -> Int -> Duty
-fromKnob p v = case p of
+fromKnob :: Shape -> Param -> Int -> Duty
+fromKnob sh p v = case p of
   -- Whole seconds, because that is the unit you think a loop length in, and
   -- because the daemon rounds it to the grid when the loop is quantised — only
   -- it knows where the grid is.
   PTape -> Blank (toNumber (round (toNumber (clamp 0 127 v) / 127.0 * tapeTop)))
-  PLayers -> Layers (round (toNumber (clamp 0 127 v) / 127.0 * toNumber maxLayers))
+  PLayers -> Layers (round (toNumber (clamp 0 127 v) / 127.0 * toNumber sh.maxLayers))
   PLevel -> Level (round1 (levelOf (clamp 0 127 v)))
   PRate -> Rate (rateOf v)
   PPlace -> Place (detented p (clamp 0 127 v))
@@ -925,13 +930,16 @@ fromKnob p v = case p of
 
 -- | Where a value sits on the ring — the inverse of `fromKnob`, and the reason
 -- | the device never has to remember anything.
-toKnob :: Param -> LoopState -> Int
-toKnob p st = clamp 0 127 $ case p of
+toKnob :: Shape -> Param -> LoopState -> Int
+toKnob sh p st = clamp 0 127 $ case p of
   -- The loop's actual length, so the knob shows what is threaded — including
   -- for a loop that was *recorded* rather than threaded, where turning would be
   -- refused but the reading is still the truth.
   PTape -> round (st.loopSecs / tapeTop * 127.0)
-  PLayers -> round (toNumber st.layers / toNumber maxLayers * 127.0)
+  -- Guarded, because a shape that has not been spoken yet would divide by
+  -- zero and a ring drawn from `NaN` is worse than one drawn from nothing.
+  PLayers -> if sh.maxLayers <= 0 then 0
+             else round (toNumber st.layers / toNumber sh.maxLayers * 127.0)
   PLevel -> levelRing st.volDb
   -- **Composed, because the snapshot keeps the two halves apart.** `speed` is a
   -- magnitude and the direction is `reverse`, so reading the ring off `speed`
@@ -1065,11 +1073,27 @@ levelOf = decibelsAt levelLaw
 levelRing :: Number -> Int
 levelRing = positionAt levelLaw
 
--- | How many layers a loop can hold. **Mirrors `MAX_LAYERS` in the engine**;
--- | the snapshot carries the authoritative number as `maxLayers` if this ever
--- | needs checking rather than trusting.
-maxLayers :: Int
-maxLayers = 4
+-- | **What the daemon's shape is, as much of it as a knob's travel depends on.**
+-- |
+-- | This was `maxLayers = 4`, a constant, with a comment saying the snapshot
+-- | carried the authoritative number "if this ever needs checking rather than
+-- | trusting". It needed checking. The engine takes `--layers`, the Arbhar
+-- | harvest wants six of them, and the moment the daemon has more layers than
+-- | this said, the layers knob stopped being merely inaccurate and became
+-- | destructive: `Duty.Layers` is absolute, so a full-clockwise turn asked for
+-- | four when six were there, and `Machine.perform` spent the difference in
+-- | `Undo`. A knob whose top of travel deletes two takes.
+-- |
+-- | So it comes in, per turn, from the snapshot — the same rule as every ring
+-- | position in this module. One field for now; `maxSources` is the other
+-- | constant of this kind and can join it when it stops being safe by refusal.
+type Shape = { maxLayers :: Int }
+
+-- | The shape, off the rig. The only constructor anything outside a test should
+-- | use: it is what makes "the knob's ceiling" and "the daemon's ceiling" one
+-- | number rather than two that agree by luck.
+shapeOf :: Rig -> Shape
+shapeOf rig = { maxLayers: rig.maxLayers }
 
 -- | The longest tape the knob offers, in seconds.
 -- |
@@ -1305,7 +1329,7 @@ ledsWith mode rig bank = do
         PageRing -> 0
         RigValue p -> rigKnob p rig
         Centred -> 64
-        _ -> maybe 0 (ringOf c) loop
+        _ -> maybe 0 (ringOf (shapeOf rig) c) loop
     , ringHeld: c.pager
     -- The colour is the app's to say, and says the page.
     , hue: if c.pager then hue (pageTone bank)
@@ -1322,13 +1346,16 @@ ledsWith mode rig bank = do
     Steady t -> hue t
     _ -> 0
 
-ringOf :: Control -> LoopState -> Int
-ringOf c st = case c.ring of
+-- | The `Shape` is a **scale, not a value**: it says how long the travel is,
+-- | not what is on it. `RigValue` is still the only way a ring reads something
+-- | global, so the rule above is intact.
+ringOf :: Shape -> Control -> LoopState -> Int
+ringOf sh c st = case c.ring of
   NoRing -> 0
   Centred -> 64
   PageRing -> 0
   RigValue _ -> 0
-  Value p -> toKnob p st
+  Value p -> toKnob sh p st
 
 -- | Where a rig-wide value stands on its knob. The counterpart of `toKnob` for
 -- | the one parameter that is not about a loop.

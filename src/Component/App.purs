@@ -3517,7 +3517,7 @@ handleEncoderTurnOnPedal st knob val =
                (adoptTwisterPage (LoopTwister.pageFor val))
         else case control.nudge of
           Just nd -> nudgeTurn st knob nd val
-          Nothing -> for_ (LoopTwister.turnedAt here val) \(Tuple subject duty) -> case duty of
+          Nothing -> for_ (LoopTwister.turnedAt (LoopTwister.shapeOf (rigOf st)) here val) \(Tuple subject duty) -> case duty of
             -- The undo knob waits for the engine to catch up before it
             -- takes another step; see `layersAsked`.
             LoopBanks.Layers want -> do

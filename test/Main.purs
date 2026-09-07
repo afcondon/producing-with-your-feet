@@ -118,6 +118,13 @@ assert label ok = log $ (if ok then "PASS" else "FAIL") <> " - " <> label
 pad :: String -> String
 pad s = if String.length s >= 2 then s else " " <> s
 
+-- | **A four-layer daemon**, which is the shape every scale below was written
+-- | against. It is a value now rather than a constant in the module under test:
+-- | the ceiling belongs to whatever `--layers` the daemon was launched with,
+-- | and a knob that guesses it low turns `Layers` into `Undo`.
+sh4 :: LoopTw.Shape
+sh4 = { maxLayers: 4 }
+
 intAbs :: Int -> Int
 intAbs n = if n < 0 then negate n else n
 
@@ -1031,6 +1038,7 @@ main = do
                , alt: false, sized: false, windowed: false }
       withState n s ls = (idle n) { state = s, layers = ls }
       rigOf ls = { loops: ls, focus: 0, click: false, monitor: false, armDb: -36.0
+                 , maxLayers: 4
                  , launchQ: -1, sources: [ "board", "di", "ipad" ]
                  , grab: LB.grabLoops, grabSource: LB.grabSource }
       isCommand = case _ of
@@ -1295,7 +1303,10 @@ main = do
   -- calls it playing and there is nothing to play. The footer still shows the
   -- length, which is the useful half.
   assert "an undone loop reads empty, not playing"
-    (Slots.stateWord ((withState 0 "playing" 0) { loopFrames = 155215 }) == "empty"
+    -- `sized`, not `loopFrames`: emptiness stopped being derived from the
+    -- length on 2026-09-07 and became the daemon's own word. The assertion
+    -- kept setting the length and went red the moment the guard moved.
+    (Slots.stateWord ((withState 0 "playing" 0) { loopFrames = 155215, sized = true }) == "empty"
       && Slots.stateWord (withState 0 "playing" 0) == "")
 
   -- Three things that are all "not sounding right now" and are deliberately
@@ -2991,7 +3002,7 @@ main = do
   -- the dead band is that stopped is a place the hand can find.
   assert "every position of the speed knob is a speed the daemon accepts, or stopped"
     (Array.all
-      (\v -> case LoopTw.fromKnob LoopTw.PRate v of
+      (\v -> case LoopTw.fromKnob sh4 LoopTw.PRate v of
           LB.Rate r -> r == 0.0 || (r >= 0.125 && r <= 4.0) || (r <= -0.125 && r >= -4.0)
           _ -> false)
       (Array.range 0 127))
@@ -3000,12 +3011,12 @@ main = do
   -- reason Reverse stopped needing a cell of its own.
   assert "the speed knob runs backwards below the centre and forwards above it"
     (Array.all
-      (\v -> case LoopTw.fromKnob LoopTw.PRate v of
+      (\v -> case LoopTw.fromKnob sh4 LoopTw.PRate v of
           LB.Rate r -> r < 0.0
           _ -> false)
       (Array.range 0 60)
       && Array.all
-        (\v -> case LoopTw.fromKnob LoopTw.PRate v of
+        (\v -> case LoopTw.fromKnob sh4 LoopTw.PRate v of
             LB.Rate r -> r > 0.0
             _ -> false)
         (Array.range 68 127))
@@ -3013,16 +3024,16 @@ main = do
   assert "and of the decay, fade, chance and pan knobs"
     (Array.all
       (\v ->
-        (case LoopTw.fromKnob LoopTw.PDecay v of
+        (case LoopTw.fromKnob sh4 LoopTw.PDecay v of
            LB.Decay db -> db <= 0.0 && db >= -60.0
            _ -> false)
-        && (case LoopTw.fromKnob LoopTw.PFade v of
+        && (case LoopTw.fromKnob sh4 LoopTw.PFade v of
               LB.Fade ms -> ms >= 0.0 && ms <= 500.0
               _ -> false)
-        && (case LoopTw.fromKnob LoopTw.PChance v of
+        && (case LoopTw.fromKnob sh4 LoopTw.PChance v of
               LB.Chance p -> p >= 0.0 && p <= 1.0
               _ -> false)
-        && (case LoopTw.fromKnob LoopTw.PPlace v of
+        && (case LoopTw.fromKnob sh4 LoopTw.PPlace v of
               LB.Place n -> n >= 0 && n <= 127
               _ -> false))
       (Array.range 0 127))
@@ -3031,10 +3042,10 @@ main = do
   -- where it has always been. Unity is not a position on this knob any more —
   -- it is the press — which is the trade that bought the direction.
   assert "the speed knob stops in the middle and reaches full speed both ways"
-    (LoopTw.fromKnob LoopTw.PRate 64 == LB.Rate 0.0
-      && LoopTw.fromKnob LoopTw.PRate 0 == LB.Rate (-4.0)
-      && LoopTw.fromKnob LoopTw.PRate 127 == LB.Rate 4.0
-      && LoopTw.fromKnob LoopTw.PPlace 64 == LB.Place 64)
+    (LoopTw.fromKnob sh4 LoopTw.PRate 64 == LB.Rate 0.0
+      && LoopTw.fromKnob sh4 LoopTw.PRate 0 == LB.Rate (-4.0)
+      && LoopTw.fromKnob sh4 LoopTw.PRate 127 == LB.Rate 4.0
+      && LoopTw.fromKnob sh4 LoopTw.PPlace 64 == LB.Place 64)
 
   -- The press is the only way back to unity, so it had better be unity.
   assert "pressing the speed knob asks for unity, forwards"
@@ -3049,11 +3060,11 @@ main = do
   -- that matters is the round trip: whatever the engine says, the position the
   -- ring is put at asks for that same speed back.
   assert "the ring shows the engine's value, at both ends and the middle"
-    (LoopTw.toKnob LoopTw.PRate ((idle 0) { speed = 0.0 }) == 64
-      && LoopTw.fromKnob LoopTw.PRate (LoopTw.toKnob LoopTw.PRate ((idle 0) { speed = 4.0 }))
+    (LoopTw.toKnob sh4 LoopTw.PRate ((idle 0) { speed = 0.0 }) == 64
+      && LoopTw.fromKnob sh4 LoopTw.PRate (LoopTw.toKnob sh4 LoopTw.PRate ((idle 0) { speed = 4.0 }))
            == LB.Rate 4.0
-      && LoopTw.toKnob LoopTw.PPlace ((idle 0) { pan = 100 }) == 100
-      && LoopTw.toKnob LoopTw.PChance ((idle 0) { chance = 1.0 }) == 127)
+      && LoopTw.toKnob sh4 LoopTw.PPlace ((idle 0) { pan = 100 }) == 100
+      && LoopTw.toKnob sh4 LoopTw.PChance ((idle 0) { chance = 1.0 }) == 127)
 
   -- **Every step is an octave or a fifth from the one beside it**, which is the
   -- whole reason the knob steps at all: a continuous speed is a continuous
@@ -3079,7 +3090,7 @@ main = do
   -- select is a step that is not there.
   assert "every rung of the ladder can be reached by turning"
     (Array.all
-      (\r -> Array.elem (LB.Rate r) (map (LoopTw.fromKnob LoopTw.PRate) (Array.range 0 127)))
+      (\r -> Array.elem (LB.Rate r) (map (LoopTw.fromKnob sh4 LoopTw.PRate) (Array.range 0 127)))
       LoopTw.rateSteps)
 
   -- **The bug this composition was written to end.** `speed` is a magnitude and
@@ -3088,10 +3099,10 @@ main = do
   -- speed. It did that for as long as the knob existed and nothing could see
   -- it, because the knob could only ever ask for one sign.
   assert "the ring tells the two directions apart"
-    (LoopTw.toKnob LoopTw.PRate ((idle 0) { speed = 2.0, reverse = false })
-       /= LoopTw.toKnob LoopTw.PRate ((idle 0) { speed = 2.0, reverse = true })
-      && LoopTw.toKnob LoopTw.PRate ((idle 0) { speed = 2.0, reverse = true }) < 64
-      && LoopTw.toKnob LoopTw.PRate ((idle 0) { speed = 2.0, reverse = false }) > 64)
+    (LoopTw.toKnob sh4 LoopTw.PRate ((idle 0) { speed = 2.0, reverse = false })
+       /= LoopTw.toKnob sh4 LoopTw.PRate ((idle 0) { speed = 2.0, reverse = true })
+      && LoopTw.toKnob sh4 LoopTw.PRate ((idle 0) { speed = 2.0, reverse = true }) < 64
+      && LoopTw.toKnob sh4 LoopTw.PRate ((idle 0) { speed = 2.0, reverse = false }) > 64)
 
   -- A knob you cannot put back is a knob you will not turn.
   assert "every knob has a press that puts it home"
@@ -3109,7 +3120,7 @@ main = do
   assert "there is no fifth page"
     (Array.all
       (\i -> LoopTw.pressedAt { bank: 4, index: i } == Nothing
-          && LoopTw.turnedAt { bank: 4, index: i } 64 == Nothing)
+          && LoopTw.turnedAt sh4 { bank: 4, index: i } 64 == Nothing)
       (Array.range 0 15))
 
   -- Every page has its pager in the same corner and nothing else claims one.
@@ -3128,15 +3139,15 @@ main = do
   -- position within one step of where it started.
   assert "every position of the level knob survives the round trip"
     (Array.all
-      (\v -> case LoopTw.fromKnob LoopTw.PLevel v of
-          LB.Level db -> intAbs (LoopTw.toKnob LoopTw.PLevel ((idle 0) { volDb = db }) - v) <= 1
+      (\v -> case LoopTw.fromKnob sh4 LoopTw.PLevel v of
+          LB.Level db -> intAbs (LoopTw.toKnob sh4 LoopTw.PLevel ((idle 0) { volDb = db }) - v) <= 1
           _ -> false)
       (Array.range 0 127))
 
   assert "and every position of the decay knob"
     (Array.all
-      (\v -> case LoopTw.fromKnob LoopTw.PDecay v of
-          LB.Decay db -> intAbs (LoopTw.toKnob LoopTw.PDecay ((idle 0) { decayDb = db }) - v) <= 1
+      (\v -> case LoopTw.fromKnob sh4 LoopTw.PDecay v of
+          LB.Decay db -> intAbs (LoopTw.toKnob sh4 LoopTw.PDecay ((idle 0) { decayDb = db }) - v) <= 1
           _ -> false)
       (Array.range 0 127))
 
@@ -3147,32 +3158,32 @@ main = do
   -- the knob than fading does, because fading is a gesture and mixing is a
   -- decision.
   assert "the level fader spends its top three quarters on the first 9 dB"
-    (LoopTw.fromKnob LoopTw.PLevel 127 == LB.Level 0.0
-      && LoopTw.fromKnob LoopTw.PLevel 64 == LB.Level (-6.0)
-      && LoopTw.fromKnob LoopTw.PLevel 32 == LB.Level (-9.0)
-      && LoopTw.fromKnob LoopTw.PLevel 0 == LB.Level (-60.0))
+    (LoopTw.fromKnob sh4 LoopTw.PLevel 127 == LB.Level 0.0
+      && LoopTw.fromKnob sh4 LoopTw.PLevel 64 == LB.Level (-6.0)
+      && LoopTw.fromKnob sh4 LoopTw.PLevel 32 == LB.Level (-9.0)
+      && LoopTw.fromKnob sh4 LoopTw.PLevel 0 == LB.Level (-60.0))
 
   -- **Decay counts down from hold**, the same way round as the level, and stops
   -- at the ladder's own floor rather than the daemon's. Every value the MC6's
   -- ladder can step to is reachable on the knob, which is the test that the two
   -- surfaces are describing one parameter.
   assert "decay holds at the top and reaches the ladder's floor at the bottom"
-    (LoopTw.fromKnob LoopTw.PDecay 127 == LB.Decay 0.0
-      && LoopTw.fromKnob LoopTw.PDecay 64 == LB.Decay (-3.0)
-      && LoopTw.fromKnob LoopTw.PDecay 0 == LB.Decay (-12.0))
+    (LoopTw.fromKnob sh4 LoopTw.PDecay 127 == LB.Decay 0.0
+      && LoopTw.fromKnob sh4 LoopTw.PDecay 64 == LB.Decay (-3.0)
+      && LoopTw.fromKnob sh4 LoopTw.PDecay 0 == LB.Decay (-12.0))
 
   assert "and a fresh loop's decay knob sits at the top, not the bottom"
-    (LoopTw.toKnob LoopTw.PDecay (idle 0) == 127)
+    (LoopTw.toKnob sh4 LoopTw.PDecay (idle 0) == 127)
 
   -- **Centre sticks**, because the Midifighter's own detent is a setting in its
   -- configuration utility and this app keeps no device configuration. Pan you
   -- meant to centre is centred rather than one step off it.
   assert "pan and speed snap to the middle, and nothing else does"
-    (LoopTw.fromKnob LoopTw.PPlace 63 == LB.Place 64
-      && LoopTw.fromKnob LoopTw.PPlace 66 == LB.Place 64
-      && LoopTw.fromKnob LoopTw.PPlace 60 == LB.Place 60
-      && LoopTw.fromKnob LoopTw.PRate 63 == LB.Rate 0.0
-      && LoopTw.fromKnob LoopTw.PChance 63 /= LoopTw.fromKnob LoopTw.PChance 64)
+    (LoopTw.fromKnob sh4 LoopTw.PPlace 63 == LB.Place 64
+      && LoopTw.fromKnob sh4 LoopTw.PPlace 66 == LB.Place 64
+      && LoopTw.fromKnob sh4 LoopTw.PPlace 60 == LB.Place 60
+      && LoopTw.fromKnob sh4 LoopTw.PRate 63 == LB.Rate 0.0
+      && LoopTw.fromKnob sh4 LoopTw.PChance 63 /= LoopTw.fromKnob sh4 LoopTw.PChance 64)
 
   -- **The ring is the value, and on this device that is not a display
   -- choice.** The ring and the encoder's own position are one number, so a
@@ -3206,7 +3217,7 @@ main = do
       (\i -> (LoopTw.controlAt { bank: 0, index: i }).subject
                == (LoopTw.controlAt { bank: 1, index: i }).subject)
       (Array.range 0 7)
-      && LoopTw.turnedAt { bank: 1, index: 3 } 100 == Just (Tuple (LB.OnLoop 3) (LB.Place 100)))
+      && LoopTw.turnedAt sh4 { bank: 1, index: 3 } 100 == Just (Tuple (LB.OnLoop 3) (LB.Place 100)))
 
   -- Both pages light sixteen encoders and neither knows which CC block they
   -- land in — that is the caller's problem, because only the caller holds both
@@ -3222,29 +3233,29 @@ main = do
   -- will nudge. A nudged level you hear at once and correct without thinking; a
   -- nudged chance you do not hear until the pass it eats.
   assert "a loop encoder's turn sets that loop's level"
-    (LoopTw.turnedAt { bank: 0, index: 5 } 127
+    (LoopTw.turnedAt sh4 { bank: 0, index: 5 } 127
       == Just (Tuple (LB.OnLoop 5) (LB.Level 0.0))
-      && LoopTw.turnedAt { bank: 0, index: 5 } 0
+      && LoopTw.turnedAt sh4 { bank: 0, index: 5 } 0
         == Just (Tuple (LB.OnLoop 5) (LB.Level (-60.0))))
 
   assert "and the level knob spans silence to unity, both reachable"
     (Array.all
-      (\v -> case LoopTw.fromKnob LoopTw.PLevel v of
+      (\v -> case LoopTw.fromKnob sh4 LoopTw.PLevel v of
           LB.Level db -> db <= 0.0 && db >= -60.0
           _ -> false)
       (Array.range 0 127)
-      && LoopTw.fromKnob LoopTw.PLevel 127 == LB.Level 0.0
-      && LoopTw.fromKnob LoopTw.PLevel 0 == LB.Level (-60.0))
+      && LoopTw.fromKnob sh4 LoopTw.PLevel 127 == LB.Level 0.0
+      && LoopTw.fromKnob sh4 LoopTw.PLevel 0 == LB.Level (-60.0))
 
   -- -30 dB sits below the knee, so it is well down the travel and nowhere near
   -- the middle. That is the whole point of the bend: the middle belongs to
   -- -6 dB, where mixing happens.
   assert "and the ring reads the level back off the snapshot"
-    (LoopTw.toKnob LoopTw.PLevel ((idle 0) { volDb = 0.0 }) == 127
-      && LoopTw.toKnob LoopTw.PLevel ((idle 0) { volDb = -60.0 }) == 0
-      && LoopTw.toKnob LoopTw.PLevel ((idle 0) { volDb = -6.0 }) == 64
-      && LoopTw.toKnob LoopTw.PLevel ((idle 0) { volDb = -9.0 }) == 32
-      && LoopTw.toKnob LoopTw.PLevel ((idle 0) { volDb = -30.0 }) < 32)
+    (LoopTw.toKnob sh4 LoopTw.PLevel ((idle 0) { volDb = 0.0 }) == 127
+      && LoopTw.toKnob sh4 LoopTw.PLevel ((idle 0) { volDb = -60.0 }) == 0
+      && LoopTw.toKnob sh4 LoopTw.PLevel ((idle 0) { volDb = -6.0 }) == 64
+      && LoopTw.toKnob sh4 LoopTw.PLevel ((idle 0) { volDb = -9.0 }) == 32
+      && LoopTw.toKnob sh4 LoopTw.PLevel ((idle 0) { volDb = -30.0 }) < 32)
 
   -- **A proven inverse, not a second spelling.** Reading a wire string back is
   -- exactly what `Data.Looper.Verb` exists to prevent, so `addressed` earns its
@@ -3341,7 +3352,7 @@ main = do
   -- Turning the same encoder threads, and does not disturb the mode.
   assert "turning the Revox encoder threads the focused loop"
     (let rig = (rigOf [ idle 0, idle 1 ]) { focus = 1 }
-     in case LoopTw.turnedAt { bank: 3, index: 8 } 34 of
+     in case LoopTw.turnedAt sh4 { bank: 3, index: 8 } 34 of
           Just (Tuple subj duty) -> Machine.perform rig subj duty == [ Machine.Command "1blank16.0" ]
           Nothing -> false)
 
@@ -3358,14 +3369,14 @@ main = do
   -- is by recording one; this is the only way to have a length and nothing in
   -- it, which is what Revox needs to start from.
   assert "the tape knob threads whole seconds and reads the loop's length back"
-    (LoopTw.fromKnob LoopTw.PTape 127 == LB.Blank 60.0
-      && LoopTw.fromKnob LoopTw.PTape 64 == LB.Blank 30.0
-      && LoopTw.toKnob LoopTw.PTape ((idle 0) { loopSecs = 30.0 }) == 64)
+    (LoopTw.fromKnob sh4 LoopTw.PTape 127 == LB.Blank 60.0
+      && LoopTw.fromKnob sh4 LoopTw.PTape 64 == LB.Blank 30.0
+      && LoopTw.toKnob sh4 LoopTw.PTape ((idle 0) { loopSecs = 30.0 }) == 64)
 
   -- Zero is the absence of a command, not a command for no tape. Sending
   -- `blank0` would have the daemon refuse a length nobody asked for.
   assert "the bottom of the tape knob asks for nothing"
-    (LoopTw.fromKnob LoopTw.PTape 0 == LB.Blank 0.0
+    (LoopTw.fromKnob sh4 LoopTw.PTape 0 == LB.Blank 0.0
       && Machine.perform (rigOf [ idle 0 ]) LB.Focused (LB.Blank 0.0) == []
       && Machine.perform (rigOf [ idle 0 ]) LB.Focused (LB.Blank 8.0)
         == [ Machine.Command "0blank8.0" ])
@@ -3386,11 +3397,11 @@ main = do
   -- **The tape's two parameters had no hardware control at all** until Set up:
   -- sliders on a web page, for the one mode in the rig that has no undo.
   assert "the tape's feedback and tone are knobs now, and read the engine back"
-    (LoopTw.fromKnob LoopTw.PFeedback 127 == LB.Feedback 0.0
-      && LoopTw.fromKnob LoopTw.PFeedback 0 == LB.Feedback (-24.0)
-      && LoopTw.fromKnob LoopTw.PTone 127 == LB.Tone 20000.0
-      && LoopTw.toKnob LoopTw.PFeedback ((idle 0) { fbDb = 0.0 }) == 127
-      && LoopTw.toKnob LoopTw.PTone ((idle 0) { toneHz = 20000.0 }) == 127)
+    (LoopTw.fromKnob sh4 LoopTw.PFeedback 127 == LB.Feedback 0.0
+      && LoopTw.fromKnob sh4 LoopTw.PFeedback 0 == LB.Feedback (-24.0)
+      && LoopTw.fromKnob sh4 LoopTw.PTone 127 == LB.Tone 20000.0
+      && LoopTw.toKnob sh4 LoopTw.PFeedback ((idle 0) { fbDb = 0.0 }) == 127
+      && LoopTw.toKnob sh4 LoopTw.PTone ((idle 0) { toneHz = 20000.0 }) == 127)
 
   -- **Multiply could not be asked for by any hand.** It was on the CC table and
   -- so reachable from a web button, and on no MC6 bank and no encoder — a verb
@@ -3409,9 +3420,9 @@ main = do
   -- the length is what a take needs before it starts, the other two are what
   -- you do to it afterwards.
   assert "bars, every and slot are three separate knobs"
-    (LoopTw.turnedAt { bank: 0, index: 9 } 127 == Just (Tuple LB.Focused (LB.SetBars 32))
-      && LoopTw.turnedAt { bank: 2, index: 5 } 0 == Just (Tuple LB.Focused (LB.Every 1))
-      && LoopTw.turnedAt { bank: 2, index: 6 } 0 == Just (Tuple LB.Focused (LB.PlaceAt 1)))
+    (LoopTw.turnedAt sh4 { bank: 0, index: 9 } 127 == Just (Tuple LB.Focused (LB.SetBars 32))
+      && LoopTw.turnedAt sh4 { bank: 2, index: 5 } 0 == Just (Tuple LB.Focused (LB.Every 1))
+      && LoopTw.turnedAt sh4 { bank: 2, index: 6 } 0 == Just (Tuple LB.Focused (LB.PlaceAt 1)))
 
   -- **`slot` is meaningless without `every`**, so they have to be reachable
   -- without a page turn between them. This pins the adjacency rather than the
@@ -3437,8 +3448,8 @@ main = do
   -- exists so you need not decide in advance, and a global selector would put
   -- that decision straight back in front of you.
   assert "the input knob picks a source for the loop in hand"
-    (LoopTw.fromKnob LoopTw.PSource 0 == LB.SetSource 1
-      && LoopTw.fromKnob LoopTw.PSource 127 == LB.SetSource LoopTw.maxSources
+    (LoopTw.fromKnob sh4 LoopTw.PSource 0 == LB.SetSource 1
+      && LoopTw.fromKnob sh4 LoopTw.PSource 127 == LB.SetSource LoopTw.maxSources
       && Machine.perform (rig8 { focus = 2 }) LB.Focused (LB.SetSource 3)
         == [ Machine.Command "2src3" ])
 
@@ -3446,7 +3457,7 @@ main = do
   -- ring be told rather than remembered.
   assert "every source can be reached and survives the round trip"
     (Array.all
-      (\n -> LoopTw.fromKnob LoopTw.PSource (LoopTw.toKnob LoopTw.PSource ((idle 0) { src = n }))
+      (\n -> LoopTw.fromKnob sh4 LoopTw.PSource (LoopTw.toKnob sh4 LoopTw.PSource ((idle 0) { src = n }))
                == LB.SetSource n)
       (Array.range 1 LoopTw.maxSources))
 
@@ -3517,7 +3528,7 @@ main = do
   -- the property that lets the ring be told rather than remembered.
   assert "every bar count can be reached and survives the round trip"
     (Array.all
-      (\n -> LoopTw.fromKnob LoopTw.PBars (LoopTw.toKnob LoopTw.PBars ((idle 0) { cycles = n }))
+      (\n -> LoopTw.fromKnob sh4 LoopTw.PBars (LoopTw.toKnob sh4 LoopTw.PBars ((idle 0) { cycles = n }))
                == LB.SetBars n)
       (Array.range 1 32))
 
@@ -3528,8 +3539,8 @@ main = do
   assert "the launch ladder carries none, the bar, and beats in between"
     (Array.elem 0 LoopTw.launchLadder
       && Array.elem (-1) LoopTw.launchLadder
-      && LoopTw.fromKnob LoopTw.PLaunch 0 == LB.Launch 0
-      && LoopTw.fromKnob LoopTw.PLaunch 127 == LB.Launch (-1))
+      && LoopTw.fromKnob sh4 LoopTw.PLaunch 0 == LB.Launch 0
+      && LoopTw.fromKnob sh4 LoopTw.PLaunch 127 == LB.Launch (-1))
 
   -- The one knob on the surface that is not about a loop, which is why its ring
   -- is a `RigValue` and is filled in by `leds` rather than by `toKnob`.
@@ -3661,10 +3672,31 @@ main = do
   -- press it, and a step you can cross by pressing is a step that changes a
   -- loop you meant only to take in hand.
   assert "a layer is thirty-two steps wide, well clear of a press nudge"
-    (LoopTw.fromKnob LoopTw.PLayers 127 == LB.Layers 4
-      && LoopTw.fromKnob LoopTw.PLayers 0 == LB.Layers 0
-      && LoopTw.fromKnob LoopTw.PLayers 2 == LB.Layers 0
-      && LoopTw.toKnob LoopTw.PLayers ((idle 0) { layers = 2 }) == 64)
+    (LoopTw.fromKnob sh4 LoopTw.PLayers 127 == LB.Layers 4
+      && LoopTw.fromKnob sh4 LoopTw.PLayers 0 == LB.Layers 0
+      && LoopTw.fromKnob sh4 LoopTw.PLayers 2 == LB.Layers 0
+      && LoopTw.toKnob sh4 LoopTw.PLayers ((idle 0) { layers = 2 }) == 64)
+
+  -- **The top of the travel asks for everything there is, whatever that is.**
+  -- The ceiling used to be the constant `4`, and the Arbhar harvest wants six
+  -- layers: on a `--layers 6` daemon a full-clockwise turn asked for four,
+  -- `Layers` is absolute, and `perform` spent the difference in `Undo`. The
+  -- knob's top of travel deleted two takes. So the property is not "127 means
+  -- four", it is **"127 means all of them"** — checked at both shapes, because
+  -- one shape passing proves only that the number was written down twice.
+  assert "the layers knob's ceiling is the daemon's, not a constant"
+    (LoopTw.fromKnob { maxLayers: 6 } LoopTw.PLayers 127 == LB.Layers 6
+      && LoopTw.fromKnob { maxLayers: 8 } LoopTw.PLayers 127 == LB.Layers 8
+      && LoopTw.fromKnob sh4 LoopTw.PLayers 127 == LB.Layers 4
+      -- and the ring still reads full when the stack is full, at every shape,
+      -- so the picture and the hand agree about the same loop.
+      && LoopTw.toKnob { maxLayers: 6 } LoopTw.PLayers ((idle 0) { layers = 6 }) == 127
+      && LoopTw.toKnob { maxLayers: 8 } LoopTw.PLayers ((idle 0) { layers = 8 }) == 127)
+
+  -- A shape the daemon has not spoken yet divides by zero; a ring drawn from
+  -- `NaN` is worse than one drawn from nothing.
+  assert "an unspoken shape draws no ring rather than a NaN one"
+    (LoopTw.toKnob { maxLayers: 0 } LoopTw.PLayers ((idle 0) { layers = 0 }) == 0)
 
   -- The rig's threshold is not a per-loop value and has no knob for that
   -- reason; it still needs a verb, because the page sets it.

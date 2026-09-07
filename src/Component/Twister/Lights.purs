@@ -78,6 +78,10 @@ rigOf :: AppState -> Machine.Rig
 rigOf st =
   { loops: maybe [] _.loops st.looper
   , focus: st.looperFocus
+  -- Four until the daemon says otherwise, which is the daemon's own default —
+  -- and inert before it speaks, because a rig with no loops has no layers to
+  -- take back.
+  , maxLayers: maybe 4 _.maxLayers st.looper
   , click: maybe false _.click st.looper
   , monitor: maybe false _.monitor st.looper
   , armDb: maybe (-36.0) _.armDb st.looper
