@@ -653,8 +653,8 @@ render h ports state =
     LooperSocket.Idle -> byContents
     where
     byContents
-      | fl.loopFrames == 0 = "Record"
-      | fl.layers == 0 = "Record on the grid"
+      | fl.sized = "Record on the grid"
+      | fl.layers == 0 = "Record"
       | otherwise = "Overdub"
 
   readout lp fl =
@@ -667,7 +667,7 @@ render h ports state =
               , row "Loop"
                   ( if fl.loopFrames == 0 then "not set"
                     else fmt2 fl.loopSecs <> " s  (" <> show fl.loopFrames <> " frames)"
-                           <> (if fl.layers == 0
+                           <> (if fl.sized
                                  then "  \x2014 empty, grid kept for the next take"
                                  else "")
                   )

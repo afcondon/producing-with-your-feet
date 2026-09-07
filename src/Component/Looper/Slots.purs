@@ -451,8 +451,10 @@ stateWord st
   -- Layers next, because a loop undone to nothing keeps its length and its
   -- phase: the engine still calls it `Playing` and there is nothing to play.
   -- The footer still shows the length, which is the useful half — that is what
-  -- the next take will land on.
-  | st.layers == 0 = if st.loopFrames > 0 then "empty" else ""
+  -- the next take will land on. Sized is the daemon's word for it since
+  -- 2026-09-07, so it is read rather than derived.
+  | st.sized = "empty"
+  | st.layers == 0 = ""
   | st.muted = "stopped"
   -- Loaded and waiting for a foot, which is a different thing from stopped: a
   -- stopped loop is still turning and comes back where it would have been, and
