@@ -104,21 +104,13 @@ encodersPerBank = Helm.encodersPerLayer
 deviceBank :: Int
 deviceBank = 0
 
--- | Ask the device to show a page.
+-- | Ask the device to show a page: channel 4, CC 0 to 3, value 127.
 -- |
--- | **Unverified, and labelled as such everywhere it is used.** The Midifighter
--- | is documented as taking a bank change on channel 4 — CC 0 to 3, value 127,
--- | for banks one to four — but nothing in this repo has ever sent one and
--- | nobody here has watched it land. It is written down as a candidate rather
--- | than as a fact, in the same spirit as the hues in `Data.Looper.Twister`.
--- |
--- | It is cheap to settle: send it, then turn any encoder. The bank travels in
--- | every message the device sends, so `bankOf` on the next turn says which
--- | page the device believes it is on, and that is an observation rather than a
--- | claim. `Component.App` keeps that answer and the Looper page prints it.
--- |
--- | If it turns out to do nothing, the side buttons remain the only way and
--- | this should be deleted rather than left lying about looking official.
+-- | Verified on hardware 2026-10-17. Press one of the device's own bank
+-- | buttons, use an encoder there, and the pin in `App.TwisterMidiReceived`
+-- | sends this and the device comes straight back to `deviceBank`. The bank
+-- | buttons themselves send nothing, so the pin acts on the first message
+-- | from the other bank, not on the press.
 bankSelectMessage :: Int -> Array Int
 bankSelectMessage = Helm.layerSelect
 
