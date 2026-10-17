@@ -65,7 +65,8 @@ import Effect.Aff.Class (class MonadAff)
 import Effect.Class (liftEffect)
 import Engine (AppState)
 import Engine.Twister as Twister
-import Foreign.WebMIDI as MIDI
+import Helm.Twister as HelmTwister
+import Helm.WebMIDI as MIDI
 import Halogen as H
 
 -- | Everything the machine is allowed to know, gathered from the newest
@@ -191,22 +192,23 @@ pinDevice = do
 
 -- LED feedback helpers
 
--- | The ring, and the colour. Both addressed by `16 * bank + index`, which is
--- | the same arithmetic the device used on the way in.
+-- | The ring, and the colour. The bytes are Helm's (`Helm.Twister.ring` and
+-- | `colour`), addressed by the same CC-per-layer arithmetic the device uses
+-- | on the way in.
 sendRingPosition :: forall act slots o m. MonadAff m => Knob -> Int -> H.HalogenM AppState act slots o m Unit
 sendRingPosition knob val = do
   st <- H.get
   for_ st.connections.twisterOutput \out ->
-    liftEffect $ MIDI.send out [ 0xB0, knobCC knob, val ]
+    liftEffect $ MIDI.send out (HelmTwister.ring (TwisterData.toHelmKnob knob) val)
 
 sendRGBColor :: forall act slots o m. MonadAff m => Knob -> Int -> H.HalogenM AppState act slots o m Unit
 sendRGBColor knob hue = do
   st <- H.get
   for_ st.connections.twisterOutput \out ->
-    liftEffect $ MIDI.send out [ 0xB1, knobCC knob, hue ]
+    liftEffect $ MIDI.send out (HelmTwister.colour (TwisterData.toHelmKnob knob) hue)
 
 knobCC :: Knob -> Int
-knobCC knob = knob.bank * TwisterData.encodersPerBank + knob.index
+knobCC = HelmTwister.knobCC <<< TwisterData.toHelmKnob
 
 sendAllLEDs :: forall act slots o m. MonadAff m => PedalId -> H.HalogenM AppState act slots o m Unit
 sendAllLEDs pid = do

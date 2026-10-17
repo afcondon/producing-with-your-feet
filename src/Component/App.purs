@@ -41,7 +41,7 @@ import Data.Int as Int
 import Data.Number as Number
 import Data.Maybe (Maybe(..), fromMaybe, isJust, isNothing, maybe)
 import Data.Ord (abs)
-import Data.Midi (CC, MidiValue, ProgramNumber, makeCC, makeChannel, makeMidiValue, makeProgramNumber, unCC, unChannel, unMidiValue, unProgramNumber, unsafeCC, unsafeMidiValue)
+import Data.Midi (CC, MidiValue, ProgramNumber, controlChange, programChange, makeCC, makeChannel, makeMidiValue, makeProgramNumber, unCC, unChannel, unMidiValue, unProgramNumber, unsafeCC, unsafeMidiValue)
 import Data.Pedal (PedalDef, PedalId)
 import Pedals.Registry as PsRegistry
 import Data.Pedal.Engage (EngageConfig(..), EngageState(..), engageCCs)
@@ -51,8 +51,7 @@ import Data.String as String
 import Data.String.CodeUnits (contains)
 import Data.String.Pattern (Pattern(..))
 import Data.Tuple (Tuple(..))
-import Data.Twister (Knob, SideBtn(..), TwisterEncoder(..), TwisterMsg(..), parseTwisterMsg)
-import Data.Set as Set
+import Data.Twister (Knob, SideBtn(..), TwisterEncoder(..), TwisterMsg(..), fromHelm)
 import Data.Twister as TwisterData
 import Data.Looper.Twister as LoopTwister
 import Control.Monad.Rec.Class (forever)
@@ -79,7 +78,10 @@ import Foreign.Remote as Remote
 import Foreign.Sheet as Sheet
 import Data.MC6.Wire as Wire
 import Foreign.Unload as Unload
-import Foreign.WebMIDI as MIDI
+import Foreign.Uuid as Uuid
+import Helm.Twister as HelmTwister
+import Helm.Twister.Guard as Guard
+import Helm.WebMIDI as MIDI
 import Halogen as H
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
@@ -120,8 +122,8 @@ data Action
   | SelectPedalOutput String
   | SelectTwisterInput String
   | TwisterMidiReceived (Array Int)
-  | FlushTwisterTurn Knob
-  | ClearTwisterGuard Knob
+  -- | A window of the press-nudge guard has closed (`Helm.Twister.Guard`).
+  | TwisterGuardDue Guard.Event
   | ShowTwisterPage Int
   | ShowLooperPanel (Maybe LooperPanel)
   | SetArmThreshold String
@@ -870,9 +872,9 @@ handleAction = case _ of
         H.modify_ _ { backupFolderName = mBackupFolder }
 
   InitializeMIDI routing -> do
-    mAccess <- H.liftAff MIDI.requestMIDIAccess
-    outputs <- liftEffect $ MIDI.getOutputs mAccess
-    inputs <- liftEffect $ MIDI.getInputs mAccess
+    mAccess <- H.liftAff (MIDI.requestAccessAff { sysex: true })
+    outputs <- liftEffect $ MIDI.outputs mAccess
+    inputs <- liftEffect $ MIDI.inputs mAccess
     H.modify_ _ { connections { access = Just mAccess
                                , availableOutputs = outputs
                                , availableInputs = inputs } }
@@ -893,7 +895,7 @@ handleAction = case _ of
     -- Auto-select Twister output
     let mTwisterOut = Array.find (\p -> contains (Pattern routing.twisterOutput.match) p.name) outputs
     for_ mTwisterOut \port -> do
-      mOut <- liftEffect $ MIDI.openOutput mAccess port.id
+      mOut <- liftEffect $ MIDI.findOutput mAccess (MIDI.Exactly port.id)
       H.modify_ _ { connections { twisterOutput = mOut, twisterOutputId = Just port.id } }
     -- Auto-select pedal output (MC6 via USB)
     let mPedalOut = Array.find (\p -> contains (Pattern routing.pedalOutput.match) p.name) outputs
@@ -907,7 +909,7 @@ handleAction = case _ of
     when (routing.mc6Input.match /= "") do
       let mMC6Out = Array.find (\p -> contains (Pattern routing.mc6Input.match) p.name) outputs
       for_ mMC6Out \port -> do
-        mOut <- liftEffect $ MIDI.openOutput mAccess port.id
+        mOut <- liftEffect $ MIDI.findOutput mAccess (MIDI.Exactly port.id)
         H.modify_ _ { connections { mc6Output = mOut, mc6OutputId = Just port.id } }
 
   RescanMIDI -> do
@@ -915,8 +917,8 @@ handleAction = case _ of
     case st.connections.access of
       Nothing -> pure unit
       Just access -> do
-        outputs <- liftEffect $ MIDI.getOutputs access
-        inputs <- liftEffect $ MIDI.getInputs access
+        outputs <- liftEffect $ MIDI.outputs access
+        inputs <- liftEffect $ MIDI.inputs access
         H.modify_ _ { connections { availableOutputs = outputs
                                   , availableInputs = inputs } }
         liftEffect $ Console.log $ "MIDI rescan: "
@@ -975,13 +977,13 @@ handleAction = case _ of
           handleAction (SelectTwisterInput change.id)
         for_ st.connections.access \access -> do
           when (matches st.connections.pedalOutputId && isNothing st.connections.pedalOutput) do
-            mOut <- liftEffect $ MIDI.openOutput access change.id
+            mOut <- liftEffect $ MIDI.findOutput access (MIDI.Exactly change.id)
             H.modify_ _ { connections { pedalOutput = mOut } }
           when (matches st.connections.mc6OutputId && isNothing st.connections.mc6Output) do
-            mOut <- liftEffect $ MIDI.openOutput access change.id
+            mOut <- liftEffect $ MIDI.findOutput access (MIDI.Exactly change.id)
             H.modify_ _ { connections { mc6Output = mOut } }
           when (matches st.connections.twisterOutputId && isNothing st.connections.twisterOutput) do
-            mOut <- liftEffect $ MIDI.openOutput access change.id
+            mOut <- liftEffect $ MIDI.findOutput access (MIDI.Exactly change.id)
             H.modify_ _ { connections { twisterOutput = mOut } }
         H.modify_ _ { midiTest = Just (change.name <> " reconnected") }
 
@@ -1056,7 +1058,7 @@ handleAction = case _ of
             Nothing ->
               H.modify_ _ { midiTest = Just ("CC not sent: no channel for " <> show pid) }
             Just ch -> do
-              liftEffect $ MIDI.sendCC output ch ccNum val
+              liftEffect $ MIDI.send output (controlChange ch ccNum val)
               H.modify_ _ { midiTest = Just
                 ("sent CC " <> show (unCC ccNum) <> " val " <> show (unMidiValue val)
                   <> " ch " <> show (unChannel ch) <> " to " <> show pid) }
@@ -1101,7 +1103,7 @@ handleAction = case _ of
     case st.connections.access of
       Nothing -> pure unit
       Just access -> do
-        mOut <- liftEffect $ MIDI.openOutput access portId
+        mOut <- liftEffect $ MIDI.findOutput access (MIDI.Exactly portId)
         H.modify_ _ { connections { pedalOutput = mOut, pedalOutputId = Just portId } }
 
   SelectMC6Output portId -> do
@@ -1109,7 +1111,7 @@ handleAction = case _ of
     case st.connections.access of
       Nothing -> pure unit
       Just access -> do
-        mOut <- liftEffect $ MIDI.openOutput access portId
+        mOut <- liftEffect $ MIDI.findOutput access (MIDI.Exactly portId)
         H.modify_ _ { connections { mc6Output = mOut, mc6OutputId = Just portId } }
 
   -- | Send the Morningstar editor handshake and nothing else.
@@ -1147,7 +1149,7 @@ handleAction = case _ of
         H.modify_ _ { midiTest = Just "no Pedal MIDI output selected" }
       Just output -> case makeChannel st.testCh, makeCC st.testCC of
         Just ch, Just ccNum -> do
-          liftEffect $ MIDI.sendCC output ch ccNum (unsafeMidiValue val)
+          liftEffect $ MIDI.send output (controlChange ch ccNum (unsafeMidiValue val))
           H.modify_ _ { midiTest = Just
             ("sent CC " <> show st.testCC <> " val " <> show val
               <> " ch " <> show st.testCh) }
@@ -1513,7 +1515,7 @@ handleAction = case _ of
     case st.connections.access of
       Nothing -> pure unit
       Just access -> do
-        mInput <- liftEffect $ MIDI.openInput access portId
+        mInput <- liftEffect $ MIDI.findInput access (MIDI.Exactly portId)
         -- Record the choice even when the port will not open, so a
         -- failed open shows as "selected but dead" rather than silently
         -- reverting to "not connected" and looking like the tap was missed.
@@ -1555,7 +1557,7 @@ handleAction = case _ of
         H.modify_ _ { twisterLit = Map.empty }
         when (st0.focusPedalId == Just Looper.itajaraId) sendLooperLEDs
       H.modify_ _ { twisterHeardBank = Just bank }
-    for_ (parseTwisterMsg bytes) handleTwisterMsg
+    for_ (HelmTwister.parse bytes) (feedTwisterGuard <<< Guard.Heard)
 
   ShowTwisterPage bank -> showTwisterPage bank
 
@@ -1623,17 +1625,7 @@ handleAction = case _ of
     when (st.twisterNudgeSeq == seq) $
       sendRingPosition { bank: TwisterData.deviceBank, index: knob.index } 64
 
-  FlushTwisterTurn knob -> do
-    st <- H.get
-    -- Gone means a press arrived inside the window and took it. That is the
-    -- whole mechanism: the press does not have to be faster than the nudge,
-    -- only inside the same tenth of a second as it.
-    for_ (Map.lookup (knobCC knob) st.twisterPending) \val -> do
-      H.modify_ \s -> s { twisterPending = Map.delete (knobCC knob) s.twisterPending }
-      handleEncoderTurn knob val
-
-  ClearTwisterGuard knob ->
-    H.modify_ \s -> s { twisterGuard = Set.delete (knobCC knob) s.twisterGuard }
+  TwisterGuardDue ev -> feedTwisterGuard ev
 
   HandleHeader output -> case output of
     Header.ViewChanged view -> handleAction (SetView view)
@@ -1953,7 +1945,7 @@ handleAction = case _ of
     case st.connections.access of
       Nothing -> pure unit
       Just access -> do
-        mInput <- liftEffect $ MIDI.openInput access portId
+        mInput <- liftEffect $ MIDI.findInput access (MIDI.Exactly portId)
         -- Record the choice even when the port will not open, so a
         -- failed open shows as "selected but dead" rather than silently
         -- reverting to "not connected" and looking like the tap was missed.
@@ -2286,7 +2278,7 @@ handleBaselinePedal pid = do
         Just output, Just ch -> do
           H.modify_ _ { baselineStatus = Just ("Sweeping — " <> show n <> " CCs…") }
           for_ entries \(Tuple ccNum val) -> do
-            liftEffect $ MIDI.sendCC output ch ccNum val
+            liftEffect $ MIDI.send output (controlChange ch ccNum val)
             H.liftAff (delay (Milliseconds baselineSendDelayMs))
           H.modify_ \s -> s
             { engine = Map.update (\ps -> Just ps { values = def.baseline }) pid s.engine
@@ -2299,7 +2291,7 @@ handleBaselinePedal pid = do
 
 handleSavePreset :: forall o m. MonadAff m => { pedalId :: PedalId, name :: String, description :: String, notes :: String } -> H.HalogenM AppState Action Slots o m Unit
 handleSavePreset r = do
-  uuid <- liftEffect MIDI.randomUUID
+  uuid <- liftEffect Uuid.randomUUID
   now <- liftEffect Storage.nowISO
   st <- H.get
   let mPs = Map.lookup r.pedalId st.engine
@@ -2333,7 +2325,7 @@ handleSavePreset r = do
 -- | Program Change path — reads `savedSlot` and never touches `values`.
 handleSaveSlotRef :: forall o m. MonadAff m => { pedalId :: PedalId, slot :: ProgramNumber, name :: String } -> H.HalogenM AppState Action Slots o m Unit
 handleSaveSlotRef r = do
-  uuid <- liftEffect MIDI.randomUUID
+  uuid <- liftEffect Uuid.randomUUID
   now <- liftEffect Storage.nowISO
   let preset :: PedalPreset
       preset =
@@ -2399,7 +2391,7 @@ handleImportPresets imported = do
 
 handleSaveBoard :: forall o m. MonadAff m => { name :: String, notes :: String, pedals :: Map.Map PedalId { presetId :: Maybe String, engage :: EngageState } } -> H.HalogenM AppState Action Slots o m Unit
 handleSaveBoard r = do
-  uuid <- liftEffect MIDI.randomUUID
+  uuid <- liftEffect Uuid.randomUUID
   now <- liftEffect Storage.nowISO
   let bp :: BoardPreset
       bp =
@@ -3288,7 +3280,7 @@ sendPC_ pid pn = do
   for_ st.connections.pedalOutput \output ->
     for_ (Map.lookup pid st.engine >>= \ps -> makeChannel ps.channel) \ch -> do
       liftEffect $ Console.log $ "sendPC: sending ch=" <> show (unChannel ch) <> " pc=" <> show (unProgramNumber pn)
-      liftEffect $ MIDI.sendPC output ch pn
+      liftEffect $ MIDI.send output (programChange ch pn)
 
 recallBoard :: forall o m. MonadAff m => { id :: String, name :: String, description :: String, notes :: String, pedals :: Map.Map PedalId { presetId :: Maybe String, engage :: EngageState }, created :: String, modified :: String } -> H.HalogenM AppState Action Slots o m Unit
 recallBoard board = do
@@ -3338,74 +3330,35 @@ autoEngageIfNeeded preset = do
 
 -- Twister message handlers
 
--- | A message from the Twister, and the one thing the hardware makes hard.
+-- | Everything from the Twister goes through the press-nudge guard first.
 -- |
--- | **You cannot press one of these encoders without turning it.** The knob
--- | rotates a little on the way down — Andrew, having used it: *"virtually
--- | impossible"* — so a press arrives with a nudge beside it, and which of the
--- | two the app sees first is not decidable. On page 1 that is not a cosmetic
--- | problem: the press selects a loop and the turn sets its level, so taking a
--- | loop in hand would quietly move its fader.
+-- | **You cannot press one of these encoders without turning it**, so a turn is
+-- | withheld until it is clear it was not part of a press, and a press deafens
+-- | its own encoder until a moment after the finger comes off. On page 1 that
+-- | is what stops taking a loop in hand from moving its fader. The mechanism
+-- | and its history are Helm's now (`Helm.Twister.Guard`), so Triggerfish gets
+-- | it too; this only holds the guard's state and runs its clocks.
 -- |
--- | So **a turn is withheld until it is clear it was not part of a press**, and
--- | a press deafens its own encoder for a moment afterwards. Two windows,
--- | because the nudge can land on either side of the press.
--- |
--- | This is the same shape as the MC6 withholding a single press until it knows
--- | it was not a double, and it is worth seeing that it is — the app is now
--- | doing for the Twister what the pedal does for itself. The difference is
--- | what it costs. The MC6's wait is spent on a *transport* gesture, so the
--- | daemon has to be told how late the press was and reach back into the
--- | pre-roll for it (`deferralOf`, `@ms`). Nothing withheld here is
--- | sample-critical — a level is not a downbeat — so the latency is simply
--- | absorbed, and no lateness travels with it.
--- |
--- | The cost is that the first move of a slow turn lands 60 ms late and a fast
--- | ride is thinned to about sixteen updates a second, which is more than a
--- | fader needs and kinder to a socket that also carries twelve pedals.
+-- | Same shape as the MC6 withholding a single press until it knows it was not
+-- | a double — the app doing for the Twister what the pedal does for itself.
+-- | The difference is the cost: nothing withheld here is sample-critical, so
+-- | the 60 ms is simply absorbed and no lateness travels with it.
+feedTwisterGuard :: forall o m. MonadAff m => Guard.Event -> H.HalogenM AppState Action Slots o m Unit
+feedTwisterGuard ev = do
+  st <- H.get
+  let s = Guard.step Guard.timing ev st.twisterGuard
+  H.modify_ _ { twisterGuard = s.guard }
+  for_ s.after \a -> void $ H.fork do
+    H.liftAff (delay (Milliseconds a.ms))
+    handleAction (TwisterGuardDue a.event)
+  for_ s.deliver \m -> for_ (fromHelm m) handleTwisterMsg
+
 handleTwisterMsg :: forall o m. MonadAff m => TwisterMsg -> H.HalogenM AppState Action Slots o m Unit
 handleTwisterMsg = case _ of
-  EncoderTurn knob val -> do
-    st <- H.get
-    -- Still ringing from a press. Dropped rather than queued: a nudge is not a
-    -- gesture that deserves to arrive late.
-    unless (Set.member (knobCC knob) st.twisterGuard) do
-      let waiting = Map.member (knobCC knob) st.twisterPending
-      H.modify_ \s -> s { twisterPending = Map.insert (knobCC knob) val s.twisterPending }
-      -- One timer per burst, not per message. Everything that arrives inside
-      -- the window overwrites the value, so the flush acts on where the knob
-      -- ended up rather than on where it passed through.
-      unless waiting $ void $ H.fork do
-        H.liftAff (delay (Milliseconds turnHoldMs))
-        handleAction (FlushTwisterTurn knob)
-
-  -- **No timer here, and that was the bug.** The press armed the guard and
-  -- started a 300 ms clock to disarm it — so holding an encoder down for longer
-  -- than that unguarded it *while the finger was still on it*, and the nudge
-  -- that comes with letting go landed as a real turn. On the pager that meant
-  -- pressing to go home and being paged somewhere else on the way up, which is
-  -- exactly as often as you hold the press a beat, which is always.
-  --
-  -- The guard now lasts as long as the finger does: armed here, disarmed only
-  -- by the release below, plus its window.
-  EncoderPress knob -> do
-    H.modify_ \s -> s
-      { twisterPending = Map.delete (knobCC knob) s.twisterPending
-      , twisterGuard = Set.insert (knobCC knob) s.twisterGuard
-      }
-    handleEncoderPress knob
-
-  -- The release carries the same nudge risk as the press and no meaning of its
-  -- own, so it re-arms the guard rather than being ignored: letting go of an
-  -- encoder is exactly as clumsy as pressing it.
-  EncoderRelease knob -> do
-    H.modify_ \s -> s
-      { twisterPending = Map.delete (knobCC knob) s.twisterPending
-      , twisterGuard = Set.insert (knobCC knob) s.twisterGuard
-      }
-    void $ H.fork do
-      H.liftAff (delay (Milliseconds pressGuardMs))
-      handleAction (ClearTwisterGuard knob)
+  EncoderTurn knob val -> handleEncoderTurn knob val
+  EncoderPress knob -> handleEncoderPress knob
+  -- The release means nothing of its own; the guard has already used it.
+  EncoderRelease _ -> pure unit
 
   -- **Back to walking between pedals, which is what they were.**
   --
@@ -3416,22 +3369,6 @@ handleTwisterMsg = case _ of
   -- back. Which matters, because with the looper holding the controller there
   -- was otherwise no way to reach a *pedal* on it at all.
   SideButton btn -> handleTwisterSideButton btn
-
--- | How long a turn waits to find out whether a press is coming.
--- |
--- | Long enough to cover the roll of a finger, short enough that a fader does
--- | not feel like it is lagging. Both are guesses from one report of the
--- | problem rather than measurements; if a press still moves a level, this is
--- | the number to raise first.
-turnHoldMs :: Number
-turnHoldMs = 60.0
-
--- | How long an encoder stays deaf **after the finger comes off**.
--- |
--- | It used to be counted from the press as well, which meant a press held for
--- | longer than this went unguarded before it was over. See `EncoderPress`.
-pressGuardMs :: Number
-pressGuardMs = 300.0
 
 -- | **Two surfaces on one controller**, told apart by what is in focus.
 -- |

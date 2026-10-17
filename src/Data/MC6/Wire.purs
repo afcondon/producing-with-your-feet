@@ -29,7 +29,7 @@ import Effect.Aff (Milliseconds(..), delay)
 import Effect.Aff.Class (class MonadAff, liftAff)
 import Effect.Class (class MonadEffect, liftEffect)
 import Effect.Console as Console
-import Foreign.WebMIDI as MIDI
+import Helm.WebMIDI as MIDI
 
 -- | Proof that an editor session is open on this output, and therefore the
 -- | right to send session frames through it.

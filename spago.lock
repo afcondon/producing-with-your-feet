@@ -44,6 +44,7 @@
             {
               "halogen-subscriptions": ">=2.0.0 <3.0.0"
             },
+            "helm",
             "hylograph-graph",
             "hylograph-selection",
             "hylograph-transitions",
@@ -776,6 +777,9 @@
       }
     },
     "extra_packages": {
+      "helm": {
+        "path": "../helm"
+      },
       "httpurple": "4.0.0",
       "hylograph-graph": "0.3.0",
       "hylograph-selection": "0.5.3",
@@ -1335,6 +1339,26 @@
         "web-events"
       ]
     },
+    "helm": {
+      "type": "local",
+      "path": "../helm",
+      "dependencies": [
+        "aff",
+        "arrays",
+        "effect",
+        "either",
+        "exceptions",
+        "foldable-traversable",
+        "integers",
+        "js-timers",
+        "maybe",
+        "nullable",
+        "ordered-collections",
+        "prelude",
+        "refs",
+        "tuples"
+      ]
+    },
     "heterogeneous": {
       "type": "registry",
       "version": "0.7.0",
@@ -1528,7 +1552,8 @@
         "numbers",
         "ordered-collections",
         "prelude",
-        "strings"
+        "strings",
+        "web-uievents"
       ]
     },
     "js-date": {
@@ -1557,6 +1582,15 @@
         "functions",
         "maybe",
         "newtype",
+        "prelude"
+      ]
+    },
+    "js-timers": {
+      "type": "registry",
+      "version": "6.1.0",
+      "integrity": "sha256-mYEL4zjFOzrDeVCnR9Hg3pcZaBZilB6zPGaZ4fzRmzg=",
+      "dependencies": [
+        "effect",
         "prelude"
       ]
     },

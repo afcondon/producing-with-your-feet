@@ -33,8 +33,6 @@ import Data.MC6.Wire as Wire
 import Data.Array as Array
 import Effect (Effect)
 import Data.Map (Map)
-import Data.Set (Set)
-import Data.Set as Set
 import Halogen as H
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
@@ -44,7 +42,9 @@ import Data.Twister.Scene (Scene)
 import Data.Pedal (PedalDef, PedalId)
 import Data.Preset (BoardPreset, PedalPreset, PresetId)
 import Data.Tuple (Tuple(..))
-import Foreign.WebMIDI (MIDIAccess, MIDIInput, MIDIOutput, MidiPort)
+import Helm.Twister.Guard (Guard)
+import Helm.Twister.Guard as Guard
+import Helm.WebMIDI (MIDIAccess, MIDIInput, MIDIOutput, MidiPort)
 
 type PedalState =
   { channel :: Int
@@ -125,14 +125,10 @@ type AppState =
   -- | Cleared whenever the device is dimmed, because what it was told is no
   -- | longer true of it.
   , twisterLit :: Map Int { ring :: Int, hue :: Int }
-  -- | A turn that has arrived and is waiting to find out whether it was part of
-  -- | a press. Keyed by the encoder's CC; the value is its newest position.
-  -- |
-  -- | **Because you cannot press one of these without turning it.** The
-  -- | Midifighter's encoders rotate a little on the way down, so a press sends a
-  -- | nudge as well — and the value under a loop's press is exactly the value
-  -- | that nudge would move. See `Component.App.handleTwisterMsg`.
-  , twisterPending :: Map Int Int
+  -- | The press-nudge guard: turns waiting to find out whether they were part
+  -- | of a press, and encoders deaf from one. **Because you cannot press one
+  -- | of these without turning it.** See `Helm.Twister.Guard`.
+  , twisterGuard :: Guard
   -- | The nudge encoders: whether a click is fine (10 ms) or coarse (a beat,
   -- | or 1% of the loop off the grid), and the value each one last reported
   -- | so a click is a delta against it. See `Data.Looper.Twister.Nudge`.
@@ -147,9 +143,6 @@ type AppState =
   -- | count, so one detent past the first sent two undos, and a hand that
   -- | meant "one back" rolled through to the redo.
   , layersAsked :: Map Int Int
-  -- | Encoders whose turns are being ignored because a press just landed on
-  -- | them. Cleared on a timer.
-  , twisterGuard :: Set Int
   -- | Which block the Twister last spoke *from* — an observation, read off the
   -- | wire. The block travels in every encoder message, so this is what the
   -- | device believes. `Nothing` until it says something.
@@ -444,12 +437,11 @@ initAppState =
   , overviewActivePedal: Nothing
   , suppressTwister: false
   , twisterLit: Map.empty
-  , twisterPending: Map.empty
+  , twisterGuard: Guard.empty
   , twisterEditFine: false
   , twisterNudge: Map.empty
   , twisterNudgeSeq: 0
   , layersAsked: Map.empty
-  , twisterGuard: Set.empty
   , twisterHeardBank: Nothing
   , twisterPage: 0
   , twisterScene: Nothing

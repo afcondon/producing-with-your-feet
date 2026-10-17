@@ -14,6 +14,7 @@ package:
     - foreign-object: ">=4.1.0 <5.0.0"
     - halogen: ">=7.0.0 <8.0.0"
     - halogen-subscriptions: ">=2.0.0 <3.0.0"
+    - helm
     - hylograph-graph
     - hylograph-selection
     - hylograph-transitions
@@ -35,6 +36,9 @@ package:
     - web-uievents: ">=5.0.0 <6.0.0"
   build:
     strict: true
+  test:
+    main: Test.Main
+    dependencies: []
   # **The outfile lives here so it cannot be forgotten on the command line.**
   # `spago bundle` without `-p` builds, prints a success line, and only then
   # refuses — the workspace has two packages — leaving `static/index.js`
@@ -62,3 +66,7 @@ workspace:
       path: ../itajara/client
     itajara-surface:
       path: ../itajara/surface
+    # The controllers — device profiles and the one Web MIDI FFI — shared
+    # with Triggerfish (music/helm).
+    helm:
+      path: ../helm
