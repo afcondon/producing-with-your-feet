@@ -57,6 +57,7 @@ import Data.Looper.Twister as LoopTwister
 import Control.Monad.Rec.Class (forever)
 import Effect.Aff (Milliseconds(..), delay)
 import Effect.Aff as Aff
+import Foreign.MidiTransport as MidiTransport
 import Effect.Aff.Class (class MonadAff)
 import Effect.Class (liftEffect)
 import Effect.Console as Console
@@ -872,45 +873,19 @@ handleAction = case _ of
         H.modify_ _ { backupFolderName = mBackupFolder }
 
   InitializeMIDI routing -> do
-    mAccess <- H.liftAff (MIDI.requestAccessAff { sysex: true })
-    outputs <- liftEffect $ MIDI.outputs mAccess
-    inputs <- liftEffect $ MIDI.inputs mAccess
-    H.modify_ _ { connections { access = Just mAccess
-                               , availableOutputs = outputs
-                               , availableInputs = inputs } }
-    -- Devices arrive late. A WIDI transceiver pairs over Bluetooth well after
-    -- the page has loaded, and a USB cable gets plugged in mid-session as a
-    -- matter of course on a pedalboard. Enumerating only at startup meant any
-    -- of that was invisible until a reload, with no hint that a reload was
-    -- what was needed.
-    { listener: midiListener, emitter: midiEmitter } <- H.liftEffect HS.create
-    void $ H.subscribe midiEmitter
-    void $ liftEffect $ MIDI.onStateChange mAccess \change ->
-      HS.notify midiListener (MidiPortChanged change)
-    -- Auto-select MIDI ports using routing patterns from registry
-    -- Auto-select Twister input
-    let mTwisterIn = Array.find (\p -> contains (Pattern routing.twisterInput.match) p.name) inputs
-    for_ mTwisterIn \port ->
-      handleAction (SelectTwisterInput port.id)
-    -- Auto-select Twister output
-    let mTwisterOut = Array.find (\p -> contains (Pattern routing.twisterOutput.match) p.name) outputs
-    for_ mTwisterOut \port -> do
-      mOut <- liftEffect $ MIDI.findOutput mAccess (MIDI.Exactly port.id)
-      H.modify_ _ { connections { twisterOutput = mOut, twisterOutputId = Just port.id } }
-    -- Auto-select pedal output (MC6 via USB)
-    let mPedalOut = Array.find (\p -> contains (Pattern routing.pedalOutput.match) p.name) outputs
-    for_ mPedalOut \port ->
-      handleAction (SelectPedalOutput port.id)
-    -- Auto-select MC6 input
-    let mMC6In = Array.find (\p -> contains (Pattern routing.mc6Input.match) p.name) inputs
-    for_ mMC6In \port ->
-      handleAction (SelectMC6Input port.id)
-    -- Auto-select MC6 output (SysEx programming) — same device name as input
-    when (routing.mc6Input.match /= "") do
-      let mMC6Out = Array.find (\p -> contains (Pattern routing.mc6Input.match) p.name) outputs
-      for_ mMC6Out \port -> do
-        mOut <- liftEffect $ MIDI.findOutput mAccess (MIDI.Exactly port.id)
-        H.modify_ _ { connections { mc6Output = mOut, mc6OutputId = Just port.id } }
+    transport <- liftEffect MidiTransport.midiTransport
+    granted <- H.liftAff $ Aff.attempt case transport of
+      MidiTransport.Browser -> MIDI.requestAccessAff { sysex: true }
+      MidiTransport.Hub url -> MIDI.requestHubAccessAff { url, client: "pwyf", waitMs: 3000.0 }
+    case granted of
+      Left err -> do
+        liftEffect $ Console.error ("MIDI: " <> Aff.message err)
+        H.modify_ _ { midiTest = Just ("MIDI: " <> Aff.message err) }
+      Right mAccess -> do
+        case transport of
+          MidiTransport.Hub url -> H.modify_ _ { midiTest = Just ("MIDI through Helm's hub at " <> url) }
+          MidiTransport.Browser -> pure unit
+        initializeMIDIWith routing mAccess
 
   RescanMIDI -> do
     st <- H.get
@@ -3725,3 +3700,51 @@ handleReadReply bytes = case Read.decodeReply bytes of
   Just (Read.OtherReply f1 f2) ->
     liftEffect $ Console.log $ "MC6 reply not decoded: F1=" <> show f1 <> " F2=" <> show f2
   Nothing -> pure unit
+
+-- | Everything `InitializeMIDI` does once access is granted, whichever way it
+-- | came: the port lists, the hot-plug subscription, and the auto-selection.
+initializeMIDIWith
+  :: forall o m
+   . MonadAff m
+  => MidiRouting
+  -> MIDI.MIDIAccess
+  -> H.HalogenM AppState Action Slots o m Unit
+initializeMIDIWith routing mAccess = do
+    outputs <- liftEffect $ MIDI.outputs mAccess
+    inputs <- liftEffect $ MIDI.inputs mAccess
+    H.modify_ _ { connections { access = Just mAccess
+                               , availableOutputs = outputs
+                               , availableInputs = inputs } }
+    -- Devices arrive late. A WIDI transceiver pairs over Bluetooth well after
+    -- the page has loaded, and a USB cable gets plugged in mid-session as a
+    -- matter of course on a pedalboard. Enumerating only at startup meant any
+    -- of that was invisible until a reload, with no hint that a reload was
+    -- what was needed.
+    { listener: midiListener, emitter: midiEmitter } <- H.liftEffect HS.create
+    void $ H.subscribe midiEmitter
+    void $ liftEffect $ MIDI.onStateChange mAccess \change ->
+      HS.notify midiListener (MidiPortChanged change)
+    -- Auto-select MIDI ports using routing patterns from registry
+    -- Auto-select Twister input
+    let mTwisterIn = Array.find (\p -> contains (Pattern routing.twisterInput.match) p.name) inputs
+    for_ mTwisterIn \port ->
+      handleAction (SelectTwisterInput port.id)
+    -- Auto-select Twister output
+    let mTwisterOut = Array.find (\p -> contains (Pattern routing.twisterOutput.match) p.name) outputs
+    for_ mTwisterOut \port -> do
+      mOut <- liftEffect $ MIDI.findOutput mAccess (MIDI.Exactly port.id)
+      H.modify_ _ { connections { twisterOutput = mOut, twisterOutputId = Just port.id } }
+    -- Auto-select pedal output (MC6 via USB)
+    let mPedalOut = Array.find (\p -> contains (Pattern routing.pedalOutput.match) p.name) outputs
+    for_ mPedalOut \port ->
+      handleAction (SelectPedalOutput port.id)
+    -- Auto-select MC6 input
+    let mMC6In = Array.find (\p -> contains (Pattern routing.mc6Input.match) p.name) inputs
+    for_ mMC6In \port ->
+      handleAction (SelectMC6Input port.id)
+    -- Auto-select MC6 output (SysEx programming) — same device name as input
+    when (routing.mc6Input.match /= "") do
+      let mMC6Out = Array.find (\p -> contains (Pattern routing.mc6Input.match) p.name) outputs
+      for_ mMC6Out \port -> do
+        mOut <- liftEffect $ MIDI.findOutput mAccess (MIDI.Exactly port.id)
+        H.modify_ _ { connections { mc6Output = mOut, mc6OutputId = Just port.id } }
