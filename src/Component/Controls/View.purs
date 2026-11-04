@@ -15,7 +15,7 @@ import Data.Int as Int
 import Data.Map (Map)
 import Data.Maybe (Maybe(..), fromMaybe, isJust, maybe)
 import Data.MC6.Board as Board
-import Data.MC6.ControlBank (ControlBank, ControlBankSwitch, ccToggleMessages, ccMomentaryMessages, emptySwitch, switchCount, switchLetter)
+import Data.MC6.ControlBank (ControlBank, ControlBankSwitch, builtInControlBanks, ccToggleMessages, ccMomentaryMessages, emptySwitch, switchCount, switchLetter)
 import Data.MC6.Survey as MC6Survey
 import Data.MC6.Types (MC6Action(..), MC6Message, MC6MsgType(..), MC6NativeBank, MC6TogglePosition(..), intToMC6Action, intToMC6MsgType, mc6ActionToInt, mc6ToggleToInt)
 import Data.Midi (unCC)
@@ -179,6 +179,7 @@ data Action
   -- Bank CRUD
   | DuplicateBank
   | DeleteBank
+  | AddBuiltInBank String
   -- Switch editing (switchIdx, value)
   | UpdateLabel Int String
   | UpdateLongName Int String
@@ -370,6 +371,7 @@ render state =
             -- global is defined behind a scroll on exactly the screens where
             -- you would be looking for it.
             [ renderGlobalsCard state
+            , renderMissingBuiltIns state
             , renderSurvey state
             ]
         , HH.div [ HP.class_ (H.ClassName "controls-col-work") ]
@@ -391,6 +393,33 @@ render state =
   switchZone = case state.selectedSwitchIdx of
     Just i -> [ renderSwitchZone state i ]
     Nothing -> []
+
+-- | Built-in pages missing from this list, each offered rather than added.
+-- | See `builtInControlBanks` for why they can go missing.
+renderMissingBuiltIns :: forall m. State -> H.ComponentHTML Action () m
+renderMissingBuiltIns state =
+  case missingBuiltIns state of
+    [] -> HH.text ""
+    missing ->
+      HH.div [ HP.class_ (H.ClassName "controls-builtins") ]
+        ( [ HH.p [ HP.class_ (H.ClassName "controls-zone-sub") ]
+              [ HH.text "Pages this app ships with that are not in your list:" ] ]
+            <> map
+              ( \b -> HH.div [ HP.class_ (H.ClassName "controls-builtin") ]
+                  [ HH.span_ [ HH.text (b.name <> " (bank " <> show b.mc6BankNumber <> ") \x2014 " <> b.description) ]
+                  , HH.button
+                      [ HP.class_ (H.ClassName "controls-btn-small")
+                      , HE.onClick \_ -> AddBuiltInBank b.id
+                      ]
+                      [ HH.text "Add" ]
+                  ]
+              )
+              missing
+        )
+
+missingBuiltIns :: State -> Array ControlBank
+missingBuiltIns state =
+  Array.filter (\b -> not (Array.any (\mine -> mine.id == b.id) state.input.controlBanks)) builtInControlBanks
 
 -- | The whole device, built fresh from the four sources the survey merges.
 -- |
@@ -1513,6 +1542,14 @@ handleAction = case _ of
             newIdx = Array.length banks - 1
         H.raise (SaveControlBanks banks (Just newIdx))
         handleAction (SelectBank newIdx)
+
+  AddBuiltInBank id -> do
+    st <- H.get
+    for_ (Array.find (\b -> b.id == id) (missingBuiltIns st)) \bank -> do
+      let banks = Array.snoc st.input.controlBanks bank
+      -- Not selected here: the new list reaches this view as input on the
+      -- parent's next render, and selecting now would read the old one.
+      H.raise (SaveControlBanks banks st.input.activeControlBankIdx)
 
   DeleteBank -> do
     st <- H.get

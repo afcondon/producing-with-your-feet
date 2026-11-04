@@ -9,6 +9,7 @@ module Data.MC6.ControlBank
   , padSwitches
   , exampleControlBank
   , ambientControlBank
+  , builtInControlBanks
   , ccToggleMessages
   , ccMomentaryMessages
   , controlBankToPresets
@@ -242,3 +243,13 @@ exampleControlBank =
       , emptySwitch
       ]
   }
+
+-- | The pages this app ships with, which a person's own list may not hold.
+-- |
+-- | A saved list replaces the defaults wholesale (`Engine.Storage`), so a page
+-- | added to the app after the list was first saved never appeared: Ambient,
+-- | added 2026-08-30 with the scene that answers to it, was invisible on
+-- | 2026-11-04. Merging them back in silently would resurrect a page deleted
+-- | on purpose, so the MC6 tab *offers* each one that is missing instead.
+builtInControlBanks :: Array ControlBank
+builtInControlBanks = [ exampleControlBank, ambientControlBank ]
