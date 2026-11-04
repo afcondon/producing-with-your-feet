@@ -2,6 +2,7 @@ module Component.App (component) where
 
 import Prelude
 
+import Data.MC6.BankNumber as BankNumber
 import Component.Boards.View as BoardsView
 import Component.Controls.View as ControlsView
 import Component.Detail.View as DetailView
@@ -1340,9 +1341,9 @@ handleAction = case _ of
         invalidateObservation r.written
         H.modify_ _ { looperProgramStatus = Just $
           if Array.null r.written then
-            "The MC6 never confirmed moving to bank " <> show st.mc6LooperBankNum
+            "The MC6 never confirmed moving to bank " <> BankNumber.shown st.mc6LooperBankNum
               <> ", so nothing was written."
-          else "Written to MC6 bank " <> show st.mc6LooperBankNum <> ". Stomp to test." }
+          else "Written to MC6 bank " <> BankNumber.shown st.mc6LooperBankNum <> ". Stomp to test." }
 
   SetLooperFace slots -> H.modify_ _ { looperShowsSlots = slots }
 
@@ -1438,7 +1439,7 @@ handleAction = case _ of
           H.modify_ _ { looperProgramStatus = Just $
             "Refusing to write: a board assigned to a switch does not fit an MC6 preset. "
               <> String.joinWith " "
-                   (map (\b -> "Bank " <> show b.bank <> " switch "
+                   (map (\b -> "Bank " <> BankNumber.shown b.bank <> " switch "
                                  <> ControlBank.switchLetter b.slot <> ": \""
                                  <> b.board <> "\" needs " <> show b.messages
                                  <> " messages and a preset holds "
@@ -1449,7 +1450,7 @@ handleAction = case _ of
             "Refusing to write: more than one page claims the same bank, so whatever "
               <> "is written could not be checked afterwards. "
               <> String.joinWith " "
-                   (map (\d -> "Bank " <> show d.bank <> ": "
+                   (map (\d -> "Bank " <> BankNumber.shown d.bank <> ": "
                                  <> String.joinWith " and " d.pages <> ".") doubled)
               <> " Move or delete one of each pair on the Controls page." }
         else if not (Array.null missing) || not (Array.null surprise) then
@@ -1759,7 +1760,7 @@ handleAction = case _ of
                     else awaitState 40 (\s -> not (Map.isEmpty s.mc6BankNames))
             H.modify_ _
               { mc6CurrentBank = Nothing
-              , mc6ReadStatus = Just ("Asking the MC6 to show bank " <> show n <> "\x2026")
+              , mc6ReadStatus = Just ("Asking the MC6 to show bank " <> BankNumber.shown n <> "\x2026")
               }
             Wire.send open (SysEx.sysexEditorBankChange n)
             -- Waits on `CurrentBank`, which the device sends the moment it
@@ -2981,7 +2982,7 @@ requestOneBank
   => Wire.Open -> Int -> H.HalogenM AppState Action Slots o m Unit
 requestOneBank open b = do
   H.modify_ _ { mc6ReadStatus = Just
-    ("Asking for bank " <> show b <> " of " <> show (Survey.bankCount - 1) <> "\x2026") }
+    ("Asking for bank " <> BankNumber.shown b <> " of " <> show Survey.bankCount <> "\x2026") }
   Wire.send open (SysEx.sysexRequestPresetNames b)
   _ <- awaitState 20 (\s -> Map.member b s.mc6BankSwitches)
   pure unit
@@ -3663,7 +3664,7 @@ handleReadReply bytes = case Read.decodeReply bytes of
     H.modify_ \s -> s
       { mc6BankSwitches = Map.insert bank names s.mc6BankSwitches
       , mc6CurrentBank = Just bank
-      , mc6ReadStatus = Just ("Read bank " <> show bank <> ".")
+      , mc6ReadStatus = Just ("Read bank " <> BankNumber.shown bank <> ".")
       }
     syncSceneToBank bank
   -- Said the instant the device moves, and the fastest honest answer to "which
@@ -3672,7 +3673,7 @@ handleReadReply bytes = case Read.decodeReply bytes of
     H.modify_ \s -> s
       { mc6CurrentBank = Just bank
       , mc6ReadStatus = Just
-          ("The MC6 is showing bank " <> show bank
+          ("The MC6 is showing bank " <> BankNumber.shown bank
             <> (if name == "" then "" else " (" <> name <> ")") <> ".")
       }
     -- **The fastest honest answer, so the fastest place to follow it.** This

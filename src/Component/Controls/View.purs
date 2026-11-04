@@ -7,6 +7,7 @@ module Component.Controls.View
 
 import Prelude
 
+import Data.MC6.BankNumber as BankNumber
 import Component.Controls.Survey as Survey
 import Data.Array as Array
 import Data.Const (Const)
@@ -251,7 +252,7 @@ initialState i =
   in { input: i
      , selectedBankIdx: 0
      , editBankName: fromMaybe "" (bank <#> _.name)
-     , editBankNumber: fromMaybe "" (bank <#> \b -> show b.mc6BankNumber)
+     , editBankNumber: fromMaybe "" (bank <#> \b -> BankNumber.shown b.mc6BankNumber)
      , editBankDescription: fromMaybe "" (bank <#> _.description)
      , editReturnSwitch: fromMaybe 6 (bank <#> _.returnSwitchIndex)
      , ccIndex: buildCCIndex i.registry
@@ -406,7 +407,7 @@ renderMissingBuiltIns state =
               [ HH.text "Pages this app ships with that are not in your list:" ] ]
             <> map
               ( \b -> HH.div [ HP.class_ (H.ClassName "controls-builtin") ]
-                  [ HH.span_ [ HH.text (b.name <> " (bank " <> show b.mc6BankNumber <> ") \x2014 " <> b.description) ]
+                  [ HH.span_ [ HH.text (b.name <> " (bank " <> BankNumber.shown b.mc6BankNumber <> ") \x2014 " <> b.description) ]
                   , HH.button
                       [ HP.class_ (H.ClassName "controls-btn-small")
                       , HE.onClick \_ -> AddBuiltInBank b.id
@@ -520,7 +521,7 @@ renderBankZone state bankNum =
       -- One numbering, zero-based, the same as the wire. Morningstar's editor
       -- counts from one; showing both here is what produced the off-by-ones it
       -- was meant to prevent.
-      meta = "bank " <> show bankNum
+      meta = "bank " <> BankNumber.shown bankNum
                <> (case mCard of
                      Just c -> " \x00b7 " <> Survey.provenanceLabel c.provenance
                      Nothing -> "")
@@ -529,7 +530,7 @@ renderBankZone state bankNum =
         Nothing ->
           [ HH.div [ HP.class_ (H.ClassName "controls-zone-head") ]
               [ backToInstrument
-              , HH.h3_ [ HH.text ("Bank " <> show bankNum) ]
+              , HH.h3_ [ HH.text ("Bank " <> BankNumber.shown bankNum) ]
               , HH.span [ HP.class_ (H.ClassName "controls-zone-sub") ] [ HH.text meta ]
               ]
           , renderUnauthoredBank state mCard bankNum
@@ -1114,7 +1115,7 @@ renderHoldsSelector state bankNum idx mBoard =
                           <> if n > Board.messageLimit then " over" else "")) ]
             [ HH.text (show n <> "/" <> show Board.messageLimit) ]
     , HH.span [ HP.class_ (H.ClassName "controls-holds-where") ]
-        [ HH.text ("bank " <> show bankNum <> " \x00b7 switch " <> switchLetter idx) ]
+        [ HH.text ("bank " <> BankNumber.shown bankNum <> " \x00b7 switch " <> switchLetter idx) ]
     ]
   where
   boardOption bp =
@@ -1510,7 +1511,7 @@ handleAction = case _ of
             , selectedBankNumber = mBank <#> _.mc6BankNumber
             , selectedSwitchIdx = Nothing
             , editBankName = fromMaybe "" (mBank <#> _.name)
-            , editBankNumber = fromMaybe "" (mBank <#> \b -> show b.mc6BankNumber)
+            , editBankNumber = fromMaybe "" (mBank <#> \b -> BankNumber.shown b.mc6BankNumber)
             , editBankDescription = fromMaybe "" (mBank <#> _.description)
             , editReturnSwitch = fromMaybe 6 (mBank <#> _.returnSwitchIndex)
             }
@@ -1664,7 +1665,7 @@ handleAction = case _ of
       , viewingGlobals = false
       , selectedBankIdx = idx
       , editBankName = fromMaybe "" (mBank <#> _.name)
-      , editBankNumber = fromMaybe (show n) (mBank <#> \b -> show b.mc6BankNumber)
+      , editBankNumber = fromMaybe (BankNumber.shown n) (mBank <#> \b -> BankNumber.shown b.mc6BankNumber)
       , editBankDescription = fromMaybe "" (mBank <#> _.description)
       , editReturnSwitch = fromMaybe 6 (mBank <#> _.returnSwitchIndex)
       }
@@ -1693,7 +1694,7 @@ handleAction = case _ of
       , selectedSwitchIdx = Nothing
       , viewingGlobals = false
       , editBankName = newBank.name
-      , editBankNumber = show n
+      , editBankNumber = BankNumber.shown n
       , editBankDescription = newBank.description
       , editReturnSwitch = newBank.returnSwitchIndex
       }
@@ -1745,7 +1746,7 @@ handleAction = case _ of
       , selectedSwitchIdx = Nothing
       , viewingGlobals = false
       , editBankName = seeded.name
-      , editBankNumber = show n
+      , editBankNumber = BankNumber.shown n
       , editBankDescription = seeded.description
       }
 
@@ -1962,7 +1963,7 @@ commitBankProps = do
   case Array.index st.input.controlBanks st.selectedBankIdx of
     Nothing -> pure unit
     Just bank -> do
-      let bankNum = fromMaybe bank.mc6BankNumber (Int.fromString st.editBankNumber)
+      let bankNum = fromMaybe bank.mc6BankNumber (BankNumber.fromShown st.editBankNumber)
           updatedBank = bank
             { name = st.editBankName
             , mc6BankNumber = bankNum

@@ -7,6 +7,7 @@ module Component.Boards.View
 
 import Prelude
 
+import Data.MC6.BankNumber as BankNumber
 import Color (toHexString)
 import Data.Array as Array
 import Data.Const (Const)
@@ -321,7 +322,7 @@ renderBoardItemNormal state bp =
         , if Array.null assignedPlaces then HH.text "" else
             HH.span [ HP.class_ (H.ClassName "boards-item-assigned-badge") ]
               [ HH.text (String.joinWith " "
-                  (map (\a -> show a.bankNumber <> switchLetter a.switchIndex) assignedPlaces)) ]
+                  (map (\a -> BankNumber.shown a.bankNumber <> switchLetter a.switchIndex) assignedPlaces)) ]
         , renderBudget state bp
         , HH.span [ HP.class_ (H.ClassName "boards-item-date") ] [ HH.text (SCU.take 10 bp.modified) ]
         ]

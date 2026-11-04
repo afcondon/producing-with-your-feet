@@ -89,8 +89,8 @@ slotMark run bank slot sw
   | sw.label /= "" = sw
   | not (Array.null sw.messages) = sw
   | otherwise = sw
-      { label = pad2 bank <> switchLetter slot <> " " <> runTag run
-      , longName = "Sweep " <> runTag run <> " bank " <> pad2 bank
+      { label = pad2 (bank + 1) <> switchLetter slot <> " " <> runTag run
+      , longName = "Sweep " <> runTag run <> " bank " <> pad2 (bank + 1)
                      <> " sw " <> switchLetter slot
       }
 
@@ -106,9 +106,13 @@ slotMark run bank slot sw
 -- | marking both gives two independent witnesses to the same write. A bank
 -- | whose name updated and whose switches did not is a different fault from one
 -- | where nothing arrived, and until now the two were the same screen.
+-- |
+-- | The number is the one the MC6's display shows (`Data.MC6.BankNumber`), so
+-- | `CLEAR 04` is the bank you stand on as 4. It was the wire's until
+-- | 2026-11-04, which put "CLEAR 16" on the bank the device calls 17.
 bankMark :: Int -> Int -> String -> String
 bankMark run bank name =
-  if name == "" then "CLEAR " <> pad2 bank <> " " <> tag
+  if name == "" then "CLEAR " <> pad2 (bank + 1) <> " " <> tag
   else SCU.take room name <> " " <> tag
   where
   tag = runTag run

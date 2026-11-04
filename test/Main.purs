@@ -2575,10 +2575,10 @@ main = do
       labels cb = map _.label cb.switches
 
   assert "a cleared bank's blank switches carry bank, slot and run"
-    (labels marked7 == map (\l -> "03" <> l <> " r7")
+    (labels marked7 == map (\l -> "04" <> l <> " r7")
                           [ "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L" ])
   assert "a cleared bank's name says which sweep cleared it"
-    (marked7.name == "CLEAR 03 r7")
+    (marked7.name == "CLEAR 04 r7")
 
   -- The mark has to fit the field the device gives it, or the MC6 truncates it
   -- silently and `03A r100` becomes a claim about a bank that is not there.

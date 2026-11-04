@@ -38,6 +38,7 @@ module Component.Controls.Survey
 
 import Prelude
 
+import Data.MC6.BankNumber as BankNumber
 import Data.Array as Array
 import Data.Int as Int
 import Data.MC6.Survey (BankCard, NavEdge, Provenance(..), bankCount, deadEnds, knownBanks, navEdges, reachableFrom, stranded, universalEdges)
@@ -306,7 +307,7 @@ renderCard props card =
     ]
     [ HH.div [ HP.class_ (H.ClassName "survey-card-head") ]
         [ HH.span [ HP.class_ (H.ClassName "survey-card-num") ]
-            [ HH.text (show card.bankNumber) ]
+            [ HH.text (BankNumber.shown card.bankNumber) ]
         , HH.span [ HP.class_ (H.ClassName "survey-card-prov") ]
             [ HH.text (provenanceMark card.provenance) ]
         ]
@@ -540,12 +541,12 @@ renderWarnings props =
     then HH.text ""
     else HH.div [ HP.class_ (H.ClassName "survey-warnings") ]
       ( [ HH.p [ HP.class_ (H.ClassName "survey-warn-reach") ]
-            [ HH.text (show reach <> " banks reachable from bank " <> show props.homeBank) ]
+            [ HH.text (show reach <> " banks reachable from bank " <> BankNumber.shown props.homeBank) ]
         ]
         <> (if Array.null strandedBanks then [] else
               [ HH.p [ HP.class_ (H.ClassName "survey-warn") ]
                   [ HH.text ("Programmed but unreachable: "
-                              <> String.joinWith ", " (map show strandedBanks)
+                              <> String.joinWith ", " (map BankNumber.shown strandedBanks)
                               <> ". Nothing jumps to these, so they can only be got to by hand.") ]
               ])
         <> (if Array.null ends then [] else
