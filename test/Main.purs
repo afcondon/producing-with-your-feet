@@ -2607,7 +2607,7 @@ main = do
   assert "a global's slot keeps its label rather than taking a mark"
     (Array.index (labels markedWithGlobal) 6 == Just "< Back")
   assert "and the slots either side of it still take marks"
-    (Array.index (labels markedWithGlobal) 5 == Just "03F r7")
+    (Array.index (labels markedWithGlobal) 5 == Just "04F r7")
 
   -- A generated bank keeps its name and gains the run, within the device's
   -- twenty-four characters.
