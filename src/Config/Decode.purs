@@ -3,6 +3,7 @@ module Config.Decode
   , loadPedal
   , loadController
   , LoadError(..)
+  , fetchText
   ) where
 
 import Prelude

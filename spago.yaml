@@ -14,6 +14,7 @@ package:
     - foreign-object: ">=4.1.0 <5.0.0"
     - halogen: ">=7.0.0 <8.0.0"
     - halogen-subscriptions: ">=2.0.0 <3.0.0"
+    - glassbox
     - helm
     - hylograph-graph
     - hylograph-selection
@@ -70,3 +71,7 @@ workspace:
     # with Triggerfish (music/helm).
     helm:
       path: ../helm
+    # State machines as data artifacts (static/machines/*.json), run by
+    # Glassbox.Run.step; the Twister's owner is the first.
+    glassbox:
+      path: ../../purescript-hylograph-libs/purescript-glassbox/core

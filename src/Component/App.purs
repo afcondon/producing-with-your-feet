@@ -18,6 +18,7 @@ import Component.Looper.Control as LooperControl
 import Component.Looper.Page as LooperPage
 import Component.Twister.Lights (sendSceneLEDs, adoptTwisterPage, dimAllLEDs, knobCC, pinDevice, refreshTwister, rigOf, sendAllLEDs, sendLooperLEDs, sendRingPosition, showTwisterPage)
 import Data.Looper.Machine as Machine
+import Data.Looper.TwisterSurface as TwisterSurface
 import Data.MC6.Backup as Backup
 import Data.MC6.ControlBank (ControlBank)
 import Data.MC6.ControlBank as ControlBank
@@ -732,6 +733,15 @@ handleAction = case _ of
             defaultEngine = initEngineFromPedals pedalsWithLayout
             defaultCardOrder = map _.meta.id pedalsWithLayout
         H.modify_ _ { registry = registry, engine = defaultEngine, cardOrder = defaultCardOrder }
+        -- **Who the Twister is for**, as a machine, loaded before any MIDI can
+        -- arrive (InitializeMIDI is forked below). A failure is said, and the
+        -- Twister then paints nothing rather than guessing an owner.
+        eMachine <- H.liftAff $ Aff.attempt (Decode.fetchText "./machines/twister-surface.json")
+        case eMachine of
+          Left e -> H.modify_ _ { configError = Just ("twister-surface.json: " <> Aff.message e) }
+          Right text -> case TwisterSurface.load text of
+            Left why -> H.modify_ _ { configError = Just why }
+            Right surface -> H.modify_ _ { twisterSurface = Just surface }
         -- Load controller config (MC6 banks)
         when (rig.controller /= "") do
           let controllerUrl = "./" <> "config/" <> rig.controller
@@ -967,7 +977,7 @@ handleAction = case _ of
     case view of
       DetailView pid -> do
         H.modify_ _ { focusPedalId = Just pid }
-        refreshTwister pid
+        feedTwister (focusEvent (Just pid))
       -- **Opening the looper hands it the Twister.** Focus is what decides
       -- which of the two surfaces the controller is showing, and the looper's
       -- page is the one place it is unambiguous — the pill is a door rather
@@ -978,7 +988,7 @@ handleAction = case _ of
       -- include walking off.
       LooperView -> do
         H.modify_ _ { focusPedalId = Just Looper.itajaraId }
-        refreshTwister Looper.itajaraId
+        feedTwister TwisterSurface.FocusLooper
       _ -> pure unit
     liftEffect do
       w <- window
@@ -1530,7 +1540,7 @@ handleAction = case _ of
         -- The device keeps whatever it was last told, and it has just been
         -- somewhere else, so nothing on it can be trusted to still be true.
         H.modify_ _ { twisterLit = Map.empty }
-        when (st0.focusPedalId == Just Looper.itajaraId) sendLooperLEDs
+        when (twisterOwner st0 == Just TwisterSurface.LooperPages) sendLooperLEDs
       H.modify_ _ { twisterHeardBank = Just bank }
     for_ (HelmTwister.parse bytes) (feedTwisterGuard <<< Guard.Heard)
 
@@ -1659,7 +1669,7 @@ handleAction = case _ of
     GridView.PedalViewClicked _ -> pure unit
     GridView.PedalFocused pid -> do
       H.modify_ _ { focusPedalId = Just pid }
-      sendAllLEDs pid
+      feedTwister (focusEvent (Just pid))
     GridView.OrderChanged _ -> pure unit
     GridView.ValueChanged pid cc val -> handleAction (SetValue pid cc val)
     GridView.MomentarySent pid cc val -> handleAction (SendMomentary pid cc val)
@@ -2164,7 +2174,9 @@ handleAction = case _ of
       -- built to end. `sendLooperLEDs` diffs, so a frame in which nothing moved
       -- costs no messages.
       stLit <- H.get
-      when (stLit.focusPedalId == Just Looper.itajaraId) sendLooperLEDs
+      -- The owner, not focus: with a scene up and the looper focused, every
+      -- frame used to paint the looper's rings over the scene.
+      when (twisterOwner stLit == Just TwisterSurface.LooperPages) sendLooperLEDs
 
 
 -- | Read the socket ten times a second, forever.
@@ -2185,7 +2197,7 @@ handleGridOutput = case _ of
   GridView.PedalViewClicked pid -> handleAction (SetView (PedalView pid))
   GridView.PedalFocused pid -> do
     H.modify_ _ { focusPedalId = Just pid }
-    sendAllLEDs pid
+    feedTwister (focusEvent (Just pid))
   GridView.OrderChanged order -> H.modify_ _ { cardOrder = order }
   GridView.ValueChanged pid cc val -> handleAction (SetValue pid cc val)
   GridView.MomentarySent pid cc val -> handleAction (SendMomentary pid cc val)
@@ -3384,19 +3396,14 @@ syncSceneToBank bank = do
       (onThisBank >>= \cb -> Scenes.sceneForControlBank cb.id)
   when (map _.name wanted /= map _.name st.twisterScene) do
     H.modify_ _ { twisterScene = wanted }
-    case wanted of
-      Just sc -> do
-        dimAllLEDs
-        sendSceneLEDs sc
-      -- Leaving. Hand the controller back to whatever focus says, which is the
-      -- same road a focus change takes — including its dim, since a scene lights
-      -- cells a pedal page leaves dark.
-      Nothing -> for_ st.focusPedalId refreshTwister
+    -- Arriving paints the scene; leaving hands the controller back to whatever
+    -- focus says, by the machine's rule (`twister-surface.json`).
+    feedTwister (if isJust wanted then TwisterSurface.SceneOn else TwisterSurface.SceneOff)
 
 handleEncoderTurn :: forall o m. MonadAff m => Knob -> Int -> H.HalogenM AppState Action Slots o m Unit
 handleEncoderTurn knob val = do
   st <- H.get
-  case st.twisterScene of
+  case sceneOwning st of
     -- **A scene wins over everything, the looper's own pages included.** You
     -- are standing on an MC6 bank whose six switches are pedal switches; the
     -- hands belong on the same pedals the feet are on, and a page that let one
@@ -3410,13 +3417,13 @@ handleEncoderTurn knob val = do
           H.modify_ _ { suppressTwister = false }
           for_ result.ringSnap \snap ->
             sendRingPosition knob snap
-    Nothing -> handleEncoderTurnOnPedal st knob val
+    Nothing -> when (isJust st.twisterSurface) (handleEncoderTurnOnPedal st knob val)
 
 handleEncoderTurnOnPedal
   :: forall o m. MonadAff m
   => AppState -> Knob -> Int -> H.HalogenM AppState Action Slots o m Unit
 handleEncoderTurnOnPedal st knob val =
-  if st.focusPedalId == Just Looper.itajaraId
+  if twisterOwner st == Just TwisterSurface.LooperPages
     then
       let here = onPage st knob
           control = LoopTwister.controlAt here
@@ -3507,7 +3514,7 @@ nudgeTurn st knob nd val = do
 handleEncoderPress :: forall o m. MonadAff m => Knob -> H.HalogenM AppState Action Slots o m Unit
 handleEncoderPress knob = do
   st <- H.get
-  case st.twisterScene of
+  case sceneOwning st of
     Just sc -> when (knob.bank == 0) $
       for_ (Scene.buttonAt sc knob.index) \b ->
         -- The state of the pedal the *cell* names, which is why `buttonAction`
@@ -3521,13 +3528,13 @@ handleEncoderPress knob = do
               handleAction (SetValue b.pedal change.cc change.value)
             H.modify_ _ { suppressTwister = false }
             sendSceneLEDs sc
-    Nothing -> handleEncoderPressOnPedal st knob
+    Nothing -> when (isJust st.twisterSurface) (handleEncoderPressOnPedal st knob)
 
 handleEncoderPressOnPedal
   :: forall o m. MonadAff m
   => AppState -> Knob -> H.HalogenM AppState Action Slots o m Unit
 handleEncoderPressOnPedal st knob =
-  if st.focusPedalId == Just Looper.itajaraId
+  if twisterOwner st == Just TwisterSurface.LooperPages
     then if (LoopTwister.controlAt (onPage st knob)).opens == Just LoopTwister.OpensEdit
       then handleAction (ShowLooperPanel (if st.looperPanel == Just PanelEdit then Nothing else Just PanelEdit))
     else if isJust (LoopTwister.controlAt (onPage st knob)).nudge
@@ -3589,19 +3596,17 @@ handleTwisterSideButton :: forall o m. MonadAff m => SideBtn -> H.HalogenM AppSt
 handleTwisterSideButton btn = do
   st <- H.get
   case btn of
-    RefreshLEDs -> for_ st.focusPedalId refreshTwister
+    -- Paint what the owner shows, as arriving there would. Was the focused
+    -- pedal's page, whatever held the Twister, scenes included.
+    RefreshLEDs -> for_ st.twisterSurface (traverse_ paintTwister <<< TwisterSurface.repaint)
     PrevPedal -> do
       let newFocus = Twister.handleSideButtonPrev st.focusPedalId st.cardOrder
       H.modify_ _ { focusPedalId = newFocus }
-      case newFocus of
-        Nothing -> dimAllLEDs
-        Just pid -> refreshTwister pid
+      feedTwister (focusEvent newFocus)
     NextPedal -> do
       let newFocus = Twister.handleSideButton st.focusPedalId st.cardOrder
       H.modify_ _ { focusPedalId = newFocus }
-      case newFocus of
-        Nothing -> dimAllLEDs
-        Just pid -> refreshTwister pid
+      feedTwister (focusEvent newFocus)
 
 -- | Merge layout from PureScript pedal definitions into JSON-decoded pedals.
 -- | JSON provides runtime config; layout is PureScript-only (contains ADTs).
@@ -3748,3 +3753,48 @@ initializeMIDIWith routing mAccess = do
       for_ mMC6Out \port -> do
         mOut <- liftEffect $ MIDI.findOutput mAccess (MIDI.Exactly port.id)
         H.modify_ _ { connections { mc6Output = mOut, mc6OutputId = Just port.id } }
+
+
+-- =============================================================================
+-- Who the Twister is for (static/machines/twister-surface.json)
+-- =============================================================================
+
+-- | Feed the Twister's machine an event and carry out what it owes. Every
+-- | change of focus or scene comes through here, so what the device shows is
+-- | decided in one place: the machine's state, which is the owner.
+feedTwister :: forall o m. MonadAff m => TwisterSurface.Event -> H.HalogenM AppState Action Slots o m Unit
+feedTwister ev = do
+  st <- H.get
+  for_ st.twisterSurface \surface -> do
+    let fed = TwisterSurface.feed { looperFocused: st.focusPedalId == Just Looper.itajaraId } ev surface
+    H.modify_ _ { twisterSurface = Just fed.surface }
+    for_ fed.refused \why -> liftEffect (Console.log ("Twister: " <> why))
+    traverse_ paintTwister fed.paints
+
+-- | What each entry command means on this device.
+paintTwister :: forall o m. MonadAff m => TwisterSurface.Paint -> H.HalogenM AppState Action Slots o m Unit
+paintTwister = case _ of
+  TwisterSurface.PaintPedal -> do
+    st <- H.get
+    case st.focusPedalId of
+      Just pid | not (Looper.isItajara pid) -> refreshTwister pid
+      _ -> dimAllLEDs
+  TwisterSurface.PaintLooper -> refreshTwister Looper.itajaraId
+  TwisterSurface.PaintScene -> do
+    st <- H.get
+    for_ st.twisterScene \sc -> do
+      dimAllLEDs
+      sendSceneLEDs sc
+
+twisterOwner :: AppState -> Maybe TwisterSurface.Owner
+twisterOwner st = map TwisterSurface.owner st.twisterSurface
+
+-- | The scene, when the machine says a scene holds the Twister.
+sceneOwning :: AppState -> Maybe Scene.Scene
+sceneOwning st =
+  if twisterOwner st == Just TwisterSurface.ScenePage then st.twisterScene else Nothing
+
+focusEvent :: Maybe PedalId -> TwisterSurface.Event
+focusEvent = case _ of
+  Just pid | Looper.isItajara pid -> TwisterSurface.FocusLooper
+  _ -> TwisterSurface.FocusPedal

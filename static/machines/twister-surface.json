@@ -4,10 +4,10 @@
   "title": "Who the Twister is for",
   "notes": [
     "PWYF's Midi Fighter Twister serves the pedals and the looper. This says which of them has it now, and so which process may paint its rings: the state IS the owner (plan docs/kb/plans/quadrat-the-sampler.md, phase 3, step 1).",
-    "Transcribed from Component.App (syncSceneToBank, handleEncoderTurn, SetView), 2026-11-04, not designed: a scene wins over everything; otherwise focus decides.",
-    "The host keeps what is data, not mode: WHICH pedal is focused, WHICH scene, and the looper's page (0-3), which the pager knob's position chooses. Each repaint is an entry command, so arriving by any road paints the same way.",
-    "Re-entry is deliberate in three places: focus moving from one pedal to another, the pager turning, and one scene giving way to another. Each is a 'to' the same state, which re-runs the entry and repaints.",
-    "Focus changes during a scene are remembered by the host and change nothing on the device; leaving the scene hands the Twister to what focus says then (the looper-focused fact)."
+    "Transcribed from Component.App (syncSceneToBank, handleEncoderTurn, SetView, the side buttons), 2026-11-04, not designed: a scene wins over everything; otherwise focus decides.",
+    "The host keeps what is data, not mode: WHICH pedal is focused, WHICH scene, and which of the looper's pages is showing (the pager knob turns pages within the looper state, and the machine has no say in it).",
+    "Every arrival is an entry, and entries paint: arriving at the looper by any road shows its first page, as refreshTwister always has. Focusing what is already focused re-enters on purpose (a 'to' the same state), because PWYF has always repainted then, and so does one scene giving way to another.",
+    "Focus changes during a scene are remembered by the host and change nothing on the device; leaving the scene hands the Twister to what focus says then (the looper-focused fact). Before this machine, a frame from the daemon or a side button could paint over a scene."
   ],
   "initial": "pedal",
   "clock": "milliseconds",
@@ -21,7 +21,7 @@
     },
     {
       "id": "looper",
-      "label": "The looper's page",
+      "label": "The looper's pages",
       "entry": [
         "paint-looper"
       ]
@@ -54,11 +54,6 @@
       "id": "scene-off",
       "label": "the MC6 leaves that bank",
       "source": "runtime"
-    },
-    {
-      "id": "pager",
-      "label": "the pager knob turns",
-      "source": "user"
     }
   ],
   "config": [],
@@ -68,16 +63,7 @@
       "label": "The looper is the focused pedal"
     }
   ],
-  "refusals": [
-    {
-      "id": "no-pager",
-      "text": "a pedal's page has no pager; the looper is not focused"
-    },
-    {
-      "id": "scene-holds",
-      "text": "a scene holds the Twister; leave its MC6 bank first"
-    }
-  ],
+  "refusals": [],
   "commands": [
     {
       "id": "paint-pedal",
@@ -85,7 +71,7 @@
     },
     {
       "id": "paint-looper",
-      "label": "Paint the looper's current page from the daemon's snapshot"
+      "label": "Show the looper's first page, from the daemon's snapshot"
     },
     {
       "id": "paint-scene",
@@ -130,15 +116,6 @@
       ]
     },
     {
-      "from": "pedal",
-      "on": "pager",
-      "cases": [
-        {
-          "refuse": "no-pager"
-        }
-      ]
-    },
-    {
       "from": "looper",
       "on": "focus-pedal",
       "cases": [
@@ -152,7 +129,7 @@
       "on": "focus-looper",
       "cases": [
         {
-          "stay": true
+          "to": "looper"
         }
       ]
     },
@@ -171,15 +148,6 @@
       "cases": [
         {
           "stay": true
-        }
-      ]
-    },
-    {
-      "from": "looper",
-      "on": "pager",
-      "cases": [
-        {
-          "to": "looper"
         }
       ]
     },
@@ -222,15 +190,6 @@
         },
         {
           "to": "pedal"
-        }
-      ]
-    },
-    {
-      "from": "scene",
-      "on": "pager",
-      "cases": [
-        {
-          "refuse": "scene-holds"
         }
       ]
     }

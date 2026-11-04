@@ -28,6 +28,7 @@ import Data.MC6.ControlBank (ControlBank, exampleControlBank, ambientControlBank
 import Data.MC6.Dump as Dump
 import Data.MC6.Settings as Settings
 import Data.Looper.Banks as LooperBanks
+import Data.Looper.TwisterSurface as TwisterSurface
 import Data.MC6.Types (MC6NativeBank)
 import Data.MC6.Wire as Wire
 import Data.Array as Array
@@ -181,6 +182,12 @@ type AppState =
   -- | Resolved rather than a `SceneDef`, because resolution needs the registry
   -- | and every reader of this field wants the controls, not the borrowings.
   , twisterScene :: Maybe Scene
+  -- | **Who the Twister is for** — a pedal's page, the looper's, or a scene —
+  -- | as the Glassbox machine `static/machines/twister-surface.json` says.
+  -- | Painting asks this and nothing else. `Nothing` until the machine has
+  -- | loaded, and for good if it failed to (then `configError` says why and
+  -- | the Twister paints nothing, rather than guessing an owner).
+  , twisterSurface :: Maybe TwisterSurface.Surface
   , presets :: Array PedalPreset
   , boardPresets :: Array BoardPreset
   , registry :: PedalRegistry
@@ -445,6 +452,7 @@ initAppState =
   , twisterHeardBank: Nothing
   , twisterPage: 0
   , twisterScene: Nothing
+  , twisterSurface: Nothing
   , presets: []
   , boardPresets: []
   , configError: Nothing
