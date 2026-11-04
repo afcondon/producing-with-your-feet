@@ -971,6 +971,7 @@ handleAction = case _ of
           when (matches st.connections.twisterOutputId && isNothing st.connections.twisterOutput) do
             mOut <- liftEffect $ MIDI.findOutput access (MIDI.Exactly change.id)
             H.modify_ _ { connections { twisterOutput = mOut } }
+            for_ mOut (liftEffect <<< MIDI.claimOutput access)
         H.modify_ _ { midiTest = Just (change.name <> " reconnected") }
 
   SetView view -> do
@@ -3740,6 +3741,11 @@ initializeMIDIWith routing mAccess = do
     for_ mTwisterOut \port -> do
       mOut <- liftEffect $ MIDI.findOutput mAccess (MIDI.Exactly port.id)
       H.modify_ _ { connections { twisterOutput = mOut, twisterOutputId = Just port.id } }
+      -- **Hold it.** Through Helm's hub, only this page's ring and colour
+      -- messages then reach the Twister; another app's (or another tab's) are
+      -- dropped and it is told who holds the device. Through Web MIDI this does
+      -- nothing. Plan: quadrat-the-sampler.md, phase 3, step 2.
+      for_ mOut (liftEffect <<< MIDI.claimOutput mAccess)
     -- Auto-select pedal output (MC6 via USB)
     let mPedalOut = Array.find (\p -> contains (Pattern routing.pedalOutput.match) p.name) outputs
     for_ mPedalOut \port ->
