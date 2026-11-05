@@ -21,6 +21,7 @@ package:
     - hylograph-transitions
     - integers: ">=6.0.0 <7.0.0"
     - itajara-client
+    - itajara-controllers
     - itajara-surface
     - js-date: ">=8.0.0 <9.0.0"
     - maybe: ">=6.0.0 <7.0.0"
@@ -67,6 +68,10 @@ workspace:
       path: ../itajara/client
     itajara-surface:
       path: ../itajara/surface
+    # The looper's own MC6 pages (and next its Twister pages and process):
+    # Data.Looper.Banks moved there 2026-11-05 so Quadrat can read them too.
+    itajara-controllers:
+      path: ../itajara/controllers
     # The controllers — device profiles and the one Web MIDI FFI — shared
     # with Triggerfish (music/helm).
     helm:

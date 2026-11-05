@@ -93,7 +93,7 @@ import Prelude
 import Data.Array as Array
 import Data.Int (round, toNumber)
 import Data.Looper.Duty (Duty(..), Subject(..), dutyLabel, dutyName)
-import Data.Looper.Surface (nLoops)
+import Data.Looper.Layout (nLoops)
 import Data.Looper.Machine (Rig)
 import Data.Maybe (Maybe(..), fromMaybe, isJust, maybe)
 import Data.Tuple (Tuple(..))
