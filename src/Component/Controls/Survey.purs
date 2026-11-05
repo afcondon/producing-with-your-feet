@@ -96,6 +96,9 @@ type SurveyProps i =
   -- | the same class of fact as everything else on this card.
   , sessionHeld :: Boolean
   , onToggleSession :: i
+  -- | Hold one whenever the MC6 connects.
+  , autoHold :: Boolean
+  , onToggleAutoHold :: i
   -- | True while a read is walking the device. The read is minutes long, so a
   -- | button that looks idle throughout is a button people press twice.
   , reading :: Boolean
@@ -234,6 +237,14 @@ renderHeader props =
             [ HH.text (if props.sessionHeld
                          then "Session held \x2014 release"
                          else "Hold a session") ]
+        , HH.label [ HP.class_ (H.ClassName "survey-toggle") ]
+            [ HH.input
+                [ HP.type_ HP.InputCheckbox
+                , HP.checked props.autoHold
+                , HE.onChecked \_ -> props.onToggleAutoHold
+                ]
+            , HH.text " hold whenever connected"
+            ]
         , HH.label [ HP.class_ (H.ClassName "survey-toggle") ]
             [ HH.input
                 [ HP.type_ HP.InputCheckbox

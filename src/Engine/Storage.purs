@@ -25,6 +25,8 @@ module Engine.Storage
   , loadControlBanksParsed
   , saveGlobalSwitches
   , loadGlobalSwitchesParsed
+  , saveMC6AutoHold
+  , loadMC6AutoHold
   , loadLegacyOverrides
   , parseEngine
   , parseCardOrder
@@ -83,6 +85,7 @@ data StorageKey
   | DeviceReadKey
   | DumpedBanksKey
   | SweepRunKey
+  | MC6AutoHoldKey
 
 keyString :: StorageKey -> String
 keyString = case _ of
@@ -98,6 +101,7 @@ keyString = case _ of
   GlobalSwitchesKey -> "pedal-explorer-shared-switches"
   DeviceReadKey -> "pedal-explorer-mc6-device-read"
   DumpedBanksKey -> "pedal-explorer-mc6-dumped-banks"
+  MC6AutoHoldKey -> "pedal-explorer-mc6-auto-hold"
   SweepRunKey -> "pedal-explorer-mc6-sweep-run"
 
 getStorage :: Effect Storage.Storage
@@ -816,3 +820,12 @@ hydrateFromSnapshot raw = case hush (jsonParser raw) >>= Json.toObject of
   isEmptyArray j = case Json.toArray j of
     Just xs -> Array.null xs
     Nothing -> false
+
+-- | Whether the app holds an MC6 session whenever it connects. On unless this
+-- | browser was told otherwise: holding is what lets a scene follow the MC6's
+-- | bank, so off is the exception worth remembering.
+saveMC6AutoHold :: Boolean -> Effect Unit
+saveMC6AutoHold on = setItem MC6AutoHoldKey (if on then "true" else "false")
+
+loadMC6AutoHold :: Effect Boolean
+loadMC6AutoHold = map (_ /= Just "false") (getItem MC6AutoHoldKey)

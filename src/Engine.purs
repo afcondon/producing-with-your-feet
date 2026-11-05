@@ -219,6 +219,10 @@ type AppState =
   -- | point: a session opened by Morningstar's editor in another tab is a thing
   -- | we can only learn about by being told.
   , mc6EditorMode :: Maybe Boolean
+  -- | Hold a session whenever the MC6 connects, so its bank reports (and the
+  -- | scenes that follow them) arrive without a button. The MC6 tab's checkbox;
+  -- | remembered per browser.
+  , mc6AutoHold :: Boolean
   -- | Removes the page-unload handler that releases a held session. Present
   -- | exactly when a session is held; a handler left installed after release
   -- | would disconnect a session that is already closed.
@@ -462,6 +466,7 @@ initAppState =
   , mc6CurrentBank: Nothing
   , mc6Held: Nothing
   , mc6EditorMode: Nothing
+  , mc6AutoHold: true
   , mc6UnloadGuard: Nothing
   , controlBanks: [exampleControlBank, ambientControlBank]
   , globalSwitches: []

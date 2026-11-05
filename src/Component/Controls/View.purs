@@ -65,6 +65,7 @@ type Input =
   -- | rather than the session itself: the view needs to say which mode the
   -- | instrument is in, and it has no business being able to send anything.
   , mc6SessionHeld :: Boolean
+  , mc6AutoHold :: Boolean
   -- | Set once the bank-change probe has found a channel; until then there is
   -- | no way to read more than the bank the device happens to be showing.
   , mc6Reading :: Boolean
@@ -108,6 +109,8 @@ data Output
   -- | bank for us without one, so this is what makes the app able to move the
   -- | MC6 while the board is being played rather than only while it is idle.
   | ToggleMC6Session
+  -- | Hold a session whenever the MC6 connects, or stop doing so.
+  | ToggleMC6AutoHold
   -- | Put a board on a switch, or take it off. Addressed by (bank, switch)
   -- | rather than by board, because a switch holds exactly one thing while a
   -- | board can sit on many switches — the other direction can express a
@@ -219,6 +222,7 @@ data Action
   | RequestRead
   | RequestDeepRead
   | RequestToggleSession
+  | RequestToggleAutoHold
   | SetSwitchHolds Int String
   -- Global switches
   | OpenGlobals
@@ -443,6 +447,8 @@ renderSurvey state =
     , onDeepRead: RequestDeepRead
     , sessionHeld: state.input.mc6SessionHeld
     , onToggleSession: RequestToggleSession
+    , autoHold: state.input.mc6AutoHold
+    , onToggleAutoHold: RequestToggleAutoHold
     , reading: state.input.mc6Reading
     , readAt: state.input.mc6ReadAt
     }
@@ -1756,6 +1762,7 @@ handleAction = case _ of
 
   RequestDeepRead -> H.raise DeepReadMC6
   RequestToggleSession -> H.raise ToggleMC6Session
+  RequestToggleAutoHold -> H.raise ToggleMC6AutoHold
 
   SetSwitchHolds idx boardId -> do
     st <- H.get

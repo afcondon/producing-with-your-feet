@@ -276,6 +276,7 @@ render state = case state.configError of
             , mc6BankSwitches: state.mc6BankSwitches
             , mc6ReadStatus: state.mc6ReadStatus
             , mc6SessionHeld: isJust state.mc6Held
+            , mc6AutoHold: state.mc6AutoHold
             , mc6Reading: state.mc6Reading
             , mc6ReadAt: state.mc6ReadAt
             , boardPresets: state.boardPresets
@@ -783,6 +784,8 @@ handleAction = case _ of
         controlBanks <- map (map ControlBank.padSwitches)
           (liftEffect $ Storage.loadControlBanksParsed currentSt.controlBanks)
         loadedGlobals <- liftEffect Storage.loadGlobalSwitchesParsed
+        mc6AutoHold <- liftEffect Storage.loadMC6AutoHold
+        H.modify_ _ { mc6AutoHold = mc6AutoHold }
         legacyOverrides <- liftEffect Storage.loadLegacyOverrides
         -- Two one-time conversions, and at most one of them can apply.
         --
@@ -945,8 +948,11 @@ handleAction = case _ of
           H.modify_ _ { connections { twisterInput = Nothing, twisterInputSub = Nothing } }
         when (matches st.connections.pedalOutputId) $
           H.modify_ _ { connections { pedalOutput = Nothing } }
-        when (matches st.connections.mc6OutputId) $
-          H.modify_ _ { connections { mc6Output = Nothing } }
+        -- A session lives on the device, so one that was held went with it:
+        -- forget it, so that the MC6's return holds a new one.
+        when (matches st.connections.mc6OutputId) do
+          for_ st.mc6UnloadGuard liftEffect
+          H.modify_ _ { connections { mc6Output = Nothing }, mc6Held = Nothing, mc6UnloadGuard = Nothing }
         when (matches st.connections.twisterOutputId) $
           H.modify_ _ { connections { twisterOutput = Nothing } }
         H.modify_ _ { midiTest = Just (change.name <> " disconnected") }
@@ -968,6 +974,7 @@ handleAction = case _ of
           when (matches st.connections.mc6OutputId && isNothing st.connections.mc6Output) do
             mOut <- liftEffect $ MIDI.findOutput access (MIDI.Exactly change.id)
             H.modify_ _ { connections { mc6Output = mOut } }
+            void $ H.fork autoHoldMC6
           when (matches st.connections.twisterOutputId && isNothing st.connections.twisterOutput) do
             mOut <- liftEffect $ MIDI.findOutput access (MIDI.Exactly change.id)
             H.modify_ _ { connections { twisterOutput = mOut } }
@@ -1805,62 +1812,16 @@ handleAction = case _ of
     -- | the session turns it back on.
     ControlsView.ToggleMC6Session -> do
       st <- H.get
-      case st.mc6Held, st.connections.mc6Output of
-        Just open, _ -> do
-          Wire.send open (SysEx.sysexSwitchPressLoad true)
-          Wire.closeSession open
-          for_ st.mc6UnloadGuard liftEffect
-          H.modify_ _
-            { mc6Held = Nothing
-            , mc6UnloadGuard = Nothing
-            , mc6ReadStatus = Just
-                ("Session released. The MC6 is its own again \x2014 and "
-                  <> "\x201cload preset data using switch press\x201d is back on.")
-            }
-        Nothing, Nothing ->
-          H.modify_ _ { mc6ReadStatus = Just "Cannot hold a session: no MC6 SysEx output selected." }
-        Nothing, Just mc6 -> do
-          H.modify_ _
-            { mc6ReadStatus = Just "Opening a session to hold\x2026"
-            -- Forget what we knew about editor mode, so that what arrives next
-            -- is the device answering rather than something we remembered.
-            , mc6EditorMode = Nothing
-            }
-          -- `openSession` disconnects before it connects, so a session left by a
-          -- previous page load is closed rather than inherited. The device
-          -- answers a real disconnect with `EditorMode false`, so seeing that is
-          -- how we learn there *was* one.
-          open <- Wire.openSession mc6
-          stAfter <- H.get
-          let tookOver = stAfter.mc6EditorMode == Just false
-          live <- awaitState 40 (\s -> not (Map.isEmpty s.mc6BankNames))
-          if not live
-            then do
-              Wire.closeSession open
-              H.modify_ _ { mc6ReadStatus = Just
-                ("The MC6 did not answer the session request, so nothing is being "
-                  <> "held \x2014 is its input connected?") }
-            else do
-              Wire.send open (SysEx.sysexSwitchPressLoad false)
-              -- A session outlives the tab that opened it, so closing the tab
-              -- without closing the session leaves the instrument in a mode
-              -- nobody chose. Installed only while one is held.
-              guard <- liftEffect $ Unload.onBeforeUnload do
-                Wire.send open (SysEx.sysexSwitchPressLoad true)
-                Wire.closeSession open
-              H.modify_ _
-                { mc6Held = Just open
-                , mc6UnloadGuard = Just guard
-                , mc6ReadStatus = Just
-                    ("Session held. Bank jumps from here are instant, and the MC6 "
-                      <> "keeps its own bank switching and MIDI clock."
-                      <> (if tookOver
-                            then "  Note: something already had a session open \x2014 "
-                                   <> "Morningstar's editor, most likely \x2014 and this "
-                                   <> "took it over."
-                            else "")
-                      <> "  Release it when you are done editing.")
-                }
+      if isJust st.mc6Held then releaseMC6Session else holdMC6Session
+    -- | The checkbox beside it. Turning it on holds one now, as connecting
+    -- | would have; turning it off leaves a held session alone, since letting
+    -- | go is the button's job.
+    ControlsView.ToggleMC6AutoHold -> do
+      st <- H.get
+      let on = not st.mc6AutoHold
+      H.modify_ _ { mc6AutoHold = on }
+      liftEffect $ Storage.saveMC6AutoHold on
+      when on autoHoldMC6
     ControlsView.SaveGlobalSwitches globals -> do
       H.modify_ _ { globalSwitches = globals }
       liftEffect $ Storage.saveGlobalSwitches globals
@@ -2564,6 +2525,86 @@ handleBoardRecallFromMC6 ccNum = do
         recallBoard bp
       Nothing -> pure unit
     Nothing -> pure unit
+
+-- | Let the held session go, and put back the switch-press setting it turned
+-- | off. See `ControlsView.ToggleMC6Session`.
+releaseMC6Session
+  :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
+releaseMC6Session = do
+  st <- H.get
+  for_ st.mc6Held \open -> do
+    Wire.send open (SysEx.sysexSwitchPressLoad true)
+    Wire.closeSession open
+    for_ st.mc6UnloadGuard liftEffect
+    H.modify_ _
+      { mc6Held = Nothing
+      , mc6UnloadGuard = Nothing
+      , mc6ReadStatus = Just
+          ("Session released. The MC6 is its own again \x2014 and "
+            <> "\x201cload preset data using switch press\x201d is back on.")
+      }
+
+-- | Open a session and keep it. See `ControlsView.ToggleMC6Session`.
+holdMC6Session
+  :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
+holdMC6Session = do
+  st <- H.get
+  case st.connections.mc6Output of
+    Nothing ->
+      H.modify_ _ { mc6ReadStatus = Just "Cannot hold a session: no MC6 SysEx output selected." }
+    Just mc6 -> do
+      H.modify_ _
+        { mc6ReadStatus = Just "Opening a session to hold\x2026"
+        -- Forget what we knew about editor mode, so that what arrives next
+        -- is the device answering rather than something we remembered.
+        , mc6EditorMode = Nothing
+        }
+      -- `openSession` disconnects before it connects, so a session left by a
+      -- previous page load is closed rather than inherited. The device
+      -- answers a real disconnect with `EditorMode false`, so seeing that is
+      -- how we learn there *was* one.
+      open <- Wire.openSession mc6
+      stAfter <- H.get
+      let tookOver = stAfter.mc6EditorMode == Just false
+      live <- awaitState 40 (\s -> not (Map.isEmpty s.mc6BankNames))
+      if not live
+        then do
+          Wire.closeSession open
+          H.modify_ _ { mc6ReadStatus = Just
+            ("The MC6 did not answer the session request, so nothing is being "
+              <> "held \x2014 is its input connected?") }
+        else do
+          Wire.send open (SysEx.sysexSwitchPressLoad false)
+          -- A session outlives the tab that opened it, so closing the tab
+          -- without closing the session leaves the instrument in a mode
+          -- nobody chose. Installed only while one is held.
+          guard <- liftEffect $ Unload.onBeforeUnload do
+            Wire.send open (SysEx.sysexSwitchPressLoad true)
+            Wire.closeSession open
+          H.modify_ _
+            { mc6Held = Just open
+            , mc6UnloadGuard = Just guard
+            , mc6ReadStatus = Just
+                ("Session held. Bank jumps from here are instant, and the MC6 "
+                  <> "keeps its own bank switching and MIDI clock."
+                  <> (if tookOver
+                        then "  Note: something already had a session open \x2014 "
+                               <> "Morningstar's editor, most likely \x2014 and this "
+                               <> "took it over."
+                        else "")
+                  <> "  Scenes follow the MC6's bank while it is held.")
+            }
+
+-- | Hold a session if this browser wants one held and none is: on connecting
+-- | to the MC6, and on its coming back. Holding is what makes the MC6 report
+-- | its bank, so without it a scene cannot follow your feet. Plan
+-- | quadrat-the-sampler.md, phase 3, step 2 (AC's choice, 2026-11-05).
+autoHoldMC6
+  :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
+autoHoldMC6 = do
+  st <- H.get
+  when (st.mc6AutoHold && isNothing st.mc6Held && isJust st.connections.mc6Output)
+    holdMC6Session
 
 -- | Do something in an editor session: the held one if there is one, a fresh
 -- | bracket otherwise.
@@ -3760,6 +3801,9 @@ initializeMIDIWith routing mAccess = do
       for_ mMC6Out \port -> do
         mOut <- liftEffect $ MIDI.findOutput mAccess (MIDI.Exactly port.id)
         H.modify_ _ { connections { mc6Output = mOut, mc6OutputId = Just port.id } }
+        -- Forked: holding waits for the MC6 to answer, and starting up
+        -- should not.
+        void $ H.fork autoHoldMC6
 
 
 -- =============================================================================
