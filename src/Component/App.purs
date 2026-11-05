@@ -1946,7 +1946,20 @@ handleAction = case _ of
             -- display never has to guess — including after a bank change made
             -- with a foot, which nothing else would have told us about.
             H.modify_ _ { looperBankShown = Just press.slot }
-            runGesture press
+            -- **Answered once.** When the looper's own process holds the
+            -- switches on Helm's hub, it acts on this press, so this page only
+            -- keeps its picture of the board in step and sends nothing. The
+            -- claim ends with the process, so if it dies this page answers
+            -- again by itself.
+            st <- H.get
+            heldBy <- case st.connections.access of
+              Just access -> liftEffect $ MIDI.holderOf access LoopBanks.switchesClaim
+              Nothing -> pure Nothing
+            case heldBy of
+              Just holder -> do
+                LooperControl.followBoard press
+                liftEffect $ Console.log $ "switch: answered by " <> holder
+              Nothing -> runGesture press
           -- A CC on our channel that is not one of our switches, or one of them
           -- carrying a value that is on no gesture. Worth saying out loud both
           -- ways: it means the board is sending something this app wrote and no
@@ -2063,6 +2076,11 @@ handleAction = case _ of
     let age' = Number.floor (age / 500.0) * 500.0
     when (cur.looper /= snap || cur.looperStatus /= st' || cur.looperSnapshotAge /= age') do
       H.modify_ _ { looper = snap, looperStatus = st', looperSnapshotAge = age' }
+      -- **The selected loop is the daemon's**, shared by every surface on it
+      -- (this page, the looper's own process, Quadrat). Adopted when it
+      -- changes, not whenever it differs: see `looperSelectedSeen`.
+      for_ snap \s -> when (cur.looperSelectedSeen /= Just s.selected) $
+        H.modify_ _ { looperFocus = s.selected, looperSelectedSeen = Just s.selected }
       -- **The Edit panel asks for its picture here**, and only when the
       -- picture would differ: the key is the loop in focus, its layer count
       -- and its newest layer's birth. A loop with nothing in it has no

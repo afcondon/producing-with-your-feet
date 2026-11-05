@@ -29,6 +29,7 @@ import Helm.MC6.ControlBank (ControlBank)
 import Data.MC6.Dump as Dump
 import Data.MC6.Settings as Settings
 import Data.Looper.Banks as LooperBanks
+import Data.Looper.Press as Press
 import Data.Looper.TwisterSurface as TwisterSurface
 import Helm.MC6.Types (MC6NativeBank)
 import Data.MC6.Wire as Wire
@@ -271,6 +272,12 @@ type AppState =
   -- | surface keeps meeting.
   , looperSnapshotAge :: Number
   , looperFocus :: Int
+  -- | The daemon's selected loop as last reported, so that a *change* in it
+  -- | (another surface choosing a loop) moves `looperFocus`, and a snapshot
+  -- | taken a moment before our own choice does not undo it. The daemon holds
+  -- | the one selection every surface shares (bare digit to set it, `selected`
+  -- | in the snapshot); this app keeps a copy to act on without waiting.
+  , looperSelectedSeen :: Maybe Int
   -- | What presses have done, in words, newest first.
   -- |
   -- | Every press produces a line, including the refusals: a press that leaves
@@ -490,9 +497,10 @@ initAppState =
   -- window was bounded from above at 414 ms by the gesture probe (two presses
   -- that far apart read as two singles) and has never been pinned. A press log
   -- against a metronome would settle it in a minute.
-  , looperDeferral: { tapMs: 250.0, holdMs: 700.0 }
+  , looperDeferral: Press.defaultDeferral
   , looperSnapshotAge: 0.0
   , looperFocus: 0
+  , looperSelectedSeen: Nothing
   , looperLog: []
   , looperAckSeq: 0
   , mc6ProbeBankNum: 10

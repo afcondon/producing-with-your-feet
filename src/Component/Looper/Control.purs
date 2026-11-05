@@ -44,6 +44,7 @@ import Component.Twister.Lights (rigOf)
 import Data.Int as Int
 import Data.Looper.Banks as LoopBanks
 import Data.Looper.Machine as Machine
+import Data.Looper.Press as Press
 import Data.Looper.Switchboard as Switchboard
 import Data.Maybe (Maybe(..))
 import Data.Traversable (traverse_)
@@ -78,35 +79,10 @@ runGesture showBank g = do
   followBoard g
   traverse_ (runAction showBank (deferralOf st.looperDeferral g)) (Switchboard.act rig g)
 
--- | How late this command already is, before it has gone anywhere.
--- |
--- | The daemon spends it where a frame matters (`@ms` in its dispatch) and
--- | strips it everywhere else, so everything can be stamped without the app
--- | having to know which commands care.
--- |
--- | **It is the device's own threshold rather than a measurement**, and that is
--- | what moving gesture recognition onto the MC6 cost. The app used to see the
--- | switch go down and could subtract; now it sees one message that the device
--- | withheld until it knew, and the length of that wait is a setting rather than
--- | an observation. See `Engine.looperDeferral` for what each number is worth.
--- |
--- | **Except when there was no wait at all.** A switch carrying one meaning is
--- | programmed on `ActionPress`, which the device fires at press-down — so its
--- | tap is not late, and saying it was would have the daemon reach back into the
--- | pre-roll ring for time that has not passed. That is a fact about how the
--- | switch was programmed, so it is read from the table that programmed it.
-deferralOf
-  :: { tapMs :: Number, holdMs :: Number } -> LoopBanks.SwitchGesture -> Number
-deferralOf d g
-  | LoopBanks.firesAtPressDown g.slot g.switch g.gesture = 0.0
-  | otherwise = case g.gesture of
-      LoopBanks.Tap -> d.tapMs
-      -- The window again, measured from the second press. Doubles used to be
-      -- dated from the *first* of the pair, on the grounds that it is where the
-      -- player committed; that is no longer knowable, and a double tap is not
-      -- the gesture anything sample-critical hangs on.
-      LoopBanks.Double -> d.tapMs
-      LoopBanks.Hold -> d.holdMs
+-- | How late this command already is: `Data.Looper.Press.deferralOf`, shared
+-- | with the looper's own process.
+deferralOf :: { tapMs :: Number, holdMs :: Number } -> LoopBanks.SwitchGesture -> Number
+deferralOf = Press.deferralOf
 
 -- | Keep track of which bank the board is showing, including the jumps it makes
 -- | on its own.
@@ -144,7 +120,12 @@ runAction showBank late a = do
     Machine.Command c -> do
       ok <- liftEffect $ LooperSocket.send (c <> "@" <> show (Int.round late))
       note (if ok then Machine.describe a else "no daemon — " <> c <> " went nowhere")
-    Machine.Focus i -> H.modify_ _ { looperFocus = i }
+    -- Here at once, so the next press acts on it without waiting a frame,
+    -- and told to the daemon, which holds the selection every surface on it
+    -- shares (a bare loop number selects; the snapshot reports `selected`).
+    Machine.Focus i -> do
+      H.modify_ _ { looperFocus = i }
+      void $ liftEffect $ LooperSocket.send (show i)
     -- **Forked on purpose.** The loop closes and plays on the engine's own
     -- schedule; the bank change is a courtesy that either lands or does not.
     -- Audio must never wait on the display, and opening an editor session takes

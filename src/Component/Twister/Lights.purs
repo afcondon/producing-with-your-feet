@@ -51,10 +51,10 @@ import Config.Registry as CRegistry
 import Data.Array as Array
 import Data.Foldable (for_)
 import Data.Map as Map
-import Data.Maybe (Maybe(..), maybe)
+import Data.Maybe (Maybe(..))
 import Data.Looper as Looper
-import Data.Looper.Banks as LoopBanks
 import Data.Looper.Machine as Machine
+import Data.Looper.Press as Press
 import Data.Looper.Twister as LoopTwister
 import Data.Pedal (PedalId)
 import Data.Twister (Knob)
@@ -76,27 +76,7 @@ import Halogen as H
 -- | copy of this expression is a second chance to forget a field — which is
 -- | exactly how the click came to be sent as a flip.
 rigOf :: AppState -> Machine.Rig
-rigOf st =
-  { loops: maybe [] _.loops st.looper
-  , focus: st.looperFocus
-  -- Four until the daemon says otherwise, which is the daemon's own default —
-  -- and inert before it speaks, because a rig with no loops has no layers to
-  -- take back.
-  , maxLayers: maybe 4 _.maxLayers st.looper
-  , click: maybe false _.click st.looper
-  , monitor: maybe false _.monitor st.looper
-  , armDb: maybe (-36.0) _.armDb st.looper
-  -- The default the daemon boots with, so a rig that has not spoken yet reads
-  -- as "on the bar" rather than as "none" — which would be the one value that
-  -- silently changes behaviour if it were wrong.
-  , launchQ: maybe (-1) _.launchQ st.looper
-  -- Names only. What a source is *called* is what the machine asks by; how
-  -- many channels it has is a thing the page draws and the machine has no
-  -- opinion about.
-  , sources: maybe [] (map _.name <<< _.sources) st.looper
-  , grab: LoopBanks.grabLoops
-  , grabSource: LoopBanks.grabSource
-  }
+rigOf st = Press.rigFrom st.looper st.looperFocus
 
 -- | Hand the controller over to whatever is now in focus.
 -- |
