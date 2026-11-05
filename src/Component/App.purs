@@ -1558,7 +1558,11 @@ handleAction = case _ of
         -- Whoever holds it, not only the looper: a pedal page or a scene was
         -- left showing whatever the device last had (review 2026-11-05).
         repaintTwister
-      H.modify_ _ { twisterHeardBank = Just bank }
+      -- Pinned back, the device is home again, so that is where it was last
+      -- heard. Recording the stray bank instead (until 2026-11-05) made a
+      -- second trip to the same bank look like no change, and the pin worked
+      -- once per page load.
+      H.modify_ _ { twisterHeardBank = Just (if bank /= TwisterData.deviceBank then TwisterData.deviceBank else bank) }
     for_ (HelmTwister.parse bytes) (feedTwisterGuard <<< Guard.Heard)
 
   ShowTwisterPage bank -> showTwisterPage bank
