@@ -2003,7 +2003,8 @@ body {
 .looper-side-card .board-sim-head { margin-bottom: 6px; }
 .looper-side-card .board-sim-rows { gap: 4px; }
 .looper-side-card .board-sim-row { gap: 4px; }
-.looper-side-card .board-sim-rows > .board-sim-row:nth-child(3) { margin-top: 6px; }
+.looper-side-card .board-sim-fs3x { gap: 8px; margin-top: 6px; }
+.looper-side-card .board-sim-fs3x .board-sim-row { gap: 4px; }
 .looper-side-card .board-sim-tap { min-height: 0; padding: 3px 5px; gap: 0; }
 .looper-side-card .board-sim-key.is-blank { min-height: 0; padding: 6px 0; }
 .looper-side-card .board-sim-label { font-size: 11px; line-height: 1.1; }
@@ -2276,8 +2277,9 @@ body {
 .board-sim-row {
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
 }
-/* The two FS3X units sit under the MC6's own six, with a little air between. */
-.board-sim-rows > .board-sim-row:nth-child(3) { margin-top: 8px; }
+/* The two FS3X units sit under the MC6's own six, with a little air between,
+   side by side as they do on the floor: G H I left, J K L right. */
+.board-sim-fs3x { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px; }
 .board-sim-key { display: flex; flex-direction: column; gap: 3px; }
 .board-sim-key.is-blank {
   border: 1px dashed #e6e2db; background: transparent;
@@ -4276,6 +4278,6 @@ body {
   <!-- Stamped by tools/bundle.sh with the bundle's own mtime. Without it a
        reload can serve yesterday's app and say nothing, which has cost this
        project whole afternoons more than once. -->
-  <script src="./index.js?v=1793870820"></script>
+  <script src="./index.js?v=1793872531"></script>
 </body>
 </html>

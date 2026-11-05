@@ -69,7 +69,9 @@ render press fc = case LB.faceSlot fc of
     HH.div [ HP.class_ (HH.ClassName "board-sim") ]
       [ header (LB.slotName slot)
       , HH.div [ HP.class_ (HH.ClassName "board-sim-rows") ]
-          (map (row press slot) (rowsOf slot))
+          (map (row press slot) LB.boardRows
+            <> [ HH.div [ HP.class_ (HH.ClassName "board-sim-fs3x") ]
+                   (map (row press slot) fs3xBoxes) ])
       ]
 
 header :: forall w i. String -> HH.HTML w i
@@ -80,13 +82,15 @@ header name =
         [ HH.text "clicking sends what the MC6 sends" ]
     ]
 
--- | The MC6's own six, then the two FS3X units, each bottom row first.
+-- | The two FS3X units, as they sit on the floor: side by side, G H I in the
+-- | left box and J K L in the right, each box one row of three.
 -- |
--- | The aux six are laid out the same way on the assumption that a second FS3X
--- | is numbered like the first. Marked as an assumption because nothing here has
--- | been checked against the hardware — unlike `boardRows`, which was.
-rowsOf :: LB.BankSlot -> Array (Array Int)
-rowsOf _ = LB.boardRows <> map (map (_ + LB.mc6OwnSwitches)) LB.boardRows
+-- | Measured 2026-11-05 by tapping each switch with a listener on the hub (the
+-- | left box sends G-I's CCs, the right J-L's). This used to stack them like
+-- | the MC6's own two rows, J K L above G H I, on an assumption it marked as
+-- | unchecked; AC read the top row as the left box.
+fs3xBoxes :: Array (Array Int)
+fs3xBoxes = map (map (_ + LB.mc6OwnSwitches)) [ [ 0, 1, 2 ], [ 3, 4, 5 ] ]
 
 row :: forall w i. (LB.BankSlot -> Int -> LB.Gesture -> i) -> LB.BankSlot -> Array Int -> HH.HTML w i
 row press slot ixs =
