@@ -7,7 +7,7 @@
     "Transcribed from Component.App (syncSceneToBank, handleEncoderTurn, SetView, the side buttons), 2026-11-04, not designed: a scene wins over everything; otherwise focus decides.",
     "The host keeps what is data, not mode: WHICH pedal is focused, WHICH scene, and which of the looper's pages is showing (the pager knob turns pages within the looper state, and the machine has no say in it).",
     "Every arrival is an entry, and entries paint: arriving at the looper by any road shows its first page, as refreshTwister always has. Focusing what is already focused re-enters on purpose (a 'to' the same state), because PWYF has always repainted then, and so does one scene giving way to another.",
-    "Focus changes during a scene are remembered by the host and change nothing on the device; leaving the scene hands the Twister to what focus says then (the looper-focused fact). Before this machine, a frame from the daemon or a side button could paint over a scene."
+    "Focus changes during a scene are remembered by the host and change nothing on the device; leaving the scene hands the Twister to a pedal only if one (other than the looper) is focused then, and otherwise to the looper (the pedal-focused fact). Before 2026-11-05 it went to the pedal page whenever the looper was not focused, so a tab on Overview with nothing chosen left the Twister dimmed blue; AC's rig has two uses for it, the looper and scenes, so the looper is the fallback. Before this machine, a frame from the daemon or a side button could paint over a scene."
   ],
   "initial": "pedal",
   "clock": "milliseconds",
@@ -59,8 +59,8 @@
   "config": [],
   "facts": [
     {
-      "id": "looper-focused",
-      "label": "The looper is the focused pedal"
+      "id": "pedal-focused",
+      "label": "A pedal other than the looper is focused"
     }
   ],
   "refusals": [],
@@ -184,12 +184,12 @@
       "cases": [
         {
           "when": {
-            "fact": "looper-focused"
+            "fact": "pedal-focused"
           },
-          "to": "looper"
+          "to": "pedal"
         },
         {
-          "to": "pedal"
+          "to": "looper"
         }
       ]
     }

@@ -146,16 +146,17 @@ start (Surface s) = Array.mapMaybe paintOf (Run.startCommands s.spec)
 repaint :: Surface -> Array Paint
 repaint (Surface s) = Array.mapMaybe paintOf (entryOf s.spec s.state)
 
--- | One event. `looperFocused` is the one fact the machine reads: where the
--- | Twister goes when a scene ends.
+-- | One event. `pedalFocused` (a pedal other than the looper) is the one fact
+-- | the machine reads: where the Twister goes when a scene ends. With none,
+-- | it goes to the looper.
 feed
-  :: { looperFocused :: Boolean }
+  :: { pedalFocused :: Boolean }
   -> Event
   -> Surface
   -> { surface :: Surface, paints :: Array Paint, refused :: Maybe String }
-feed { looperFocused } ev (Surface s) =
+feed { pedalFocused } ev (Surface s) =
   let
-    world = Run.setFact (FactId "looper-focused") (VBoolean looperFocused) (Run.worldFrom s.spec)
+    world = Run.setFact (FactId "pedal-focused") (VBoolean pedalFocused) (Run.worldFrom s.spec)
     Tuple next stepped = Run.step s.spec world s.state (EventId (eventName ev))
     refused = case stepped.outcome of
       Refuse (RefusalId r) -> Just (textOf r)

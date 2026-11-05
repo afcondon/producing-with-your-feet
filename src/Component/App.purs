@@ -3817,7 +3817,7 @@ feedTwister :: forall o m. MonadAff m => TwisterSurface.Event -> H.HalogenM AppS
 feedTwister ev = do
   st <- H.get
   for_ st.twisterSurface \surface -> do
-    let fed = TwisterSurface.feed { looperFocused: st.focusPedalId == Just Looper.itajaraId } ev surface
+    let fed = TwisterSurface.feed { pedalFocused: maybe false (not <<< Looper.isItajara) st.focusPedalId } ev surface
     H.modify_ _ { twisterSurface = Just fed.surface }
     for_ fed.refused \why -> liftEffect (Console.log ("Twister: " <> why))
     traverse_ paintTwister fed.paints
