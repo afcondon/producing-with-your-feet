@@ -2250,9 +2250,20 @@ body {
 .loop-slot.is-stopped .loop-block.sounds { background: #b9b3a9; }
 .loop-slot.is-stopped .loop-playhead { opacity: 0.35; }
 .loop-slot.is-playing   { border-top-color: #3a7d6c; }
-.loop-slot.is-recording { border-top-color: #c0392b; }
-.loop-slot.is-armed     { border-top-color: #c8922f; }
-.loop-slot.is-selected  { box-shadow: 0 0 0 2px rgba(58,125,108,0.22); }
+/* Armed and recording are the two states the player must see from across the
+   room, so they take the whole edge, not just the top: an inset ring, which
+   does not move the layout. The colours keep their meanings (amber waits, red
+   writes); green stays "playing". */
+.loop-slot.is-recording { border-color: #c0392b; box-shadow: inset 0 0 0 2px #c0392b; }
+.loop-slot.is-armed     { border-color: #c8922f; box-shadow: inset 0 0 0 2px #c8922f; background: #fdf6e8; }
+/* Selected is not a state of the loop but where the next verb lands, so it is
+   drawn OUTSIDE the card, in ink: a thick ring that sits beside any state
+   colour, and the letter inverted. AC 2026-11-05: the faint green halo was too
+   subtle to find. */
+.loop-slot.is-selected  { outline: 3px solid #2e2b27; outline-offset: 3px; }
+.loop-slot.is-selected .loop-letter {
+  background: #2e2b27; color: #fbfaf8; padding: 2px 6px; border-radius: 2px;
+}
 
 /* The board, on screen, with every switch live (Component.Looper.Board).
    Laid out as the device is — near row under your toes at the BOTTOM — so it
