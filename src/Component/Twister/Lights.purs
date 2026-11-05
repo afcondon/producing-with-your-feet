@@ -31,6 +31,7 @@
 -- | splitting that out would buy a smaller type for a longer indirection.
 module Component.Twister.Lights
   ( rigOf
+  , asOwner
   , refreshTwister
   , sendSceneLEDs
   , showTwisterPage
@@ -53,6 +54,7 @@ import Data.Foldable (for_)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Looper as Looper
+import Data.Looper.TwisterSurface as TwisterSurface
 import Data.Looper.Machine as Machine
 import Data.Looper.Press as Press
 import Data.Looper.Twister as LoopTwister
@@ -126,8 +128,9 @@ showTwisterPage bank = do
   -- turn is measured from wherever the hand last left it and the two disagree
   -- until something touches it.
   st <- H.get
-  sendRingPosition { bank: TwisterData.deviceBank, index: LoopTwister.pagerIndex }
-    (LoopTwister.pagerRing st.twisterPage)
+  asOwner TwisterSurface.LooperPages $
+    sendRingPosition { bank: TwisterData.deviceBank, index: LoopTwister.pagerIndex }
+      (LoopTwister.pagerRing st.twisterPage)
 
 -- | The page changed because the pager was turned there.
 -- |
@@ -154,8 +157,22 @@ goToPage bank = do
   -- change already cost, because clearing `twisterLit` forced a full repaint
   -- either way.
   pinDevice
+  asOwner TwisterSurface.LooperPages sendLooperLEDs
+
+-- | **Paint only as the owner.** Every write to the Twister's lights that is
+-- | not the machine's own entry paint goes through here, naming whose paint it
+-- | is, and is dropped unless the Twister's machine says that one holds it now.
+-- |
+-- | Without it, three paths painted over a scene (review 2026-11-05): a pedal
+-- | knob dragged on screen, a nudge settling back to centre, and a looper page
+-- | chosen on screen, each gated on focus or on nothing, while the machine's
+-- | note says focus changes during a scene change nothing on the device.
+asOwner
+  :: forall act slots o m. MonadAff m
+  => TwisterSurface.Owner -> H.HalogenM AppState act slots o m Unit -> H.HalogenM AppState act slots o m Unit
+asOwner who paint = do
   st <- H.get
-  when (st.focusPedalId == Just Looper.itajaraId) sendLooperLEDs
+  when (map TwisterSurface.owner st.twisterSurface == Just who) paint
 
 -- | Put the device back on `deviceBank`, wherever it thought it was.
 -- |

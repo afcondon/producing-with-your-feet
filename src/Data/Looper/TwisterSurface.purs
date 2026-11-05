@@ -94,6 +94,10 @@ paints = [ PaintPedal, PaintLooper, PaintScene ]
 events :: Array String
 events = map eventName [ FocusPedal, FocusLooper, SceneOn, SceneOff ]
 
+-- | The facts `feed` sets, every one of them, on every event.
+facts :: Array String
+facts = [ "pedal-focused" ]
+
 -- | Parse the artifact, refuse it if Glassbox's lint does (a state owing a
 -- | command nobody declared, a rule missing, a state nothing reaches), and
 -- | check its alphabet against this host's.
@@ -121,6 +125,9 @@ load text = do
       differ "states" (map ownerName owners) (map (\(StateId s) -> s) (stateIds spec))
         <> differ "events" events (map (\(EventId s) -> s) (eventIds spec))
         <> differ "commands" (map paintName paints) (map (\(CommandId s) -> s) (commandIds spec))
+        -- Facts too: a guard on a fact this host never sets reads false, and
+        -- the catch-all arm fires with no complaint (review 2026-11-05).
+        <> differ "facts" facts (map (\f -> case f.id of FactId s -> s) spec.facts)
   if Array.null problems then Right (Surface { spec, state: spec.initial })
   else Left ("twister-surface.json does not fit this app. " <> intercalate "; " problems)
 

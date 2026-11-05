@@ -42,6 +42,8 @@ import Data.Looper.Twister as LoopTw
 import Data.Looper.Verb as LoopVerb
 import Data.Enum as Enum
 import Data.Foldable (for_)
+import Data.Either (Either(..), isLeft)
+import Data.Looper.TwisterSurface as TwisterSurface
 import Data.String as String
 import Data.String.Common (joinWith)
 import Data.Monoid (power)
@@ -113,7 +115,68 @@ frameWith f1 f2 f3 =
   [ 0xF0, 0x00, 0x21, 0x24, 0x03, 0x00, f1, f2, f3, 0, 0, 0, 0, 0, 0, 0, 0, 0xF7 ]
 
 assert :: String -> Boolean -> Effect Unit
-assert label ok = log $ (if ok then "PASS" else "FAIL") <> " - " <> label
+assert label ok = do
+  log $ (if ok then "PASS" else "FAIL") <> " - " <> label
+  unless ok recordFailure
+
+foreign import recordFailureImpl :: Effect Unit
+foreign import readTextImpl :: String -> Effect String
+
+-- | Counted, so the run exits non-zero if anything failed (test/Main.js).
+recordFailure :: Effect Unit
+recordFailure = recordFailureImpl
+
+readText :: String -> Effect String
+readText = readTextImpl
+
+-- | **The Twister's owner machine, read from the file the app loads.**
+-- |
+-- | The four behaviours its notes transcribe from the app, held as
+-- | assertions, plus the load-time checks (lint, alphabet, facts). Added after
+-- | the review of 2026-11-05 found the machine had no test at all.
+twisterSurfaceTests :: Effect Unit
+twisterSurfaceTests = do
+  log "Running Twister owner-machine tests..."
+  text <- readText "static/machines/twister-surface.json"
+  case TwisterSurface.load text of
+    Left why -> assert ("twister-surface.json loads: " <> why) false
+    Right s0 -> do
+      assert "twister-surface.json loads, lints, and fits the alphabet" true
+      let
+        go pedalFocused ev s = TwisterSurface.feed { pedalFocused } ev s
+        own s = TwisterSurface.owner s
+      assert "starts on the pedal page, and its entry paints the pedal"
+        (own s0 == TwisterSurface.PedalPage && TwisterSurface.start s0 == [ TwisterSurface.PaintPedal ])
+      let looper = go false TwisterSurface.FocusLooper s0
+      assert "focusing the looper hands it the Twister and paints it"
+        (own looper.surface == TwisterSurface.LooperPages && looper.paints == [ TwisterSurface.PaintLooper ])
+      let scene = go false TwisterSurface.SceneOn looper.surface
+      assert "a scene wins over the looper"
+        (own scene.surface == TwisterSurface.ScenePage && scene.paints == [ TwisterSurface.PaintScene ])
+      let focusDuring = go true TwisterSurface.FocusPedal scene.surface
+      assert "focus during a scene changes nothing on the device"
+        (own focusDuring.surface == TwisterSurface.ScenePage && focusDuring.paints == [])
+      let again = go false TwisterSurface.SceneOn scene.surface
+      assert "one scene giving way to another re-enters and repaints"
+        (own again.surface == TwisterSurface.ScenePage && again.paints == [ TwisterSurface.PaintScene ])
+      let offToPedal = go true TwisterSurface.SceneOff scene.surface
+      assert "leaving a scene with a pedal focused goes to the pedal"
+        (own offToPedal.surface == TwisterSurface.PedalPage && offToPedal.paints == [ TwisterSurface.PaintPedal ])
+      let offToLooper = go false TwisterSurface.SceneOff scene.surface
+      assert "leaving a scene with no pedal focused goes to the looper"
+        (own offToLooper.surface == TwisterSurface.LooperPages && offToLooper.paints == [ TwisterSurface.PaintLooper ])
+      let refocus = go true TwisterSurface.FocusPedal (go true TwisterSurface.FocusPedal s0).surface
+      assert "focusing a pedal on the pedal page re-enters and repaints"
+        (own refocus.surface == TwisterSurface.PedalPage && refocus.paints == [ TwisterSurface.PaintPedal ])
+      let offOutside = go true TwisterSurface.SceneOff looper.surface
+      assert "a scene ending when none was up changes nothing"
+        (own offOutside.surface == TwisterSurface.LooperPages && offOutside.paints == [])
+  -- A guard on a fact this app never sets would read false and quietly take
+  -- the other arm; the load refuses a file that declares one.
+  let unknownFact = String.replace (String.Pattern "\"facts\": [")
+        (String.Replacement "\"facts\": [ { \"id\": \"looper-live\", \"label\": \"not set by this app\" },") text
+  assert "a machine declaring a fact this app does not set is refused at load"
+    (isLeft (TwisterSurface.load unknownFact))
 
 -- Right-align a bank number in two columns, so the map reads as a table.
 pad :: String -> String
@@ -136,6 +199,7 @@ padTo n s = s <> power " " (max 0 (n - String.length s))
 
 main :: Effect Unit
 main = do
+  twisterSurfaceTests
   log "Running pedal definition tests..."
 
   -- Twelve boxes on the floor, plus Itajara.

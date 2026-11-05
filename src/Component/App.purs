@@ -17,7 +17,7 @@ import Data.Looper as Looper
 import Data.Looper.Banks as LoopBanks
 import Component.Looper.Control as LooperControl
 import Component.Looper.Page as LooperPage
-import Component.Twister.Lights (sendSceneLEDs, adoptTwisterPage, dimAllLEDs, knobCC, pinDevice, refreshTwister, rigOf, sendAllLEDs, sendLooperLEDs, sendRingPosition, showTwisterPage)
+import Component.Twister.Lights (asOwner, sendSceneLEDs, adoptTwisterPage, dimAllLEDs, knobCC, pinDevice, refreshTwister, rigOf, sendAllLEDs, sendLooperLEDs, sendRingPosition, showTwisterPage)
 import Data.Looper.Machine as Machine
 import Data.Looper.TwisterSurface as TwisterSurface
 import Data.MC6.Backup as Backup
@@ -743,7 +743,12 @@ handleAction = case _ of
           Left e -> H.modify_ _ { configError = Just ("twister-surface.json: " <> Aff.message e) }
           Right text -> case TwisterSurface.load text of
             Left why -> H.modify_ _ { configError = Just why }
-            Right surface -> H.modify_ _ { twisterSurface = Just surface }
+            -- The initial state's entry is owed too (`TwisterSurface.start`):
+            -- painted now if the Twister is already here, and again whenever
+            -- it arrives (review 2026-11-05: it was never run).
+            Right surface -> do
+              H.modify_ _ { twisterSurface = Just surface }
+              repaintTwister
         -- Load controller config (MC6 banks)
         when (rig.controller /= "") do
           let controllerUrl = "./" <> "config/" <> rig.controller
@@ -979,6 +984,7 @@ handleAction = case _ of
             mOut <- liftEffect $ MIDI.findOutput access (MIDI.Exactly change.id)
             H.modify_ _ { connections { twisterOutput = mOut } }
             for_ mOut (liftEffect <<< MIDI.claimOutput access)
+            repaintTwister
         H.modify_ _ { midiTest = Just (change.name <> " reconnected") }
 
   SetView view -> do
@@ -1077,7 +1083,7 @@ handleAction = case _ of
                 let mIdx = Array.findIndex (case _ of
                       Just (TwisterCC { cc: ecc }) -> ecc == ccNum
                       _ -> false) tw.encoders
-                for_ mIdx \idx ->
+                for_ mIdx \idx -> asOwner TwisterSurface.PedalPage $
                   sendRingPosition { bank: 0, index: idx }
                     (Twister.ringValueForEncoder (Array.index tw.encoders idx >>= identity) (unMidiValue val))
 
@@ -1549,7 +1555,9 @@ handleAction = case _ of
         -- The device keeps whatever it was last told, and it has just been
         -- somewhere else, so nothing on it can be trusted to still be true.
         H.modify_ _ { twisterLit = Map.empty }
-        when (twisterOwner st0 == Just TwisterSurface.LooperPages) sendLooperLEDs
+        -- Whoever holds it, not only the looper: a pedal page or a scene was
+        -- left showing whatever the device last had (review 2026-11-05).
+        repaintTwister
       H.modify_ _ { twisterHeardBank = Just bank }
     for_ (HelmTwister.parse bytes) (feedTwisterGuard <<< Guard.Heard)
 
@@ -1616,7 +1624,7 @@ handleAction = case _ of
     -- knowable from here and the next click is measured against whichever
     -- of the two it turns out to be nearer (see `nudgeTurn`). Overwriting it
     -- with centre was the wrong direction on the first click back.
-    when (st.twisterNudgeSeq == seq) $
+    when (st.twisterNudgeSeq == seq) $ asOwner TwisterSurface.LooperPages $
       sendRingPosition { bank: TwisterData.deviceBank, index: knob.index } 64
 
   TwisterGuardDue ev -> feedTwisterGuard ev
@@ -3805,6 +3813,7 @@ initializeMIDIWith routing mAccess = do
       -- dropped and it is told who holds the device. Through Web MIDI this does
       -- nothing. Plan: quadrat-the-sampler.md, phase 3, step 2.
       for_ mOut (liftEffect <<< MIDI.claimOutput mAccess)
+      repaintTwister
     -- Auto-select pedal output (MC6 via USB)
     let mPedalOut = Array.find (\p -> contains (Pattern routing.pedalOutput.match) p.name) outputs
     for_ mPedalOut \port ->
@@ -3854,6 +3863,14 @@ paintTwister = case _ of
     for_ st.twisterScene \sc -> do
       dimAllLEDs
       sendSceneLEDs sc
+
+-- | Paint what the current owner shows, as arriving there would. For a device
+-- | that has been somewhere else, or has just arrived: the machine's entry is
+-- | owed whenever the device could not have seen it.
+repaintTwister :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
+repaintTwister = do
+  st <- H.get
+  for_ st.twisterSurface \surface -> traverse_ paintTwister (TwisterSurface.repaint surface)
 
 twisterOwner :: AppState -> Maybe TwisterSurface.Owner
 twisterOwner st = map TwisterSurface.owner st.twisterSurface
