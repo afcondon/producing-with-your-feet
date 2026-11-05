@@ -3487,7 +3487,7 @@ handleEncoderTurnOnPedal st knob val =
   if twisterOwner st == Just TwisterSurface.LooperPages
     then
       let here = onPage st knob
-          control = LoopTwister.controlAt here
+          control = LoopTwister.controlAt (TwisterData.toHelmKnob here)
       in if control.pager
         -- The pager asks nothing of the looper, so it never reaches `perform`.
         -- Its position IS the page — `LoopTwister.pageFor` — and adopting
@@ -3497,7 +3497,7 @@ handleEncoderTurnOnPedal st knob val =
                (adoptTwisterPage (LoopTwister.pageFor val))
         else case control.nudge of
           Just nd -> nudgeTurn st knob nd val
-          Nothing -> for_ (LoopTwister.turnedAt (LoopTwister.shapeOf (rigOf st)) here val) \(Tuple subject duty) -> case duty of
+          Nothing -> for_ (LoopTwister.turnedAt (LoopTwister.shapeOf (rigOf st)) (TwisterData.toHelmKnob here) val) \(Tuple subject duty) -> case duty of
             -- The undo knob waits for the engine to catch up before it
             -- takes another step; see `layersAsked`.
             LoopBanks.Layers want -> do
@@ -3596,9 +3596,9 @@ handleEncoderPressOnPedal
   => AppState -> Knob -> H.HalogenM AppState Action Slots o m Unit
 handleEncoderPressOnPedal st knob =
   if twisterOwner st == Just TwisterSurface.LooperPages
-    then if (LoopTwister.controlAt (onPage st knob)).opens == Just LoopTwister.OpensEdit
+    then if (LoopTwister.controlAt (TwisterData.toHelmKnob (onPage st knob))).opens == Just LoopTwister.OpensEdit
       then handleAction (ShowLooperPanel (if st.looperPanel == Just PanelEdit then Nothing else Just PanelEdit))
-    else if isJust (LoopTwister.controlAt (onPage st knob)).nudge
+    else if isJust (LoopTwister.controlAt (TwisterData.toHelmKnob (onPage st knob))).nudge
       -- A press on any nudge encoder flips the step for all three, and the
       -- lights say which: orange coarse, blue fine.
       then do
@@ -3606,11 +3606,11 @@ handleEncoderPressOnPedal st knob =
         H.modify_ (\s -> s { twisterEditFine = fine })
         H.modify_ (pushLooperLog (if fine then "edit encoders: fine, 10 ms a click" else "edit encoders: coarse, a beat a click"))
         sendLooperLEDs
-    else if (LoopTwister.controlAt (onPage st knob)).pager
+    else if (LoopTwister.controlAt (TwisterData.toHelmKnob (onPage st knob))).pager
       -- Home, because that is the page you want in a hurry and the turn is
       -- there for going anywhere else.
       then showTwisterPage 0
-      else for_ (LoopTwister.pressedAt (onPage st knob)) \(Tuple subject duty) -> do
+      else for_ (LoopTwister.pressedAt (TwisterData.toHelmKnob (onPage st knob))) \(Tuple subject duty) -> do
       -- **`performPress`, and only here.** This is the one path in the app that
       -- can produce an `OnLoop` subject from a deliberate press — the encoder
       -- decoder is the only producer of that subject at all, and its other

@@ -2897,7 +2897,7 @@ main = do
 
   assert "each of the eight loop encoders selects its own loop"
     (Array.all
-      (\i -> LoopTw.pressedAt { bank: 0, index: i }
+      (\i -> LoopTw.pressedAt { layer: 0, index: i }
           == Just (Tuple (LB.OnLoop i) (LB.SelectLoop i)))
       (Array.range 0 (LB.nLoops - 1)))
 
@@ -3050,7 +3050,7 @@ main = do
 
   -- The press is the only way back to unity, so it had better be unity.
   assert "pressing the speed knob asks for unity, forwards"
-    (LoopTw.pressedAt { bank: 2, index: 0 } == Just (Tuple LB.Focused (LB.Rate 1.0)))
+    (LoopTw.pressedAt { layer: 2, index: 0 } == Just (Tuple LB.Focused (LB.Rate 1.0)))
 
   -- **The ring is told, never remembered.** This is the property that separates
   -- an encoder from the MC6's scroll counters: what the device shows is the
@@ -3108,7 +3108,7 @@ main = do
   -- A knob you cannot put back is a knob you will not turn.
   assert "every knob has a press that puts it home"
     (Array.all
-      (\i -> let c = LoopTw.controlAt { bank: 2, index: i }
+      (\i -> let c = LoopTw.controlAt { layer: 2, index: i }
              in case c.turn of
                   Nothing -> true
                   Just _ -> isJust c.press)
@@ -3120,8 +3120,8 @@ main = do
   -- travel rather than reserved.
   assert "there is no fifth page"
     (Array.all
-      (\i -> LoopTw.pressedAt { bank: 4, index: i } == Nothing
-          && LoopTw.turnedAt sh4 { bank: 4, index: i } 64 == Nothing)
+      (\i -> LoopTw.pressedAt { layer: 4, index: i } == Nothing
+          && LoopTw.turnedAt sh4 { layer: 4, index: i } 64 == Nothing)
       (Array.range 0 15))
 
   -- Every page has its pager in the same corner and nothing else claims one.
@@ -3205,20 +3205,20 @@ main = do
   -- what that cost. So the same physical encoder means different things on
   -- different pages, and which page is a fact this app holds.
   assert "the same encoder is a different control on each page"
-    (LoopTw.pressedAt { bank: 0, index: 0 } == Just (Tuple (LB.OnLoop 0) (LB.SelectLoop 0))
-      && LoopTw.pressedAt { bank: 1, index: 0 } == Just (Tuple (LB.OnLoop 0) LB.Transport)
-      && LoopTw.pressedAt { bank: 2, index: 0 } == Just (Tuple LB.Focused (LB.Rate 1.0))
-      && LoopTw.pressedAt { bank: 3, index: 0 } == Just (Tuple LB.Focused LB.OneShot))
+    (LoopTw.pressedAt { layer: 0, index: 0 } == Just (Tuple (LB.OnLoop 0) (LB.SelectLoop 0))
+      && LoopTw.pressedAt { layer: 1, index: 0 } == Just (Tuple (LB.OnLoop 0) LB.Transport)
+      && LoopTw.pressedAt { layer: 2, index: 0 } == Just (Tuple LB.Focused (LB.Rate 1.0))
+      && LoopTw.pressedAt { layer: 3, index: 0 } == Just (Tuple LB.Focused LB.OneShot))
 
   -- **The set is the transpose of Shape, and its loops sit where the Loops
   -- page's do.** Same eight positions, same eight loops, different verb — which
   -- is the whole reason the spatial map only has to be learned once.
   assert "the set names its loops in the same eight positions as the loops page"
     (Array.all
-      (\i -> (LoopTw.controlAt { bank: 0, index: i }).subject
-               == (LoopTw.controlAt { bank: 1, index: i }).subject)
+      (\i -> (LoopTw.controlAt { layer: 0, index: i }).subject
+               == (LoopTw.controlAt { layer: 1, index: i }).subject)
       (Array.range 0 7)
-      && LoopTw.turnedAt sh4 { bank: 1, index: 3 } 100 == Just (Tuple (LB.OnLoop 3) (LB.Place 100)))
+      && LoopTw.turnedAt sh4 { layer: 1, index: 3 } 100 == Just (Tuple (LB.OnLoop 3) (LB.Place 100)))
 
   -- Both pages light sixteen encoders and neither knows which CC block they
   -- land in — that is the caller's problem, because only the caller holds both
@@ -3234,9 +3234,9 @@ main = do
   -- will nudge. A nudged level you hear at once and correct without thinking; a
   -- nudged chance you do not hear until the pass it eats.
   assert "a loop encoder's turn sets that loop's level"
-    (LoopTw.turnedAt sh4 { bank: 0, index: 5 } 127
+    (LoopTw.turnedAt sh4 { layer: 0, index: 5 } 127
       == Just (Tuple (LB.OnLoop 5) (LB.Level 0.0))
-      && LoopTw.turnedAt sh4 { bank: 0, index: 5 } 0
+      && LoopTw.turnedAt sh4 { layer: 0, index: 5 } 0
         == Just (Tuple (LB.OnLoop 5) (LB.Level (-60.0))))
 
   assert "and the level knob spans silence to unity, both reachable"
@@ -3321,7 +3321,7 @@ main = do
   assert "every control on the card describes itself, and every blank stays blank"
     (Array.all
       (\pg -> Array.all
-        (\c -> let k = { bank: pg.bank, index: c.index }
+        (\c -> let k = { layer: pg.bank, index: c.index }
                    ctl = LoopTw.controlAt k
                    -- A nudge and an opener are controls too, though neither is a
                    -- duty: the card names them and the test counts them.
@@ -3339,21 +3339,21 @@ main = do
   assert "pressing the Revox encoder sends rvx1 for the focused loop"
     (let tape = (idle 0) { layers = 1, loopSecs = 8.0, state = "playing" }
          rig = (rigOf [ idle 0, tape ]) { focus = 1 }
-     in case LoopTw.pressedAt { bank: 3, index: 8 } of
+     in case LoopTw.pressedAt { layer: 3, index: 8 } of
           Just (Tuple subj duty) -> Machine.perform rig subj duty == [ Machine.Command "1rvx1" ]
           Nothing -> false)
 
   assert "and again turns it off rather than on"
     (let tape = (idle 0) { layers = 1, loopSecs = 8.0, revox = true }
          rig = rigOf [ tape ]
-     in case LoopTw.pressedAt { bank: 3, index: 8 } of
+     in case LoopTw.pressedAt { layer: 3, index: 8 } of
           Just (Tuple subj duty) -> Machine.perform rig subj duty == [ Machine.Command "0rvx0" ]
           Nothing -> false)
 
   -- Turning the same encoder threads, and does not disturb the mode.
   assert "turning the Revox encoder threads the focused loop"
     (let rig = (rigOf [ idle 0, idle 1 ]) { focus = 1 }
-     in case LoopTw.turnedAt sh4 { bank: 3, index: 8 } 34 of
+     in case LoopTw.turnedAt sh4 { layer: 3, index: 8 } 34 of
           Just (Tuple subj duty) -> Machine.perform rig subj duty == [ Machine.Command "1blank16.0" ]
           Nothing -> false)
 
@@ -3385,7 +3385,7 @@ main = do
   -- One control, because they are one idea: a tape is a loop of a chosen
   -- length that you play onto, and choosing the length is how you start.
   assert "the Revox encoder carries the mode and the tape together"
-    (let c = LoopTw.controlAt { bank: 3, index: 8 }
+    (let c = LoopTw.controlAt { layer: 3, index: 8 }
      in c.press == Just LB.RevoxToggle && c.turn == Just LoopTw.PTape)
 
   -- **Arm took the cell Revox left**, so the write-head row is the MC6's own
@@ -3393,7 +3393,7 @@ main = do
   -- page turns and a mode flip before this, on the one gesture where a few
   -- hundred milliseconds is a take.
   assert "arm is one press on the loops page, beside the rest of the write head"
-    (LoopTw.pressedAt { bank: 0, index: 11 } == Just (Tuple LB.Focused LB.ArmLoop))
+    (LoopTw.pressedAt { layer: 0, index: 11 } == Just (Tuple LB.Focused LB.ArmLoop))
 
   -- **The tape's two parameters had no hardware control at all** until Set up:
   -- sliders on a web page, for the one mode in the rig that has no undo.
@@ -3412,7 +3412,7 @@ main = do
   -- the write head open throughout. Its declarative twin is the bars knob on
   -- the Loops page.
   assert "multiply has a control on the shape page, at the head of its shape row"
-    (LoopTw.pressedAt { bank: 2, index: 8 } == Just (Tuple LB.Focused LB.MultiplyLoop))
+    (LoopTw.pressedAt { layer: 2, index: 8 } == Just (Tuple LB.Focused LB.MultiplyLoop))
 
   -- **Length and how often came apart.** `SpreadLoop` set the period *and* grew
   -- the loop by the same factor, so a four-bar loop whose phrase sounds every
@@ -3421,17 +3421,17 @@ main = do
   -- the length is what a take needs before it starts, the other two are what
   -- you do to it afterwards.
   assert "bars, every and slot are three separate knobs"
-    (LoopTw.turnedAt sh4 { bank: 0, index: 9 } 127 == Just (Tuple LB.Focused (LB.SetBars 32))
-      && LoopTw.turnedAt sh4 { bank: 2, index: 5 } 0 == Just (Tuple LB.Focused (LB.Every 1))
-      && LoopTw.turnedAt sh4 { bank: 2, index: 6 } 0 == Just (Tuple LB.Focused (LB.PlaceAt 1)))
+    (LoopTw.turnedAt sh4 { layer: 0, index: 9 } 127 == Just (Tuple LB.Focused (LB.SetBars 32))
+      && LoopTw.turnedAt sh4 { layer: 2, index: 5 } 0 == Just (Tuple LB.Focused (LB.Every 1))
+      && LoopTw.turnedAt sh4 { layer: 2, index: 6 } 0 == Just (Tuple LB.Focused (LB.PlaceAt 1)))
 
   -- **`slot` is meaningless without `every`**, so they have to be reachable
   -- without a page turn between them. This pins the adjacency rather than the
   -- indices, which is the fact that matters: whichever cells they end up in,
   -- they end up next to each other.
   assert "every and slot are neighbours"
-    (case (LoopTw.controlAt { bank: 2, index: 5 }).turn
-        , (LoopTw.controlAt { bank: 2, index: 6 }).turn of
+    (case (LoopTw.controlAt { layer: 2, index: 5 }).turn
+        , (LoopTw.controlAt { layer: 2, index: 6 }).turn of
        Just LoopTw.PEvery, Just LoopTw.POn -> true
        _, _ -> false)
 
@@ -3439,7 +3439,7 @@ main = do
   -- what let Overdub's cell go: press to wait for the bar, turn for how many
   -- bars, and a first take needs no other page.
   assert "the grid encoder carries the quantise and the bar count together"
-    (let c = LoopTw.controlAt { bank: 0, index: 9 }
+    (let c = LoopTw.controlAt { layer: 0, index: 9 }
      in c.press == Just LB.GridToggle && c.turn == Just LoopTw.PBars
           && c.ring == LoopTw.Value LoopTw.PBars)
 
@@ -3479,7 +3479,7 @@ main = do
   assert "the tempo press asks the focused loop for it, and says which"
     (let full = (idle 0) { layers = 1, loopSecs = 8.0, cycles = 4, state = "playing" }
          rig = (rigOf [ idle 0, full ]) { focus = 1 }
-     in case LoopTw.pressedAt { bank: 1, index: 11 } of
+     in case LoopTw.pressedAt { layer: 1, index: 11 } of
           Just (Tuple subj duty) ->
             duty == LB.TakeTempo
               && Machine.perform rig subj duty == [ Machine.Command "1bpm" ]
@@ -3513,7 +3513,7 @@ main = do
          rig = rigOf [ full ]
      in Machine.perform rig LB.Focused LB.RecordLoop
           == Machine.perform rig LB.Focused LB.OverdubLoop
-       && Array.all (\i -> (LoopTw.controlAt { bank: 0, index: i }).press
+       && Array.all (\i -> (LoopTw.controlAt { layer: 0, index: i }).press
                              /= Just LB.OverdubLoop)
             (Array.range 0 15))
 
@@ -3522,8 +3522,8 @@ main = do
   -- only shows up when the hand is somewhere else and the eyes are elsewhere
   -- again.
   assert "clear and clear all are the same encoder, furthest from the pager"
-    (LoopTw.pressedAt { bank: 0, index: 12 } == Just (Tuple LB.Focused LB.ClearLoop)
-      && LoopTw.pressedAt { bank: 1, index: 12 } == Just (Tuple LB.Focused LB.ClearAll))
+    (LoopTw.pressedAt { layer: 0, index: 12 } == Just (Tuple LB.Focused LB.ClearLoop)
+      && LoopTw.pressedAt { layer: 1, index: 12 } == Just (Tuple LB.Focused LB.ClearAll))
 
   -- Every step of a stepped knob is reachable and reads itself back, which is
   -- the property that lets the ring be told rather than remembered.
@@ -3593,8 +3593,8 @@ main = do
   -- rather than one per page, and a hand finds a corner without looking.
   assert "the pager sits bottom-right on every page and nowhere else"
     (Array.all
-      (\pg -> (LoopTw.controlAt { bank: pg.bank, index: 15 }).pager
-        && Array.all (\i -> not (LoopTw.controlAt { bank: pg.bank, index: i }).pager)
+      (\pg -> (LoopTw.controlAt { layer: pg.bank, index: 15 }).pager
+        && Array.all (\i -> not (LoopTw.controlAt { layer: pg.bank, index: i }).pager)
              (Array.range 0 14))
       LoopTw.pages)
 
