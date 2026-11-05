@@ -24,12 +24,13 @@ import Config.Registry (PedalRegistry)
 import Config.Registry as CRegistry
 import Config.Types (MidiRouting)
 import Data.MC6.Global (GlobalSwitch)
-import Data.MC6.ControlBank (ControlBank, exampleControlBank, ambientControlBank)
+import Data.MC6.BuiltInBanks (exampleControlBank, ambientControlBank)
+import Helm.MC6.ControlBank (ControlBank)
 import Data.MC6.Dump as Dump
 import Data.MC6.Settings as Settings
 import Data.Looper.Banks as LooperBanks
 import Data.Looper.TwisterSurface as TwisterSurface
-import Data.MC6.Types (MC6NativeBank)
+import Helm.MC6.Types (MC6NativeBank)
 import Data.MC6.Wire as Wire
 import Data.Array as Array
 import Effect (Effect)

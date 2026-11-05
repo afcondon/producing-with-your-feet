@@ -194,9 +194,9 @@ import Data.Looper.Duty
   , rateWord, placeWord
   )
 import Data.Looper.Surface (nLoops)
-import Data.MC6.ControlBank (ControlBank, ControlBankSwitch, switchCount)
-import Data.MC6.Message as MC6Msg
-import Data.MC6.Types (MC6Action(..), MC6Message)
+import Helm.MC6.ControlBank (ControlBank, ControlBankSwitch, switchCount)
+import Helm.MC6.Message as MC6Msg
+import Helm.MC6.Types (MC6Action(..), MC6Message)
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
 
 -- | The channel the MC6 uses to address the app about its own switches.

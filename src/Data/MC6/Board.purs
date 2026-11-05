@@ -23,8 +23,8 @@ import Prelude
 import Config.Registry (PedalRegistry)
 import Config.Registry as CRegistry
 import Data.Array as Array
-import Data.MC6.Message as MC6Msg
-import Data.MC6.Types (MC6Action(..), MC6Message)
+import Helm.MC6.Message as MC6Msg
+import Helm.MC6.Types (MC6Action(..), MC6Message)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Midi (unCC, unProgramNumber)

@@ -57,9 +57,9 @@ import Data.Int as Int
 import Data.JSDate as JSDate
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
-import Data.MC6.ControlBank (ControlBank, ControlBankSwitch)
+import Helm.MC6.ControlBank (ControlBank, ControlBankSwitch)
 import Data.MC6.Global (GlobalSwitch)
-import Data.MC6.Types (MC6Message, MC6NativeBank, MC6Preset, MC6TogglePosition(..), mc6MsgTypeToInt, intToMC6MsgType, mc6ActionToInt, intToMC6Action, mc6ToggleToInt)
+import Helm.MC6.Types (MC6Message, MC6NativeBank, MC6Preset, MC6TogglePosition(..), mc6MsgTypeToInt, intToMC6MsgType, mc6ActionToInt, intToMC6Action, mc6ToggleToInt)
 import Data.Midi (CC, MidiValue, makeCC, makeMidiValue, makeProgramNumber, unCC, unMidiValue, unProgramNumber)
 import Data.Pedal (PedalId(..))
 import Data.Pedal.Engage (EngageState(..))

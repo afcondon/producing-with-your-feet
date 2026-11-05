@@ -27,8 +27,8 @@ import Prelude
 
 import Data.Array as Array
 import Data.MC6.Board as Board
-import Data.MC6.ControlBank (ControlBank)
-import Data.MC6.Types (MC6Message)
+import Helm.MC6.ControlBank (ControlBank)
+import Helm.MC6.Types (MC6Message)
 import Data.Maybe (Maybe(..))
 import Data.Preset (BoardPreset, PedalPreset, PresetId)
 import Data.String.CodeUnits as SCU

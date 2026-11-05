@@ -16,9 +16,10 @@ import Data.Int as Int
 import Data.Map (Map)
 import Data.Maybe (Maybe(..), fromMaybe, isJust, maybe)
 import Data.MC6.Board as Board
-import Data.MC6.ControlBank (ControlBank, ControlBankSwitch, builtInControlBanks, ccToggleMessages, ccMomentaryMessages, emptySwitch, switchCount, switchLetter)
+import Data.MC6.BuiltInBanks (builtInControlBanks)
+import Helm.MC6.ControlBank (ControlBank, ControlBankSwitch, ccToggleMessages, ccMomentaryMessages, emptySwitch, switchCount, switchLetter)
 import Data.MC6.Survey as MC6Survey
-import Data.MC6.Types (MC6Action(..), MC6Message, MC6MsgType(..), MC6NativeBank, MC6TogglePosition(..), intToMC6Action, intToMC6MsgType, mc6ActionToInt, mc6ToggleToInt)
+import Helm.MC6.Types (MC6Action(..), MC6Message, MC6MsgType(..), MC6NativeBank, MC6TogglePosition(..), intToMC6Action, intToMC6MsgType, mc6ActionToInt, mc6ToggleToInt)
 import Data.Midi (unCC)
 import Data.Pedal (PedalDef, PedalId, Control(..), LabelSource(..), Section)
 import Data.MC6.Global (GlobalSwitch)

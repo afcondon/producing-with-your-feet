@@ -31,8 +31,8 @@ import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Config.Registry (PedalRegistry)
 import Config.Registry as CRegistry
-import Data.MC6.ControlBank (switchLetter)
-import Data.MC6.Types (MC6NativeBank)
+import Helm.MC6.ControlBank (switchLetter)
+import Helm.MC6.Types (MC6NativeBank)
 import Data.MC6.Board as Board
 
 type Input =

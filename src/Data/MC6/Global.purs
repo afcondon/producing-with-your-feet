@@ -57,9 +57,9 @@ import Prelude
 import Data.Array as Array
 import Data.Foldable (foldl, maximumBy)
 import Data.Map as Map
-import Data.MC6.ControlBank (ControlBank, ControlBankSwitch, switchLetter)
-import Data.MC6.Message as MC6Msg
-import Data.MC6.Types (MC6Action(..), MC6Message, MC6MsgType(..), MC6NativeBank)
+import Helm.MC6.ControlBank (ControlBank, ControlBankSwitch, switchLetter)
+import Helm.MC6.Message as MC6Msg
+import Helm.MC6.Types (MC6Action(..), MC6Message, MC6MsgType(..), MC6NativeBank)
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Tuple (Tuple(..), fst, snd)
 

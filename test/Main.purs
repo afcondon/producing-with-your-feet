@@ -20,9 +20,10 @@ import Engine.Storage as Storage
 import Engine.Storage (engineToJson, parseEngine, parseCardOrder, parsePresets, parseBoardPresets, parseEngageState)
 import Data.MC6.Assign as Assign
 import Data.MC6.Board as Board
-import Data.MC6.ControlBank as ControlBank
-import Data.MC6.Message as MC6Msg
-import Data.MC6.Types (MC6Action(..), MC6MsgType(..), MC6TogglePosition(..), mc6ActionToInt)
+import Helm.MC6.ControlBank as ControlBank
+import Data.MC6.BuiltInBanks as BuiltInBanks
+import Helm.MC6.Message as MC6Msg
+import Helm.MC6.Types (MC6Action(..), MC6MsgType(..), MC6TogglePosition(..), mc6ActionToInt)
 import Data.MC6.Model as Model
 import Data.MC6.Reserved as Reserved
 import Data.MC6.Settings as Settings
@@ -351,7 +352,7 @@ main = do
 
   -- The point of classification is that nothing has to be re-authored to
   -- benefit, so the test subject is the control bank as it already exists.
-  let bank = ControlBank.exampleControlBank
+  let bank = BuiltInBanks.exampleControlBank
       verbOf sw = Verb.classify reg 1 sw.messages
       verbs = map verbOf bank.switches
 
@@ -402,7 +403,7 @@ main = do
   log ""
   log "Running MC6 survey tests..."
 
-  let cards = Survey.survey reg 1 [ ControlBank.exampleControlBank ] [] [] Map.empty Map.empty
+  let cards = Survey.survey reg 1 [ BuiltInBanks.exampleControlBank ] [] [] Map.empty Map.empty
 
   assert "the survey covers all 30 banks" (Array.length cards == Survey.bankCount)
   assert "a known bank has 12 slots"
@@ -423,7 +424,7 @@ main = do
   -- written down twice is a number that can disagree with itself, and when the
   -- default moved off the probe's bank these failed for a reason that had
   -- nothing to do with what they are testing.
-  let defaultBankNum = ControlBank.exampleControlBank.mc6BankNumber
+  let defaultBankNum = BuiltInBanks.exampleControlBank.mc6BankNumber
   assert "unknown banks are Unknown, not empty"
     (Array.all (\c -> c.provenance == Survey.Unknown)
       (Array.filter (\c -> c.bankNumber /= defaultBankNum) cards))
@@ -457,7 +458,7 @@ main = do
   -- Reading the device outranks anything we merely believe.
   let readNames = Map.fromFoldable [ Tuple 11 "LoopyPro", Tuple 19 "Ableton" ]
       readSwitches = Map.singleton 19 [ "Rec", "Multiply", "Take" ]
-      readCards = Survey.survey reg 1 [ ControlBank.exampleControlBank ] [] [] readNames readSwitches
+      readCards = Survey.survey reg 1 [ BuiltInBanks.exampleControlBank ] [] [] readNames readSwitches
       at n = Array.filter (\c -> c.bankNumber == n) readCards
   assert "a bank the device named is Observed, not Unknown"
     (map _.provenance (at 11) == [ Survey.Observed ])
@@ -474,7 +475,7 @@ main = do
   log ""
   log "Running global-switch tests..."
 
-  let bankA = ControlBank.exampleControlBank
+  let bankA = BuiltInBanks.exampleControlBank
       bankB = bankA { id = "b", mc6BankNumber = 21 }
       backSwitch =
         { id: "global-G", slot: 6, label: "< Back", longName: "Back to Board Bank"
@@ -2423,7 +2424,7 @@ main = do
       -- two banks — the number this table originally assumed was one.
       , diagnosticsCount: Diagnostics.bypassBankCount reg
       }
-    defaultClaims = Reserved.allClaims defaultNumbers [ ControlBank.exampleControlBank ]
+    defaultClaims = Reserved.allClaims defaultNumbers [ BuiltInBanks.exampleControlBank ]
     defaultCollisions = Reserved.collisions defaultClaims
   assert
     ( "no MC6 bank is claimed twice"
@@ -2437,7 +2438,7 @@ main = do
     (Array.length
       (Reserved.collisions
         (Reserved.allClaims defaultNumbers
-          [ ControlBank.exampleControlBank { id = "clash", mc6BankNumber = 2 } ]))
+          [ BuiltInBanks.exampleControlBank { id = "clash", mc6BankNumber = 2 } ]))
       == 1)
 
   -- The line through the table: machinery below 15, pedal pages at 15 and
@@ -2454,7 +2455,7 @@ main = do
     (Array.length
       (Reserved.misplaced
         (Reserved.allClaims (defaultNumbers { probe = 25 })
-          [ ControlBank.exampleControlBank { mc6BankNumber = 3 } ]))
+          [ BuiltInBanks.exampleControlBank { mc6BankNumber = 3 } ]))
       == 2)
 
   -- The exemption itself, exercised against a SYNTHETIC external claim rather
@@ -2475,7 +2476,7 @@ main = do
             <> [ Looper.looperBank 9 1 ]
             <> [ Diagnostics.gestureProbeBank 10 1 ]
             <> Diagnostics.bypassBanks 11 1 reg
-            <> [ ControlBank.exampleControlBank ]
+            <> [ BuiltInBanks.exampleControlBank ]
         )
     plan = Reserved.sweep defaultNumbers ownedNums
 
@@ -3806,22 +3807,22 @@ main = do
   -- right and leaves the Twister on whatever it happened to be showing, which
   -- is the quietest failure this arrangement has available.
   assert "the ambient page and the ambient scene agree on the id"
-    (isJust (Scenes.sceneForControlBank ControlBank.ambientControlBank.id))
+    (isJust (Scenes.sceneForControlBank BuiltInBanks.ambientControlBank.id))
 
   -- Control pages live in the pedal half of the table. Below it `Reserved`
   -- refuses them as ControlTooLow, and that refusal only fires on a write —
   -- which is the worst moment to discover a bank number.
   assert "the ambient page sits in the pedal half, beside not on the other one"
-    (ControlBank.ambientControlBank.mc6BankNumber >= Reserved.pedalRangeFrom
-      && ControlBank.ambientControlBank.mc6BankNumber
-           /= ControlBank.exampleControlBank.mc6BankNumber)
+    (BuiltInBanks.ambientControlBank.mc6BankNumber >= Reserved.pedalRangeFrom
+      && BuiltInBanks.ambientControlBank.mc6BankNumber
+           /= BuiltInBanks.exampleControlBank.mc6BankNumber)
 
   -- Six on the expanders, because three dual-engage pedals at two channels
   -- each is exactly what G-L holds. If a pedal gained or lost a channel this
   -- page would stop being the group's page and nothing else would say so.
   assert "the ambient page fills its expanders"
     (Array.length (Array.filter (\sw -> sw.label /= "")
-      (Array.drop 6 ControlBank.ambientControlBank.switches)) == 6)
+      (Array.drop 6 BuiltInBanks.ambientControlBank.switches)) == 6)
 
   -- **The card names a borrowed cell by asking the pedal it was borrowed from.**
   -- Three things have to line up for this to read right — the pick, the pedal's

@@ -28,9 +28,9 @@ import Prelude
 
 import Data.Array as Array
 import Data.Looper.Banks (Duty(..), Subject(..))
-import Data.MC6.Message as MC6Msg
-import Data.MC6.Types (MC6Action(..))
-import Data.MC6.ControlBank (ControlBank, ControlBankSwitch, ccMomentaryMessages, ccToggleMessages)
+import Helm.MC6.Message as MC6Msg
+import Helm.MC6.Types (MC6Action(..))
+import Helm.MC6.ControlBank (ControlBank, ControlBankSwitch, ccMomentaryMessages, ccToggleMessages)
 import Data.Midi (CC, MidiValue, unCC, unMidiValue)
 import Data.Pedal (PedalId(..))
 

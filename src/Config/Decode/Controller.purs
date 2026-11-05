@@ -9,8 +9,8 @@ import Data.Argonaut.Core (Json)
 import Data.Argonaut.Core as Json
 import Data.Array as Array
 import Data.Int as Int
-import Data.MC6.Message (emptyMessage)
-import Data.MC6.Types (MC6Action(..), MC6Message, MC6Model, MC6MsgType(..), MC6NativeBank, MC6Preset, MC6TogglePosition(..), mc6ActionFromString, mc6ModelFromString, mc6MsgTypeFromString, mc6ToggleFromString)
+import Helm.MC6.Message (emptyMessage)
+import Helm.MC6.Types (MC6Action(..), MC6Message, MC6Model, MC6MsgType(..), MC6NativeBank, MC6Preset, MC6TogglePosition(..), mc6ActionFromString, mc6ModelFromString, mc6MsgTypeFromString, mc6ToggleFromString)
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Traversable (traverse)
 import Foreign.Object as FO

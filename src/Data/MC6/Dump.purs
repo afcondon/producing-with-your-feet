@@ -42,7 +42,7 @@ import Prelude
 import Data.Array as Array
 import Data.Char (fromCharCode)
 import Data.Map as Map
-import Data.MC6.Types (MC6Message, MC6MsgType(..), MC6NativeBank, MC6Preset, intToMC6Action, intToMC6MsgType, intToMC6Toggle)
+import Helm.MC6.Types (MC6Message, MC6MsgType(..), MC6NativeBank, MC6Preset, intToMC6Action, intToMC6MsgType, intToMC6Toggle)
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.String as Str
 import Data.String.CodeUnits as SCU

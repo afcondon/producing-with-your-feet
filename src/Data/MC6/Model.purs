@@ -1,6 +1,6 @@
 -- | What an MC6 preset *means*, as opposed to what it weighs on the wire.
 -- |
--- | The wire type (`Data.MC6.Types.MC6Message`) is a record of four anonymous
+-- | The wire type (`Helm.MC6.Types.MC6Message`) is a record of four anonymous
 -- | integers serving thirty-six message types. `data1` is a CC number, or a
 -- | program number, or a bank, or a delay in milliseconds, depending on a tag
 -- | in another field — so every reader has to know the tag's meaning and no
@@ -92,7 +92,7 @@ module Data.MC6.Model
 import Prelude
 
 import Data.Array as Array
-import Data.MC6.Types (MC6Action, MC6Message, MC6MsgType(..), MC6TogglePosition)
+import Helm.MC6.Types (MC6Action, MC6Message, MC6MsgType(..), MC6TogglePosition)
 import Data.Maybe (Maybe(..))
 import Data.Midi (CC, Channel, MidiValue, ProgramNumber, makeCC, makeChannel, makeMidiValue, makeProgramNumber, unCC, unChannel, unMidiValue, unProgramNumber)
 import Data.String.CodeUnits as SCU

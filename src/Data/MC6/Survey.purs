@@ -34,8 +34,8 @@ import Prelude
 import Config.Registry (PedalRegistry)
 import Data.Array as Array
 import Data.Foldable (any, foldr)
-import Data.MC6.ControlBank (ControlBank)
-import Data.MC6.Types (MC6NativeBank)
+import Helm.MC6.ControlBank (ControlBank)
+import Helm.MC6.Types (MC6NativeBank)
 import Data.MC6.Verb (NavTarget(..), Verb(..), classify)
 import Data.Map (Map)
 import Data.Map as Map

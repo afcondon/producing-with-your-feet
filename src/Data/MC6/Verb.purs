@@ -38,7 +38,7 @@ import Prelude
 import Config.Registry (PedalRegistry)
 import Config.Registry as CRegistry
 import Data.Array as Array
-import Data.MC6.Types (MC6Action(..), MC6Message, MC6MsgType(..), MC6TogglePosition(..))
+import Helm.MC6.Types (MC6Action(..), MC6Message, MC6MsgType(..), MC6TogglePosition(..))
 import Data.Maybe (Maybe(..))
 import Data.Pedal (PedalId)
 

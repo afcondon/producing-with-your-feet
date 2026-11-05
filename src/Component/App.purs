@@ -21,16 +21,16 @@ import Component.Twister.Lights (sendSceneLEDs, adoptTwisterPage, dimAllLEDs, kn
 import Data.Looper.Machine as Machine
 import Data.Looper.TwisterSurface as TwisterSurface
 import Data.MC6.Backup as Backup
-import Data.MC6.ControlBank (ControlBank)
-import Data.MC6.ControlBank as ControlBank
+import Helm.MC6.ControlBank (ControlBank)
+import Helm.MC6.ControlBank as ControlBank
 import Data.MC6.Dump as Dump
 import Data.MC6.Global as Global
 import Data.MC6.Diagnostics as Diagnostics
-import Data.MC6.Message as MC6Msg
+import Helm.MC6.Message as MC6Msg
 import Data.MC6.Assign as Assign
 import Data.MC6.Reserved as Reserved
 import Data.MC6.SysEx as SysEx
-import Data.MC6.Types (MC6Action(..), MC6NativeBank, MC6Preset)
+import Helm.MC6.Types (MC6Action(..), MC6NativeBank, MC6Preset)
 import Data.MC6.Board as Board
 import Data.MC6.Read as Read
 import Data.MC6.Settings as Settings

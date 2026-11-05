@@ -41,7 +41,7 @@ module Data.MC6.Stamp
 import Prelude
 
 import Data.Array as Array
-import Data.MC6.ControlBank (ControlBank, ControlBankSwitch, switchLetter)
+import Helm.MC6.ControlBank (ControlBank, ControlBankSwitch, switchLetter)
 import Data.String.CodeUnits as SCU
 
 -- | The MC6's field widths, which are what make this a formatting problem at

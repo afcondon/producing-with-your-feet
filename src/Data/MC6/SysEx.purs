@@ -35,7 +35,7 @@ import Data.Array as Array
 import Data.Foldable (foldl)
 import Data.Int (toStringAs, hexadecimal)
 import Data.Int.Bits (xor, (.&.))
-import Data.MC6.Types (MC6Action(..), MC6Message, MC6MsgType(..), MC6TogglePosition(..), mc6MsgTypeToInt, mc6ActionToInt, mc6ToggleToInt)
+import Helm.MC6.Types (MC6Action(..), MC6Message, MC6MsgType(..), MC6TogglePosition(..), mc6MsgTypeToInt, mc6ActionToInt, mc6ToggleToInt)
 import Data.Char (toCharCode)
 import Data.String as Str
 import Data.String.CodeUnits as SCU
