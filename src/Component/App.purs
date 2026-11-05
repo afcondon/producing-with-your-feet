@@ -1652,12 +1652,18 @@ handleAction = case _ of
               then Nothing
               else Just pid
           }
+        -- **Choosing a pedal here focuses it**, and so hands it the Twister
+        -- (by the machine's rule: not during a scene). Until 2026-11-05 the
+        -- Overview kept a selection of its own that nothing else heard, so on
+        -- the default view the Twister never followed a choice. Clearing the
+        -- selection leaves focus where it is: the controller keeps serving
+        -- the last pedal chosen rather than going dark.
         OverviewView ->
-          H.modify_ \s -> s { overviewActivePedal =
-            if s.overviewActivePedal == Just pid
-              then Nothing
-              else Just pid
-          }
+          if st.overviewActivePedal == Just pid
+            then H.modify_ _ { overviewActivePedal = Nothing }
+            else do
+              H.modify_ _ { overviewActivePedal = Just pid, focusPedalId = Just pid }
+              feedTwister (focusEvent (Just pid))
         _ -> pure unit
 
   HandleDetail output -> case output of
