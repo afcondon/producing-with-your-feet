@@ -1,4 +1,4 @@
--- | **Who the Twister is for**: the pedals, the looper, or a scene.
+-- | **Who should hold the Twister**: the pedals, a scene, or the looper.
 -- |
 -- | The answer is a Glassbox machine, `static/machines/twister-surface.json`,
 -- | loaded at runtime and stepped by `Glassbox.Run.step`; this module is the
@@ -11,10 +11,12 @@
 -- | Twister that quietly stops painting (`reference_glassbox_pin_the_alphabet`:
 -- | pin the alphabet, never the behaviour).
 -- |
--- | The state **is** the owner: which surface may paint the rings now. That
--- | is what the hub's Twister ownership will read (plan
--- | `docs/kb/plans/quadrat-the-sampler.md`, phase 3), and why this module is
--- | Halogen-free: the looper's own process will run the same machine.
+-- | The state says who **should** hold the Twister. Who **does** is Helm's
+-- | hub: its claim on the Twister's output is the record, and nobody paints a
+-- | Twister they do not hold. The entry commands close the gap: PWYF asks for
+-- | it, or hands it to the looper's own process (plan
+-- | `docs/kb/plans/quadrat-the-sampler.md`, phase 3; the table both programs
+-- | read is `Data.Looper.TwisterHolder` in itajara/controllers).
 -- |
 -- | Data stays with the host: which pedal is focused, which scene, which of
 -- | the looper's pages is showing.
@@ -35,7 +37,7 @@ import Prelude
 import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Foldable (intercalate)
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), maybe)
 import Data.Tuple (Tuple(..))
 import Glassbox.Codec.JSON (parseSpec)
 import Glassbox.Lint as Lint
@@ -52,7 +54,7 @@ derive instance eqOwner :: Eq Owner
 -- | The entry commands: what arriving in a state owes the device.
 data Paint
   = PaintPedal
-  | PaintLooper
+  | HandToLooper
   | PaintScene
 
 derive instance eqPaint :: Eq Paint
@@ -60,39 +62,44 @@ derive instance eqPaint :: Eq Paint
 data Event
   = FocusPedal
   | FocusLooper
-  | SceneOn
-  | SceneOff
+  -- | Where the MC6 stands: on a scene's bank, on one of the looper's, or on
+  -- | one that names no holder.
+  | BankScene
+  | BankLooper
+  | BankPlain
 
 -- | A machine that has passed the alphabet check, and where it is.
 newtype Surface = Surface { spec :: Spec, state :: StateId }
 
-ownerName :: Owner -> String
-ownerName = case _ of
-  PedalPage -> "pedal"
-  LooperPages -> "looper"
-  ScenePage -> "scene"
+-- | Every state, and whose it is. Two are the looper's: by focus, and by
+-- | the MC6's bank (where focus changes nothing).
+states :: Array (Tuple String Owner)
+states =
+  [ Tuple "pedal" PedalPage
+  , Tuple "looper" LooperPages
+  , Tuple "scene" ScenePage
+  , Tuple "looper-bank" LooperPages
+  ]
 
 paintName :: Paint -> String
 paintName = case _ of
   PaintPedal -> "paint-pedal"
-  PaintLooper -> "paint-looper"
+  HandToLooper -> "hand-to-looper"
   PaintScene -> "paint-scene"
 
 eventName :: Event -> String
 eventName = case _ of
   FocusPedal -> "focus-pedal"
   FocusLooper -> "focus-looper"
-  SceneOn -> "scene-on"
-  SceneOff -> "scene-off"
-
-owners :: Array Owner
-owners = [ PedalPage, LooperPages, ScenePage ]
+  BankScene -> "bank-scene"
+  BankLooper -> "bank-looper"
+  BankPlain -> "bank-plain"
 
 paints :: Array Paint
-paints = [ PaintPedal, PaintLooper, PaintScene ]
+paints = [ PaintPedal, HandToLooper, PaintScene ]
 
 events :: Array String
-events = map eventName [ FocusPedal, FocusLooper, SceneOn, SceneOff ]
+events = map eventName [ FocusPedal, FocusLooper, BankScene, BankLooper, BankPlain ]
 
 -- | The facts `feed` sets, every one of them, on every event.
 facts :: Array String
@@ -122,7 +129,7 @@ load text = do
               <> (if Array.null extra then "" else "has " <> intercalate ", " extra <> " this app does not know")
           ]
     problems =
-      differ "states" (map ownerName owners) (map (\(StateId s) -> s) (stateIds spec))
+      differ "states" (map (\(Tuple n _) -> n) states) (map (\(StateId s) -> s) (stateIds spec))
         <> differ "events" events (map (\(EventId s) -> s) (eventIds spec))
         <> differ "commands" (map paintName paints) (map (\(CommandId s) -> s) (commandIds spec))
         -- Facts too: a guard on a fact this host never sets reads false, and
@@ -136,10 +143,7 @@ owner (Surface s) = ownerOf s.state
 
 -- | Total because `load` checked the alphabet; the fallback is unreachable.
 ownerOf :: StateId -> Owner
-ownerOf (StateId s) = case s of
-  "looper" -> LooperPages
-  "scene" -> ScenePage
-  _ -> PedalPage
+ownerOf (StateId s) = maybe PedalPage (\(Tuple _ o) -> o) (Array.find (\(Tuple n _) -> n == s) states)
 
 paintOf :: CommandId -> Maybe Paint
 paintOf (CommandId c) = Array.find (\p -> paintName p == c) paints
@@ -154,8 +158,8 @@ repaint :: Surface -> Array Paint
 repaint (Surface s) = Array.mapMaybe paintOf (entryOf s.spec s.state)
 
 -- | One event. `pedalFocused` (a pedal other than the looper) is the one fact
--- | the machine reads: where the Twister goes when a scene ends. With none,
--- | it goes to the looper.
+-- | the machine reads: where the Twister goes when the MC6 leaves a bank that
+-- | named a holder. With none, it goes to the looper.
 feed
   :: { pedalFocused :: Boolean }
   -> Event

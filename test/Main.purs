@@ -48,7 +48,7 @@ import Data.String as String
 import Data.String.Common (joinWith)
 import Data.Monoid (power)
 import Data.String.CodeUnits as StringCU
-import Data.MC6.Read as Read
+import Helm.MC6.Read as Read
 import Data.MC6.SysEx as SysEx
 import Data.MC6.Dump as Dump
 import Data.MC6.Global as Global
@@ -148,29 +148,51 @@ twisterSurfaceTests = do
       assert "starts on the pedal page, and its entry paints the pedal"
         (own s0 == TwisterSurface.PedalPage && TwisterSurface.start s0 == [ TwisterSurface.PaintPedal ])
       let looper = go false TwisterSurface.FocusLooper s0
-      assert "focusing the looper hands it the Twister and paints it"
-        (own looper.surface == TwisterSurface.LooperPages && looper.paints == [ TwisterSurface.PaintLooper ])
-      let scene = go false TwisterSurface.SceneOn looper.surface
-      assert "a scene wins over the looper"
+      assert "focusing the looper hands the Twister to the looper's process"
+        (own looper.surface == TwisterSurface.LooperPages && looper.paints == [ TwisterSurface.HandToLooper ])
+      let scene = go false TwisterSurface.BankScene looper.surface
+      assert "a scene's bank wins over the looper by focus"
         (own scene.surface == TwisterSurface.ScenePage && scene.paints == [ TwisterSurface.PaintScene ])
       let focusDuring = go true TwisterSurface.FocusPedal scene.surface
       assert "focus during a scene changes nothing on the device"
         (own focusDuring.surface == TwisterSurface.ScenePage && focusDuring.paints == [])
-      let again = go false TwisterSurface.SceneOn scene.surface
+      let again = go false TwisterSurface.BankScene scene.surface
       assert "one scene giving way to another re-enters and repaints"
         (own again.surface == TwisterSurface.ScenePage && again.paints == [ TwisterSurface.PaintScene ])
-      let offToPedal = go true TwisterSurface.SceneOff scene.surface
+      let offToPedal = go true TwisterSurface.BankPlain scene.surface
       assert "leaving a scene with a pedal focused goes to the pedal"
         (own offToPedal.surface == TwisterSurface.PedalPage && offToPedal.paints == [ TwisterSurface.PaintPedal ])
-      let offToLooper = go false TwisterSurface.SceneOff scene.surface
+      let offToLooper = go false TwisterSurface.BankPlain scene.surface
       assert "leaving a scene with no pedal focused goes to the looper"
-        (own offToLooper.surface == TwisterSurface.LooperPages && offToLooper.paints == [ TwisterSurface.PaintLooper ])
+        (own offToLooper.surface == TwisterSurface.LooperPages && offToLooper.paints == [ TwisterSurface.HandToLooper ])
       let refocus = go true TwisterSurface.FocusPedal (go true TwisterSurface.FocusPedal s0).surface
       assert "focusing a pedal on the pedal page re-enters and repaints"
         (own refocus.surface == TwisterSurface.PedalPage && refocus.paints == [ TwisterSurface.PaintPedal ])
-      let offOutside = go true TwisterSurface.SceneOff looper.surface
-      assert "a scene ending when none was up changes nothing"
+      let offOutside = go true TwisterSurface.BankPlain looper.surface
+      assert "a plain bank when no bank named a holder changes nothing"
         (own offOutside.surface == TwisterSurface.LooperPages && offOutside.paints == [])
+      -- The looper's banks (the table, AC 2026-11-05).
+      let loopBank = go true TwisterSurface.BankLooper (go true TwisterSurface.FocusPedal s0).surface
+      assert "the looper's bank takes the Twister from a pedal, for the looper's process"
+        (own loopBank.surface == TwisterSurface.LooperPages && loopBank.paints == [ TwisterSurface.HandToLooper ])
+      let focusOnLoopBank = go true TwisterSurface.FocusPedal loopBank.surface
+      assert "focus on the looper's bank changes nothing on the device"
+        (own focusOnLoopBank.surface == TwisterSurface.LooperPages && focusOnLoopBank.paints == [])
+      let loopToLoop = go true TwisterSurface.BankLooper loopBank.surface
+      assert "moving between the looper's banks changes nothing"
+        (own loopToLoop.surface == TwisterSurface.LooperPages && loopToLoop.paints == [])
+      let loopOffToPedal = go true TwisterSurface.BankPlain loopBank.surface
+      assert "leaving the looper's banks with a pedal focused goes to the pedal"
+        (own loopOffToPedal.surface == TwisterSurface.PedalPage && loopOffToPedal.paints == [ TwisterSurface.PaintPedal ])
+      let loopOffStays = go false TwisterSurface.BankPlain loopBank.surface
+      assert "leaving the looper's banks with the looper focused stays with the looper"
+        (own loopOffStays.surface == TwisterSurface.LooperPages)
+      let loopToScene = go true TwisterSurface.BankScene loopBank.surface
+      assert "a scene's bank after the looper's: the scene"
+        (own loopToScene.surface == TwisterSurface.ScenePage && loopToScene.paints == [ TwisterSurface.PaintScene ])
+      let sceneToLoop = go true TwisterSurface.BankLooper scene.surface
+      assert "the looper's bank after a scene's: the looper's process"
+        (own sceneToLoop.surface == TwisterSurface.LooperPages && sceneToLoop.paints == [ TwisterSurface.HandToLooper ])
   -- A guard on a fact this app never sets would read false and quietly take
   -- the other arm; the load refuses a file that declares one.
   let unknownFact = String.replace (String.Pattern "\"facts\": [")

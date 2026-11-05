@@ -32,6 +32,7 @@
 module Component.Twister.Lights
   ( rigOf
   , asOwner
+  , holdsTwister
   , refreshTwister
   , sendSceneLEDs
   , showTwisterPage
@@ -172,7 +173,20 @@ asOwner
   => TwisterSurface.Owner -> H.HalogenM AppState act slots o m Unit -> H.HalogenM AppState act slots o m Unit
 asOwner who paint = do
   st <- H.get
-  when (map TwisterSurface.owner st.twisterSurface == Just who) paint
+  held <- holdsTwister
+  when (held && map TwisterSurface.owner st.twisterSurface == Just who) paint
+
+-- | Whether this page holds the Twister on Helm's hub **now**: the record of
+-- | who may paint it (plan `quadrat-the-sampler.md`, phase 3). Through plain
+-- | Web MIDI there is no one to hold it from, so it is ours.
+holdsTwister :: forall act slots o m. MonadAff m => H.HalogenM AppState act slots o m Boolean
+holdsTwister = do
+  st <- H.get
+  case st.connections.access, st.connections.twisterOutputId of
+    Just access, Just port -> liftEffect do
+      hub <- MIDI.viaHub access
+      if hub then MIDI.holding access port else pure true
+    _, _ -> pure false
 
 -- | Put the device back on `deviceBank`, wherever it thought it was.
 -- |

@@ -17,9 +17,10 @@ import Data.Looper as Looper
 import Data.Looper.Banks as LoopBanks
 import Component.Looper.Control as LooperControl
 import Component.Looper.Page as LooperPage
-import Component.Twister.Lights (asOwner, sendSceneLEDs, adoptTwisterPage, dimAllLEDs, knobCC, pinDevice, refreshTwister, rigOf, sendAllLEDs, sendLooperLEDs, sendRingPosition, showTwisterPage)
+import Component.Twister.Lights (asOwner, holdsTwister, sendSceneLEDs, adoptTwisterPage, dimAllLEDs, knobCC, pinDevice, refreshTwister, rigOf, sendAllLEDs, sendLooperLEDs, sendRingPosition, showTwisterPage)
 import Data.Looper.Machine as Machine
 import Data.Looper.TwisterSurface as TwisterSurface
+import Data.Looper.TwisterHolder as TwisterHolder
 import Data.MC6.Backup as Backup
 import Helm.MC6.ControlBank (ControlBank)
 import Helm.MC6.ControlBank as ControlBank
@@ -32,7 +33,7 @@ import Data.MC6.Reserved as Reserved
 import Data.MC6.SysEx as SysEx
 import Helm.MC6.Types (MC6Action(..), MC6NativeBank, MC6Preset)
 import Data.MC6.Board as Board
-import Data.MC6.Read as Read
+import Helm.MC6.Read as Read
 import Data.MC6.Settings as Settings
 import Data.MC6.Stamp as Stamp
 import Data.MC6.Survey as Survey
@@ -104,6 +105,10 @@ data Action
   | InitializeMIDI MidiRouting
   | RescanMIDI
   | MidiPortChanged MIDI.PortChange
+  -- | Helm's hub says who holds what has changed.
+  | TwisterClaimsChanged
+  -- | Someone (by client name) wants a name this page holds.
+  | TwisterWanted String String
   | SelectMC6Output String
   | PingMC6
   | SetTestCh String
@@ -983,7 +988,7 @@ handleAction = case _ of
           when (matches st.connections.twisterOutputId && isNothing st.connections.twisterOutput) do
             mOut <- liftEffect $ MIDI.findOutput access (MIDI.Exactly change.id)
             H.modify_ _ { connections { twisterOutput = mOut } }
-            for_ mOut (liftEffect <<< MIDI.claimOutput access)
+            twisterClaimsChanged
             repaintTwister
         H.modify_ _ { midiTest = Just (change.name <> " reconnected") }
 
@@ -1163,7 +1168,7 @@ handleAction = case _ of
   -- | and the twelve switch names of whichever bank it is currently on. So this
   -- | is connect, wait, disconnect, with `MC6MidiReceived` decoding whatever
   -- | turns up in between. Established by sweeping the function-code space and
-  -- | finding nothing: see `Data.MC6.Read`.
+  -- | finding nothing: see `Helm.MC6.Read`.
   -- |
   -- | `Wire.withSession`, not `Wire.withUpload`: asking a question should never
   -- | be able to leave the device anywhere a half-finished write could land,
@@ -1208,7 +1213,7 @@ handleAction = case _ of
   -- | `sysexRequestPresetNames` returns any bank's switch names with the device
   -- | sitting still, and `sysexRequestFullDump` returns every preset with its
   -- | full message list. Both were read out of Morningstar's own editor bundle
-  -- | after `Data.MC6.Read` spent months asserting no read request existed.
+  -- | after `Helm.MC6.Read` spent months asserting no read request existed.
   -- |
   -- | Names first because they are cheap and give every bank a label even if the
   -- | dump is interrupted; then the dump, which is the only thing that says what
@@ -1549,8 +1554,11 @@ handleAction = case _ of
     -- it back and repaint, rather than to let sixteen encoders quietly change
     -- meaning with nothing on screen saying so.
     st0 <- H.get
+    -- Only the holder puts the device back: two programs pinning and
+    -- repainting at once is the fight the hub's claim exists to end.
+    held <- holdsTwister
     for_ (TwisterData.bankOf bytes) \bank -> do
-      when (st0.twisterHeardBank /= Just bank && bank /= TwisterData.deviceBank) do
+      when (held && st0.twisterHeardBank /= Just bank && bank /= TwisterData.deviceBank) do
         pinDevice
         -- The device keeps whatever it was last told, and it has just been
         -- somewhere else, so nothing on it can be trusted to still be true.
@@ -1566,6 +1574,20 @@ handleAction = case _ of
     for_ (HelmTwister.parse bytes) (feedTwisterGuard <<< Guard.Heard)
 
   ShowTwisterPage bank -> showTwisterPage bank
+
+  TwisterClaimsChanged -> twisterClaimsChanged
+
+  -- The looper's process asks on its banks; this page's own machine, reading
+  -- the same bank, has usually handed it over already. Granted if the machine
+  -- says the looper should have it, refused with the reason otherwise.
+  TwisterWanted port by -> do
+    st <- H.get
+    for_ st.connections.access \access ->
+      when (st.connections.twisterOutputId == Just port) $
+        if twisterOwner st == Just TwisterSurface.LooperPages
+          then liftEffect (MIDI.grantName access port by)
+          else liftEffect (MIDI.refuseWant access port by
+            (if twisterOwner st == Just TwisterSurface.ScenePage then "a scene holds it" else "a pedal is focused"))
 
   ShowLooperPanel which -> do
     -- Opening the Edit panel forgets the last key, so the next poll asks for
@@ -2172,10 +2194,12 @@ handleAction = case _ of
       -- exactly like an accepted one, which is the failure the ack path was
       -- built to end. `sendLooperLEDs` diffs, so a frame in which nothing moved
       -- costs no messages.
-      stLit <- H.get
       -- The owner, not focus: with a scene up and the looper focused, every
-      -- frame used to paint the looper's rings over the scene.
-      when (twisterOwner stLit == Just TwisterSurface.LooperPages) sendLooperLEDs
+      -- frame used to paint the looper's rings over the scene. And only while
+      -- this page holds it: with the looper's process running, the looper's
+      -- pages are its to paint, and this page paints them only if it was left
+      -- holding the Twister (the process is down).
+      asOwner TwisterSurface.LooperPages sendLooperLEDs
 
 
 -- | Read the socket ten times a second, forever.
@@ -3421,8 +3445,11 @@ feedTwisterGuard ev = do
 
 handleTwisterMsg :: forall o m. MonadAff m => TwisterMsg -> H.HalogenM AppState Action Slots o m Unit
 handleTwisterMsg = case _ of
-  EncoderTurn knob val -> handleEncoderTurn knob val
-  EncoderPress knob -> handleEncoderPress knob
+  -- Everyone hears the knobs (inputs are not claimed); only the holder acts
+  -- on them. The side buttons below walk between pedals, which is focus and
+  -- so always this page's, held or not.
+  EncoderTurn knob val -> whenHeld (handleEncoderTurn knob val)
+  EncoderPress knob -> whenHeld (handleEncoderPress knob)
   -- The release means nothing of its own; the guard has already used it.
   EncoderRelease _ -> pure unit
 
@@ -3473,11 +3500,17 @@ syncSceneToBank bank = do
     wanted = map
       (Scene.resolve \pid -> CRegistry.findPedal st.registry pid >>= _.twister)
       (onThisBank >>= \cb -> Scenes.sceneForControlBank cb.id)
-  when (map _.name wanted /= map _.name st.twisterScene) do
-    H.modify_ _ { twisterScene = wanted }
-    -- Arriving paints the scene; leaving hands the controller back to whatever
-    -- focus says, by the machine's rule (`twister-surface.json`).
-    feedTwister (if isJust wanted then TwisterSurface.SceneOn else TwisterSurface.SceneOff)
+    -- The table (`Data.Looper.TwisterHolder`): the looper's banks name the
+    -- looper's own process, read from the same frame by both programs.
+    looperBank = TwisterHolder.looperHoldsBank bank
+  when (map _.name wanted /= map _.name st.twisterScene || looperBank /= st.twisterBankLooper) do
+    H.modify_ _ { twisterScene = wanted, twisterBankLooper = looperBank }
+    -- A bank that names a holder wins; leaving one hands the controller back
+    -- to whatever focus says, by the machine's rule (`twister-surface.json`).
+    feedTwister case wanted of
+      Just _ -> TwisterSurface.BankScene
+      Nothing | looperBank -> TwisterSurface.BankLooper
+      Nothing -> TwisterSurface.BankPlain
 
 handleEncoderTurn :: forall o m. MonadAff m => Knob -> Int -> H.HalogenM AppState Action Slots o m Unit
 handleEncoderTurn knob val = do
@@ -3808,6 +3841,14 @@ initializeMIDIWith routing mAccess = do
     void $ H.subscribe midiEmitter
     void $ liftEffect $ MIDI.onStateChange mAccess \change ->
       HS.notify midiListener (MidiPortChanged change)
+    -- **Who holds the Twister is the hub's record**, and these are how it
+    -- reaches this page: a change of claims (granted, lost, or the holder
+    -- gone), and the looper's process asking for it on its banks.
+    void $ liftEffect $ MIDI.onClaims mAccess (HS.notify midiListener TwisterClaimsChanged)
+    void $ liftEffect $ MIDI.onWanted mAccess \port by ->
+      HS.notify midiListener (TwisterWanted port by)
+    void $ liftEffect $ MIDI.onRefused mAccess \port by why ->
+      Console.log ("Twister: " <> by <> " keeps " <> port <> ": " <> why)
     -- Auto-select MIDI ports using routing patterns from registry
     -- Auto-select Twister input
     let mTwisterIn = Array.find (\p -> contains (Pattern routing.twisterInput.match) p.name) inputs
@@ -3818,11 +3859,12 @@ initializeMIDIWith routing mAccess = do
     for_ mTwisterOut \port -> do
       mOut <- liftEffect $ MIDI.findOutput mAccess (MIDI.Exactly port.id)
       H.modify_ _ { connections { twisterOutput = mOut, twisterOutputId = Just port.id } }
-      -- **Hold it.** Through Helm's hub, only this page's ring and colour
-      -- messages then reach the Twister; another app's (or another tab's) are
-      -- dropped and it is told who holds the device. Through Web MIDI this does
-      -- nothing. Plan: quadrat-the-sampler.md, phase 3, step 2.
-      for_ mOut (liftEffect <<< MIDI.claimOutput mAccess)
+      -- **Ask for it, if it should be ours.** The machine's entry for where it
+      -- stands says what to do: a pedal or scene asks the hub for the Twister
+      -- (and paints when granted); the looper hands it to the looper's
+      -- process. Through Web MIDI it is simply ours. Plan:
+      -- quadrat-the-sampler.md, phase 3.
+      twisterClaimsChanged
       repaintTwister
     -- Auto-select pedal output (MC6 via USB)
     let mPedalOut = Array.find (\p -> contains (Pattern routing.pedalOutput.match) p.name) outputs
@@ -3862,17 +3904,59 @@ feedTwister ev = do
 -- | What each entry command means on this device.
 paintTwister :: forall o m. MonadAff m => TwisterSurface.Paint -> H.HalogenM AppState Action Slots o m Unit
 paintTwister = case _ of
-  TwisterSurface.PaintPedal -> do
+  TwisterSurface.PaintPedal -> paintOrAsk do
     st <- H.get
     case st.focusPedalId of
       Just pid | not (Looper.isItajara pid) -> refreshTwister pid
       _ -> dimAllLEDs
-  TwisterSurface.PaintLooper -> refreshTwister Looper.itajaraId
-  TwisterSurface.PaintScene -> do
+  -- **Hand it on, if it is ours to hand.** If the grant cannot land (the
+  -- looper's process is not running) this page keeps holding it and paints
+  -- the looper's pages itself, as the switches fail over to it.
+  TwisterSurface.HandToLooper -> do
+    held <- holdsTwister
+    st <- H.get
+    when held $ case st.connections.access, st.connections.twisterOutputId of
+      Just access, Just port -> do
+        hub <- liftEffect (MIDI.viaHub access)
+        if hub then liftEffect (MIDI.grantName access port TwisterHolder.looperProcess)
+        else refreshTwister Looper.itajaraId
+      _, _ -> pure unit
+  TwisterSurface.PaintScene -> paintOrAsk do
     st <- H.get
     for_ st.twisterScene \sc -> do
       dimAllLEDs
       sendSceneLEDs sc
+
+-- | Paint if this page holds the Twister; otherwise ask the hub for it. The
+-- | paint comes when it is granted (`TwisterClaimsChanged`), or not at all if
+-- | the holder says why not.
+paintOrAsk :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit -> H.HalogenM AppState Action Slots o m Unit
+paintOrAsk paint = do
+  held <- holdsTwister
+  if held then paint
+  else do
+    st <- H.get
+    for_ st.connections.access \access -> for_ st.connections.twisterOutputId \port ->
+      liftEffect (MIDI.wantName access port)
+
+-- | Act on the Twister's knobs only while holding it.
+whenHeld :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit -> H.HalogenM AppState Action Slots o m Unit
+whenHeld act = do
+  held <- holdsTwister
+  when held act
+
+-- | The hub's record changed. Newly holding: what the device shows can't be
+-- | trusted, so repaint for where the machine stands (which, at the looper,
+-- | hands it straight on). Newly not holding: forget what we lit.
+twisterClaimsChanged :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m Unit
+twisterClaimsChanged = do
+  st <- H.get
+  held <- holdsTwister
+  H.modify_ _ { twisterHeld = held }
+  when (held /= st.twisterHeld) do
+    H.modify_ _ { twisterLit = Map.empty }
+    liftEffect $ Console.log (if held then "Twister: this page holds it" else "Twister: handed on")
+    when held repaintTwister
 
 -- | Paint what the current owner shows, as arriving there would. For a device
 -- | that has been somewhere else, or has just arrived: the machine's entry is

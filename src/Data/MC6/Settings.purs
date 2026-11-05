@@ -4,7 +4,7 @@
 -- | `0x20` to `0x29`, carrying everything about itself that is not a preset:
 -- | the channel table, the omniport configuration, the waveform and sequencer
 -- | engines, the scroll counters, the aux switch ladder, the MIDI event map.
--- | `Data.MC6.Read` has always received these, acknowledged them, and thrown
+-- | `Helm.MC6.Read` has always received these, acknowledged them, and thrown
 -- | the payloads away.
 -- |
 -- | This decodes them. Nothing here required a device: it was written against
@@ -57,7 +57,7 @@ module Data.MC6.Settings
 import Prelude
 
 import Data.Array as Array
-import Data.MC6.Read (tlvs, trimAscii)
+import Helm.MC6.Read (tlvs, trimAscii)
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Tuple (Tuple(..))
 
@@ -213,7 +213,7 @@ sectionName = case _ of
 
 -- | Decode one `03 2x` payload, given its sub-code.
 -- |
--- | The payload is what `Data.MC6.Read` already extracts — `drop 16`, `dropEnd
+-- | The payload is what `Helm.MC6.Read` already extracts — `drop 16`, `dropEnd
 -- | 2` — so this takes over exactly where that leaves off.
 decodeSection :: Int -> Array Int -> Section
 decodeSection f2 payload = case f2 of

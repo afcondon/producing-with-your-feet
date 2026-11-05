@@ -31,6 +31,7 @@ import Data.MC6.Settings as Settings
 import Data.Looper.Banks as LooperBanks
 import Data.Looper.Press as Press
 import Data.Looper.TwisterSurface as TwisterSurface
+import Data.Looper.TwisterHolder as TwisterHolder
 import Helm.MC6.Types (MC6NativeBank)
 import Data.MC6.Wire as Wire
 import Data.Array as Array
@@ -154,6 +155,14 @@ type AppState =
   -- | anything else here is a stray press of its own block buttons and is put
   -- | back. It is no longer an address for anything.
   , twisterHeardBank :: Maybe Int
+  -- | Whether this page holds the Twister on Helm's hub, as last heard: the
+  -- | record of who may paint it (`Lights.holdsTwister` reads it fresh; this
+  -- | is only to notice the change). Always true through plain Web MIDI.
+  , twisterHeld :: Boolean
+  -- | Whether the MC6 stands on one of the looper's banks
+  -- | (`Data.Looper.TwisterHolder`), so a change of bank that changes this
+  -- | and not the scene still reaches the Twister's machine.
+  , twisterBankLooper :: Boolean
   -- | Which page the app is **showing** — its own, and authoritative.
   -- |
   -- | **Two fields because there are two facts, and conflating them was the
@@ -353,7 +362,7 @@ type AppState =
   -- Result of the last looper-bank programming run, shown on the Looper page.
   , looperProgramStatus :: Maybe String
   , midiTest :: Maybe String
-  -- | What the MC6 said when last asked (`Data.MC6.Read`). Bank numbers are
+  -- | What the MC6 said when last asked (`Helm.MC6.Read`). Bank numbers are
   -- | wire numbers, i.e. 0-based; the editor shows them one higher.
   , mc6BankNames :: Map Int String
   , mc6BankSwitches :: Map Int (Array String)
@@ -462,6 +471,8 @@ initAppState =
   , twisterNudgeSeq: 0
   , layersAsked: Map.empty
   , twisterHeardBank: Nothing
+  , twisterHeld: false
+  , twisterBankLooper: false
   , twisterPage: 0
   , twisterScene: Nothing
   , twisterSurface: Nothing
@@ -486,7 +497,7 @@ initAppState =
   -- legacy transport bank. Wire numbers; the editor shows each one higher.
   -- `Data.MC6.Reserved` derives the seven from this base rather than restating
   -- them, so the range cannot be written down wrongly a second time.
-  , mc6LoopBankBase: 2
+  , mc6LoopBankBase: TwisterHolder.loopBankBase
   -- **Seven hundred, because that is what the device does.** Set in
   -- Morningstar's editor and confirmed against `03 21` offset 3, which moved
   -- from 2 to 4 when the setting went from 750 ms to 700 — so the byte is the

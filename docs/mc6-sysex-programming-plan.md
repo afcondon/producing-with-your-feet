@@ -215,7 +215,7 @@ Captured in `test/mc6-connect-dump-20260816.json`, 119 frames on connect.
 
 | F1 F2 | Bytes | Carries | How known |
 |---|---|---|---|
-| `00 7D` | 18 | editor mode on/off | confirmed, decoded by `Data.MC6.Read` |
+| `00 7D` | 18 | editor mode on/off | confirmed, decoded by `Helm.MC6.Read` |
 | `03 20` | 674 | **midi_channels** | confirmed — MC6, MOOD, Clean, Hedra, Flint, Lex, Brig, Habit, LoopyPro all legible as ASCII |
 | `03 23` | 82 | **omniports** | confirmed — payload holds 41/42/43 and 38/39/40, the fixed switch assignments in the backup |
 | `03 25` | 55 | sequencer_engines | probable — carries 119, 39, 127, matching `arr` |
@@ -230,7 +230,7 @@ Captured in `test/mc6-connect-dump-20260816.json`, 119 frames on connect.
 | `06 01` | 272 | preset data (messages) | confirmed, decoded by `Data.MC6.Dump` |
 | `06 02` | 245 | preset data (names) | confirmed |
 | `08 00` | 31 | ? | unknown |
-| `09 01` | 150 | switch names of the current bank | confirmed, decoded by `Data.MC6.Read` |
+| `09 01` | 150 | switch names of the current bank | confirmed, decoded by `Helm.MC6.Read` |
 | `10 04`, `10 05` | 18 | ? | unknown |
 | `11 00` | 50 | ? | unknown |
 | `11 03` | 37 | ? | unknown |

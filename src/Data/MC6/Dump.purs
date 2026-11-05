@@ -1,6 +1,6 @@
 -- | The whole device, messages and all.
 -- |
--- | `Data.MC6.Read` decodes what a connect volunteers: bank names, and the
+-- | `Helm.MC6.Read` decodes what a connect volunteers: bank names, and the
 -- | twelve switch *names* of one bank. Names are enough to see the shape of the
 -- | instrument and not enough to reproduce it — a page authored from labels
 -- | alone is correct on the face of it and silent underneath, which is exactly

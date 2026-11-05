@@ -264,7 +264,7 @@ sysexSettingsCommit = sysexFrame "settings-commit" mc6mk2DeviceId [0x04, 0x01] [
 
 -- | Ask for one bank's twelve switch names. **F1=0, F2=64, F3=bank.**
 -- |
--- | The request this app spent months believing did not exist. `Data.MC6.Read`
+-- | The request this app spent months believing did not exist. `Helm.MC6.Read`
 -- | records a sweep of the function-code space finding nothing that asks for
 -- | bank data, and concluded the device could only be made to *volunteer* — so
 -- | reading everything meant walking the MC6 through all thirty banks and
