@@ -19,7 +19,6 @@ module Data.Twister
   , TwisterMapping
   , TwisterMsg(..)
   , Knob
-  , SideBtn(..)
   , banks
   , deviceBank
   , encodersPerBank
@@ -131,9 +130,6 @@ data TwisterMsg
   = EncoderTurn Knob Int       -- value 0-127
   | EncoderPress Knob
   | EncoderRelease Knob
-  | SideButton SideBtn
-
-data SideBtn = PrevPedal | NextPedal | RefreshLEDs
 
 -- | One message the guard let through, in this app's terms. The device's
 -- | layer is carried as `bank`, which is what the rest of the app calls it
@@ -143,12 +139,10 @@ fromHelm = case _ of
   Helm.Turn k v -> Just (EncoderTurn (knob k) v)
   Helm.Press k -> Just (EncoderPress (knob k))
   Helm.Release k -> Just (EncoderRelease (knob k))
-  -- The three side buttons PWYF binds, which are **not** the layer switches:
-  -- those the device handles by itself and never tells us about, except by
-  -- the CC block everything afterwards arrives in.
-  Helm.Side 0 -> Just (SideButton PrevPedal)
-  Helm.Side 1 -> Just (SideButton NextPedal)
-  Helm.Side 2 -> Just (SideButton RefreshLEDs)
+  -- The side buttons once sent ch 5 CCs here (previous and next pedal, a
+  -- repaint). On AC's device they are the layer buttons, which the holder
+  -- reads as drift (`Helm.Twister.layerOf`), so nothing here binds them
+  -- (removed 2026-11-07; git has the bindings).
   Helm.Side _ -> Nothing
   where
   knob k = { bank: k.layer, index: k.index }

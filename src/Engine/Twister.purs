@@ -5,8 +5,6 @@ module Engine.Twister
   , buttonAction
   , EncoderResult
   , ButtonResult
-  , handleSideButton
-  , handleSideButtonPrev
   , computeAllLEDs
   , encoderLEDOf
   , LEDState
@@ -108,31 +106,6 @@ buttonAction btn ps =
 
     TwisterSet { cc, value } ->
       Just [ { cc, value } ]
-
-handleSideButton :: Maybe PedalId -> Array PedalId -> Maybe PedalId
-handleSideButton mCurrent cardOrder =
-  case mCurrent of
-    Nothing ->
-      Array.head cardOrder
-    Just current ->
-      let mIdx = Array.findIndex (_ == current) cardOrder
-          n = Array.length cardOrder
-      in case mIdx of
-        Nothing -> Array.head cardOrder
-        Just idx -> Array.index cardOrder ((idx + 1) `mod` n)
-
--- | Cycle focus backward through card order
-handleSideButtonPrev :: Maybe PedalId -> Array PedalId -> Maybe PedalId
-handleSideButtonPrev mCurrent cardOrder =
-  case mCurrent of
-    Nothing ->
-      Array.last cardOrder
-    Just current ->
-      let mIdx = Array.findIndex (_ == current) cardOrder
-          n = Array.length cardOrder
-      in case mIdx of
-        Nothing -> Array.last cardOrder
-        Just idx -> Array.index cardOrder ((idx - 1 + n) `mod` n)
 
 type LEDState = { index :: Int, ring :: Int, hue :: Int }
 

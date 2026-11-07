@@ -54,7 +54,7 @@ import Data.String as String
 import Data.String.CodeUnits (contains)
 import Data.String.Pattern (Pattern(..))
 import Data.Tuple (Tuple(..))
-import Data.Twister (Knob, SideBtn(..), TwisterEncoder(..), TwisterMsg(..), fromHelm)
+import Data.Twister (Knob, TwisterEncoder(..), TwisterMsg(..), fromHelm)
 import Data.Twister as TwisterData
 import Data.Looper.Twister as LoopTwister
 import Control.Monad.Rec.Class (forever)
@@ -3471,22 +3471,11 @@ feedTwisterGuard ev = do
 handleTwisterMsg :: forall o m. MonadAff m => TwisterMsg -> H.HalogenM AppState Action Slots o m Unit
 handleTwisterMsg = case _ of
   -- Everyone hears the knobs (inputs are not claimed); only the holder acts
-  -- on them. The side buttons below walk between pedals, which is focus and
-  -- so always this page's, held or not.
+  -- on them.
   EncoderTurn knob val -> whenHeld (handleEncoderTurn knob val)
   EncoderPress knob -> whenHeld (handleEncoderPress knob)
   -- The release means nothing of its own; the guard has already used it.
   EncoderRelease _ -> pure unit
-
-  -- **Back to walking between pedals, which is what they were.**
-  --
-  -- They were the looper's pager for an afternoon, on the ground that they were
-  -- the only physical buttons that certainly reach this app. Then the pager
-  -- became an encoder — turn for the page, press for home — which is
-  -- one-handed, scales to a third page without a new control, and hands these
-  -- back. Which matters, because with the looper holding the controller there
-  -- was otherwise no way to reach a *pedal* on it at all.
-  SideButton btn -> handleTwisterSideButton btn
 
 -- | **Two surfaces on one controller**, told apart by what is in focus.
 -- |
@@ -3728,22 +3717,6 @@ onPedal
 onPedal st k = for_ st.focusPedalId \pid ->
   for_ (CRegistry.findPedal st.registry pid) \def ->
     for_ (Map.lookup pid st.engine) \ps -> k pid def ps
-
-handleTwisterSideButton :: forall o m. MonadAff m => SideBtn -> H.HalogenM AppState Action Slots o m Unit
-handleTwisterSideButton btn = do
-  st <- H.get
-  case btn of
-    -- Paint what the owner shows, as arriving there would. Was the focused
-    -- pedal's page, whatever held the Twister, scenes included.
-    RefreshLEDs -> for_ st.twisterSurface (traverse_ paintTwister <<< TwisterSurface.repaint)
-    PrevPedal -> do
-      let newFocus = Twister.handleSideButtonPrev st.focusPedalId st.cardOrder
-      H.modify_ _ { focusPedalId = newFocus }
-      feedTwister (focusEvent newFocus)
-    NextPedal -> do
-      let newFocus = Twister.handleSideButton st.focusPedalId st.cardOrder
-      H.modify_ _ { focusPedalId = newFocus }
-      feedTwister (focusEvent newFocus)
 
 -- | Merge layout from PureScript pedal definitions into JSON-decoded pedals.
 -- | JSON provides runtime config; layout is PureScript-only (contains ADTs).
