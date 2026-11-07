@@ -141,6 +141,8 @@ type AppState =
   -- | anything else here is a stray press of its own block buttons and is put
   -- | back. It is no longer an address for anything.
   , twisterHeardBank :: Maybe Int
+  -- | What is typed in the Looper page's Save field.
+  , looperSaveName :: String
   -- | Whether this page holds the Twister on Helm's hub, as last heard: the
   -- | record of who may paint it (`Lights.holdsTwister` reads it fresh; this
   -- | is only to notice the change). Always true through plain Web MIDI.
@@ -457,6 +459,7 @@ initAppState =
   , twisterNudgeSeq: 0
   , layersAsked: Map.empty
   , twisterHeardBank: Nothing
+  , looperSaveName: ""
   , twisterHeld: false
   , twisterBankLooper: false
   , twisterPage: 0

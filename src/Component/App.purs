@@ -22,6 +22,7 @@ import Itajara.Surface.Looper.Page as LooperPage
 import Itajara.Surface.Looper.TwisterMap as TwisterMap
 import Component.Twister.Lights (asOwner, holdsTwister, sendSceneLEDs, adoptTwisterPage, dimAllLEDs, knobCC, pinDevice, refreshTwister, rigOf, sendAllLEDs, sendLooperLEDs, sendRingPosition, showTwisterPage)
 import Data.Looper.Machine as Machine
+import Data.Looper.Verb as Verb
 import Data.Looper.TwisterSurface as TwisterSurface
 import Data.Looper.TwisterHolder as TwisterHolder
 import Data.MC6.Backup as Backup
@@ -152,6 +153,8 @@ data Action
   | ShiftLoopStart Int Int
   | AskLoopPeaks Int
   | EditSliderDone String
+  | SetLooperSaveName String
+  | SaveLooperTake String
   | SettleNudge Knob Int
   | HandleHeader Header.Output
   | HandleDetail DetailView.Output
@@ -513,6 +516,8 @@ renderLooperView state = LooperPage.render handlers ports extras state
     , askPeaks: AskLoopPeaks
     , editDone: EditSliderDone
     , waveDrag: Nothing
+    , setSaveName: SetLooperSaveName
+    , save: SaveLooperTake
     }
 
   ports = { twister: isJust state.connections.twisterOutput }
@@ -1678,6 +1683,13 @@ handleAction = case _ of
     editVerb loop (LoopBanks.ShiftStart k)
   AskLoopPeaks loop -> editVerb loop (LoopBanks.AskPeaks 600)
   EditSliderDone key -> H.modify_ \s -> s { looperEditLocal = Map.delete key s.looperEditLocal }
+  SetLooperSaveName name -> H.modify_ _ { looperSaveName = name }
+  -- A CC carries no name, so a named save is the one page button that does
+  -- not go through `SetValue`; it is still carried out by `runAction`.
+  SaveLooperTake name -> do
+    st <- H.get
+    runAction 0.0 (Machine.Command (Verb.at st.looperFocus (Verb.SaveTake name)))
+    H.modify_ _ { looperSaveName = "" }
 
   -- The knob has been still long enough: put the ring back to centre. A
   -- click that arrived meanwhile bumped the sequence, and this one stands
