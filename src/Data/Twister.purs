@@ -30,6 +30,7 @@ module Data.Twister
 
 import Data.Maybe (Maybe(..))
 import Data.Midi (CC, MidiValue)
+import Data.Looper.Twister as LoopTwister
 import Helm.Twister as Helm
 
 data TwisterEncoder
@@ -101,7 +102,7 @@ encodersPerBank = Helm.encodersPerLayer
 -- | question as which *page* the app is showing. Conflating those two is what
 -- | made the card's warning fire on every visit to page 2.
 deviceBank :: Int
-deviceBank = 0
+deviceBank = LoopTwister.pinnedLayer
 
 -- | Ask the device to show a page: channel 4, CC 0 to 3, value 127.
 -- |

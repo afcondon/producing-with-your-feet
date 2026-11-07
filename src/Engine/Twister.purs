@@ -19,7 +19,7 @@ import Data.Int (round, toNumber)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Midi (CC, MidiValue, unMidiValue, unsafeMidiValue)
-import Data.Pedal (PedalDef, PedalId)
+import Data.Pedal (PedalDef)
 import Data.Twister (TwisterButton(..), TwisterEncoder(..))
 import Engine (PedalState)
 

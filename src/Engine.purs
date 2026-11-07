@@ -3,8 +3,7 @@ module Engine
   , EngineState
   , MidiConnections
   , View(..)
-  , LooperPanel(..)
-  , LogLine
+  , module Itajara.Surface.Looper.Types
   , pushLooperLog
   , logLimit
   , AppState
@@ -29,6 +28,9 @@ import Helm.MC6.ControlBank (ControlBank)
 import Data.MC6.Dump as Dump
 import Data.MC6.Settings as Settings
 import Data.Looper.Banks as LooperBanks
+-- The Looper page's two shared types live with the page in itajara's surface;
+-- re-exported here so the app's state keeps naming them from `Engine`.
+import Itajara.Surface.Looper.Types (LogLine, LooperPanel(..))
 import Data.Looper.Press as Press
 import Data.Looper.TwisterSurface as TwisterSurface
 import Data.Looper.TwisterHolder as TwisterHolder
@@ -61,22 +63,6 @@ type EngineState = Map PedalId PedalState
 data View = GridView | DetailView PedalId | PedalView PedalId | OverviewView | BoardsView | ControlsView | LooperView | FilesView | ConnectView
 
 derive instance Eq View
-
--- | Which of the Looper page's reference panels is open, if any.
--- |
--- | **They are panels rather than page furniture because they are read, not
--- | used.** The bindings card, the MC6 bank tables and the board simulator are
--- | each consulted once and then in the way — and the page they were crowding
--- | is the one surface that has to be legible while both hands are busy.
--- |
--- | **The board is not one of these.** It was, for an afternoon, as a corner
--- | dock — and seeing it there settled the question the other way: it is small
--- | enough to keep beside the loops permanently, and a control you have to open
--- | is a control you do not use while both hands are busy. It lives in the
--- | page's right column now, with the log under it.
-data LooperPanel = PanelTwister | PanelBanks | PanelRecipes | PanelBoard | PanelEdit
-
-derive instance Eq LooperPanel
 
 type MidiConnections =
   { access :: Maybe MIDIAccess
@@ -571,9 +557,6 @@ pedalsOnChannel channel engine =
   Array.mapMaybe
     (\(Tuple pid ps) -> if ps.channel == channel then Just pid else Nothing)
     (Map.toUnfoldable engine)
-
--- | One line of the looper log.
-type LogLine = { text :: String, times :: Int }
 
 -- | How many lines are kept.
 -- |

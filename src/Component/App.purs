@@ -16,7 +16,10 @@ import Data.Argonaut.Parser (jsonParser)
 import Data.Looper as Looper
 import Data.Looper.Banks as LoopBanks
 import Component.Looper.Control as LooperControl
-import Component.Looper.Page as LooperPage
+import Component.Looper.Banks as LooperBanks
+import Component.Looper.TwisterCard as TwisterCard
+import Itajara.Surface.Looper.Page as LooperPage
+import Itajara.Surface.Looper.TwisterMap as TwisterMap
 import Component.Twister.Lights (asOwner, holdsTwister, sendSceneLEDs, adoptTwisterPage, dimAllLEDs, knobCC, pinDevice, refreshTwister, rigOf, sendAllLEDs, sendLooperLEDs, sendRingPosition, showTwisterPage)
 import Data.Looper.Machine as Machine
 import Data.Looper.TwisterSurface as TwisterSurface
@@ -180,7 +183,7 @@ data Action
   -- | Carries the switch rather than the bytes, because the *view* should not
   -- | know the wire format; `SimulateSwitch` builds the message the MC6 would
   -- | have sent and feeds it to the handler the port feeds. See
-  -- | `Component.Looper.Board`.
+  -- | `Itajara.Surface.Looper.Board`.
   | SimulateSwitch LoopBanks.BankSlot Int LoopBanks.Gesture
 
 type Slots =
@@ -468,9 +471,10 @@ renderFolderBackup state =
 
 -- | The looper tab.
 -- |
--- | The page itself is `Component.Looper.Page`. What is left here is the join:
--- | the actions that page can cause, the two connection facts it needs, and the
--- | pedal face — which is a `HH.slot` and therefore this component's to build.
+-- | The page itself is `Itajara.Surface.Looper.Page`. What is left here is the
+-- | join: the actions that page can cause, the connection fact it needs, and
+-- | the `extras` only this app has — the live Twister card, the MC6 banks
+-- | (`Component.Looper.Banks`) and the print sheet.
 -- |
 -- | **The handler record is the boundary, and it repays reading as one.** Every
 -- | control on that page appears in it, and every one of them lands on
@@ -479,7 +483,7 @@ renderFolderBackup state =
 -- | which is the same rule the Twister and the MC6 relay follow and the reason
 -- | `Machine.perform` can stay the only place a command is decided.
 renderLooperView :: forall m. MonadAff m => AppState -> H.ComponentHTML Action Slots m
-renderLooperView state = LooperPage.render handlers ports state
+renderLooperView state = LooperPage.render handlers ports extras state
   where
   handlers =
     { setFace: SetLooperFace
@@ -498,9 +502,6 @@ renderLooperView state = LooperPage.render handlers ports state
     , setArm: SetArmThreshold
     , setFeedback: SetFeedback
     , setTone: SetTone
-    , programLooperBank: ProgramLooperBank
-    , programLoopBanks: ProgramLoopBanks
-    , printSheet: PrintSheet
     , setLayer: SetLayerOn
     , windowIn: SetWindowIn
     , windowOut: SetWindowOut
@@ -514,10 +515,25 @@ renderLooperView state = LooperPage.render handlers ports state
     , waveDrag: Nothing
     }
 
-  ports =
-    { mc6: isJust state.connections.mc6Output
-    , twister: isJust state.connections.twisterOutput
+  ports = { twister: isJust state.connections.twisterOutput }
+
+  -- What only this app has: the live Twister card, drawn from its own idea of
+  -- who the Twister is for; the MC6 banks it can program; and the print sheet.
+  extras =
+    { twisterCard:
+        -- The page tabs as well, while the card is the looper's: the same
+        -- strip as the Twister panel's, so a page is one click from the loops.
+        [ if card.looper then TwisterMap.tabs state.twisterPage ShowTwisterPage else HH.text ""
+        , TwisterCard.render card
+        ]
+    , banks: Just (LooperBanks.render
+        { programLooperBank: ProgramLooperBank, programLoopBanks: ProgramLoopBanks }
+        (isJust state.connections.mc6Output)
+        state)
+    , printSheet: Just PrintSheet
     }
+  card = TwisterCard.cardFor state.registry owner state.twisterScene state.focusPedalId state.twisterPage
+  owner = map TwisterSurface.owner state.twisterSurface
 renderConnectView :: forall m. MonadAff m => AppState -> H.ComponentHTML Action Slots m
 renderConnectView state =
   HH.div [ HP.class_ (H.ClassName "connect-view") ]

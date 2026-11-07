@@ -29,7 +29,7 @@ import Data.MC6.Reserved as Reserved
 import Data.MC6.Settings as Settings
 import Test.MC6Capture as Capture
 import Data.Looper as Looper
-import Component.Looper.Slots as Slots
+import Itajara.Surface.Looper.Slots as Slots
 import Itajara.Surface.Wave as Wave
 import Foreign.LooperSocket (isWriting, phaseOf, phaseName, allPhases, LoopPhase(..)) as LooperSock
 import Data.Looper.Banks as LB

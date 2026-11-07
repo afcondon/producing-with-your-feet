@@ -15,7 +15,7 @@
 -- |
 -- | ## Every word of it is generated
 -- |
--- | The same rule as `Component.Looper.TwisterMap` and `Data.Looper.Recipes`:
+-- | The same rule as `Itajara.Surface.Looper.TwisterMap` and `Data.Looper.Recipes`:
 -- | a printed layout typed out beside the table it describes is right when
 -- | written and wrong the first time a control moves — wrong in the one place
 -- | nobody thinks to check, because it is only documentation. This reads
