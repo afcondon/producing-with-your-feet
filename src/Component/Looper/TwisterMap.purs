@@ -16,7 +16,7 @@
 -- | compared them with what it does (`DESIGN-TWISTER` §12). The card says so,
 -- | because a legend that quietly presented an unverified intention as fact
 -- | would be the thing to blame when a knob turns out to be the wrong colour.
-module Component.Looper.TwisterMap (render) where
+module Component.Looper.TwisterMap (render, tabs) where
 
 import Prelude
 
@@ -48,8 +48,7 @@ render connected showing heard goTo =
   HH.div [ HP.class_ (HH.ClassName "twister-map") ]
     [ HH.div [ HP.class_ (HH.ClassName "twister-map-body") ]
         ( exception
-            <> [ HH.div [ HP.class_ (HH.ClassName "twister-tabs") ]
-                   (map (tab showing goTo) TW.pages) ]
+            <> [ tabs showing goTo ]
             <> body
             <> [ HH.p [ HP.class_ (HH.ClassName "twister-map-caveat") ]
                    -- Kept, and kept short. It says the one thing about this
@@ -105,6 +104,11 @@ status true heard = case heard of
             <> " and has not gone back to block 1, so the encoders are not \
                \where this card says they are.")
   _ -> Nothing
+
+-- | The strip of page tabs, here and on the Looper view's live card.
+tabs :: forall w i. Int -> (Int -> i) -> HH.HTML w i
+tabs showing goTo =
+  HH.div [ HP.class_ (HH.ClassName "twister-tabs") ] (map (tab showing goTo) TW.pages)
 
 -- | The pages, as a strip. Two jobs in one row of chrome: it says which page is
 -- | showing, and it is how you get to the other one without reaching for the

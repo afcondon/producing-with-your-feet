@@ -1988,6 +1988,11 @@ body {
   color: #857d73; margin-bottom: 8px;
 }
 .twister-card-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+/* The page tabs on the live card: the Twister panel's strip, tightened to fit
+   the side column (316px in the panel, ~295px here). */
+.looper-side-card .twister-tabs { margin: 0 10px; padding-top: 8px; }
+.looper-side-card .twister-tab { font-size: 11.5px; padding: 5px 7px 6px; gap: 4px; }
+.looper-side-card .twister-tab.on { background: #fbfaf8; }
 .twister-card-cell {
   min-height: 32px; background: #fff; padding: 4px 5px;
   border: 1px solid #e2ddd5; border-left: 3px solid #c9c2b8;
@@ -4289,6 +4294,6 @@ body {
   <!-- Stamped by tools/bundle.sh with the bundle's own mtime. Without it a
        reload can serve yesterday's app and say nothing, which has cost this
        project whole afternoons more than once. -->
-  <script src="./index.js?v=1794048587"></script>
+  <script src="./index.js?v=1794049369"></script>
 </body>
 </html>

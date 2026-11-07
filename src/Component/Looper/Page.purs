@@ -52,6 +52,7 @@ import Component.Looper.TwisterCard as TwisterCard
 import Config.Registry (PedalRegistry)
 import Data.Pedal (PedalId)
 import Data.Twister.Scene (Scene)
+import Data.Looper.TwisterSurface as TwisterSurface
 import Component.Looper.Slots as Slots
 import Component.Looper.TwisterMap as TwisterMap
 import Data.Looper.Recipes as Recipes
@@ -97,6 +98,9 @@ type State r =
   -- | a scene's cells belong to several pedals and which ones is not known
   -- | until the scene is read.
   , twisterScene :: Maybe Scene
+  -- | Who the Twister's machine says it is for: on the looper's banks that
+  -- | is the looper, whatever is focused.
+  , twisterSurface :: Maybe TwisterSurface.Surface
   , focusPedalId :: Maybe PedalId
   , registry :: PedalRegistry
   | r
@@ -274,10 +278,13 @@ render h ports state =
   twisterCard =
     HH.div [ HP.class_ (HH.ClassName "looper-side-card") ]
       [ cardHead "The Twister, live"
-      , TwisterCard.render
-          (TwisterCard.cardFor state.registry state.twisterScene
-             state.focusPedalId state.twisterPage)
+      -- The page tabs as well, while the card is the looper's: the same
+      -- strip as the Twister panel's, so a page is one click from the loops.
+      , if card.looper then TwisterMap.tabs state.twisterPage h.showTwisterPage else HH.text ""
+      , TwisterCard.render card
       ]
+  card = TwisterCard.cardFor state.registry owner state.twisterScene state.focusPedalId state.twisterPage
+  owner = map TwisterSurface.owner state.twisterSurface
 
   -- | What the presses did, newest first.
   -- |

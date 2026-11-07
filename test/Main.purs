@@ -3932,7 +3932,7 @@ main = do
   let testRegistry = CRegistry.mkRegistry Registry.pedals []
         { pedalOutput: { match: "" }, twisterInput: { match: "" }
         , twisterOutput: { match: "" }, mc6Input: { match: "" } }
-      ambientCard = Card.cardFor testRegistry (Just ambientScene) Nothing 0
+      ambientCard = Card.cardFor testRegistry Nothing (Just ambientScene) Nothing 0
   assert "the card names the ambient scene from the pedals it borrows from"
     (ambientCard.title == "Ambient"
       && map _.name ambientCard.cells ==
@@ -3957,9 +3957,15 @@ main = do
   -- With no scene and no pedal in focus it is the looper's own page, named
   -- from the same table the print sheet and the modal render.
   assert "with nothing overriding it the card is the looper's page"
-    (let c = Card.cardFor testRegistry Nothing Nothing 0
+    (let c = Card.cardFor testRegistry Nothing Nothing Nothing 0
      in c.title == "Loops" && Array.length c.cells == 16
           && map _.name (Array.take 2 c.cells) == [ "Loop 1", "Loop 2" ])
+
+  -- On the looper's MC6 banks the machine gives the looper the Twister
+  -- whatever else is in play, and the card has to say so.
+  assert "the machine's owner decides the card: the looper's pages over a scene"
+    (let c = Card.cardFor testRegistry (Just TwisterSurface.LooperPages) (Just ambientScene) Nothing 0
+     in c.looper && c.title == "Loops")
 
   assert "only the ambient page calls up a scene"
     (isJust (Scenes.sceneForControlBank "control-ambient")

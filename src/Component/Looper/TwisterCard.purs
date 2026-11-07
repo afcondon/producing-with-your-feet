@@ -40,6 +40,7 @@ import Data.Array as Array
 import Data.Int (round, toNumber)
 import Data.Looper as Looper
 import Data.Looper.Twister as LoopTw
+import Data.Looper.TwisterSurface (Owner(..))
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.Pedal (PedalId)
@@ -58,7 +59,8 @@ import Halogen.HTML.Properties as HP
 -- | not attempt to follow. A cell with no name is a dark one.
 type CardCell = { name :: String, ink :: Maybe String }
 
-type Card = { title :: String, cells :: Array CardCell }
+-- | `looper`: the card is the looper's pages, which the page tabs turn.
+type Card = { title :: String, cells :: Array CardCell, looper :: Boolean }
 
 -- | Which page the Twister is on, and what is on it.
 -- |
@@ -66,15 +68,21 @@ type Card = { title :: String, cells :: Array CardCell }
 -- | `handleEncoderTurn` resolves in, and it has to be: a card that showed the
 -- | looper's page while the encoders were driving MOOD would be worse than no
 -- | card, because it would be believed.
+-- |
+-- | **The machine's owner first**, when there is one: on the looper's MC6
+-- | banks the looper holds the Twister whatever is focused, and a card that
+-- | went by focus there would name a pedal's controls over the looper's pages.
 cardFor
   :: PedalRegistry
+  -> Maybe Owner
   -> Maybe Scene
   -> Maybe PedalId
   -> Int
   -> Card
-cardFor registry mScene mFocus page = case mScene of
-  Just sc -> fromScene registry sc
-  Nothing -> case mFocus of
+cardFor registry owner mScene mFocus page = case owner, mScene of
+  Just LooperPages, _ -> fromLooper page
+  _, Just sc -> fromScene registry sc
+  _, Nothing -> case mFocus of
     Just pid | not (Looper.isItajara pid) -> fromPedal registry pid
     _ -> fromLooper page
 
@@ -82,9 +90,9 @@ cardFor registry mScene mFocus page = case mScene of
 fromLooper :: Int -> Card
 fromLooper page =
   case Array.index LoopTw.pages page of
-    Nothing -> { title: "Twister", cells: [] }
+    Nothing -> { title: "Twister", cells: [], looper: true }
     Just pg ->
-      { title: pg.name
+      { title: pg.name, looper: true
       , cells: map
           (\c -> { name: c.name, ink: c.tone >>= LoopTw.swatchNamed })
           pg.cells
@@ -98,7 +106,7 @@ fromLooper page =
 -- | the duplication `Data.Twister.Scene.Pick` exists to refuse.
 fromScene :: PedalRegistry -> Scene -> Card
 fromScene registry sc =
-  { title: sc.name
+  { title: sc.name, looper: false
   , cells: map cell (Array.range 0 (TwisterData.encodersPerBank - 1))
   }
   where
@@ -120,9 +128,9 @@ fromScene registry sc =
 -- | A pedal's own page. Bank one only, which is all a pedal has.
 fromPedal :: PedalRegistry -> PedalId -> Card
 fromPedal registry pid = case CRegistry.findPedal registry pid of
-  Nothing -> { title: "Twister", cells: [] }
+  Nothing -> { title: "Twister", cells: [], looper: false }
   Just def -> case def.twister of
-    Nothing -> { title: def.meta.name, cells: [] }
+    Nothing -> { title: def.meta.name, cells: [], looper: false }
     Just tw ->
       let labels = buildCCLabels def
           ink = inkOfHue (ETw.pedalHue def)
@@ -130,7 +138,7 @@ fromPedal registry pid = case CRegistry.findPedal registry pid of
             let mCC = map encoderCC (Array.index tw.encoders i >>= identity)
                         <|> map buttonCC (Array.index tw.buttons i >>= identity)
             in maybe "" (\cc -> fromMaybe "" (Map.lookup cc labels)) mCC
-      in { title: def.meta.name
+      in { title: def.meta.name, looper: false
          , cells: map
              (\i -> let n = nameAt i
                     in { name: n, ink: if n == "" then Nothing else Just ink })
