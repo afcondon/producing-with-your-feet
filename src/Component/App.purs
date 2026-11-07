@@ -109,6 +109,7 @@ data Action
   | TwisterClaimsChanged
   -- | Someone (by client name) wants a name this page holds.
   | TwisterWanted String String
+  | TwisterSent String (Array Int)
   | SelectMC6Output String
   | PingMC6
   | SetTestCh String
@@ -1573,7 +1574,26 @@ handleAction = case _ of
       H.modify_ _ { twisterHeardBank = Just (if bank /= TwisterData.deviceBank then TwisterData.deviceBank else bank) }
     for_ (HelmTwister.parse bytes) (feedTwisterGuard <<< Guard.Heard)
 
-  ShowTwisterPage bank -> showTwisterPage bank
+  -- **The minimap asks, when this page does not hold the Twister.** The
+  -- looper's process does, on its banks, and only the holder can turn the
+  -- device; the answer comes back as what it then sends (`TwisterSent`).
+  ShowTwisterPage bank -> do
+    st <- H.get
+    held <- holdsTwister
+    case st.connections.access, st.connections.twisterOutputId of
+      Just access, Just port | not held ->
+        liftEffect (MIDI.askHolder access port (TwisterHolder.pageRequest bank))
+      _, _ -> showTwisterPage bank
+
+  -- What the holder sent the Twister, watched through the hub. While someone
+  -- else holds it, the minimap follows the page the device is showing, read
+  -- from the pager's colour (`LoopTwister.pageShown`), not worked out here.
+  TwisterSent port bytes -> do
+    st <- H.get
+    held <- holdsTwister
+    when (not held && st.connections.twisterOutputId == Just port) $
+      for_ (LoopTwister.pageShown bytes) \page ->
+        H.modify_ _ { twisterPage = page }
 
   TwisterClaimsChanged -> twisterClaimsChanged
 
@@ -3852,6 +3872,8 @@ initializeMIDIWith routing mAccess = do
     void $ liftEffect $ MIDI.onClaims mAccess (HS.notify midiListener TwisterClaimsChanged)
     void $ liftEffect $ MIDI.onWanted mAccess \port by ->
       HS.notify midiListener (TwisterWanted port by)
+    void $ liftEffect $ MIDI.onSent mAccess \port bytes ->
+      HS.notify midiListener (TwisterSent port bytes)
     void $ liftEffect $ MIDI.onRefused mAccess \port by why ->
       Console.log ("Twister: " <> by <> " keeps " <> port <> ": " <> why)
     -- Auto-select MIDI ports using routing patterns from registry
@@ -3864,6 +3886,8 @@ initializeMIDIWith routing mAccess = do
     for_ mTwisterOut \port -> do
       mOut <- liftEffect $ MIDI.findOutput mAccess (MIDI.Exactly port.id)
       H.modify_ _ { connections { twisterOutput = mOut, twisterOutputId = Just port.id } }
+      -- Watch what anyone sends it, for the minimap (nothing via Web MIDI).
+      liftEffect (MIDI.watchPort mAccess port.id)
       -- **Ask for it, if it should be ours.** The machine's entry for where it
       -- stands says what to do: a pedal or scene asks the hub for the Twister
       -- (and paints when granted); the looper hands it to the looper's

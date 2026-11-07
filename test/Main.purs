@@ -39,6 +39,7 @@ import Data.Looper.Switchboard as Switchboard
 import Data.Looper.Recipes as Recipes
 import Data.Looper.Sheet as Sheet
 import Data.Looper.Twister as LoopTw
+import Helm.Twister as HelmTw
 import Data.Looper.Verb as LoopVerb
 import Data.Enum as Enum
 import Data.Foldable (for_)
@@ -3726,6 +3727,18 @@ main = do
   assert "the app parks the pager where it reads as that page"
     (Array.all (\p -> LoopTw.pageFor (LoopTw.pagerRing p) == p)
        (Array.range 0 (LoopTw.pages' - 1)))
+
+  -- A screen that watches what the holder sends reads the page from the
+  -- pager's colour, the indicator written on every turn, by hand or not.
+  assert "the pager's colour reads back as the page it was painted for"
+    (Array.all
+       (\p -> LoopTw.pageShown
+          (HelmTw.colour { layer: 0, index: LoopTw.pagerIndex } (LoopTw.hue (LoopTw.pageTone p)))
+          == Just p)
+       (Array.range 0 (LoopTw.pages' - 1)))
+  assert "no other message reads as a page"
+    (LoopTw.pageShown (HelmTw.ring { layer: 0, index: LoopTw.pagerIndex } 64) == Nothing
+      && LoopTw.pageShown (HelmTw.colour { layer: 0, index: 0 } (LoopTw.hue (LoopTw.pageTone 0))) == Nothing)
 
   -- On taking focus everything is dimmed to zero, which is page one — so a
   -- reload leaves the knob and the app agreeing without either being told.
