@@ -11,19 +11,20 @@ import Data.MC6.BankNumber as BankNumber
 import Color (toHexString)
 import Data.Array as Array
 import Data.Const (Const)
-import Data.Foldable (any)
+import Data.Foldable (for_)
+import Data.Tuple (Tuple(..))
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
-import Data.Midi (CC, MidiValue, ProgramNumber, unsafeMidiValue, unProgramNumber)
+import Data.Midi (unProgramNumber)
 import Data.Pedal (PedalDef, PedalId)
 import Data.Pedal.Engage (EngageConfig(..), EngageState(..))
 import Data.Preset (BoardPreset, BoardPresetEntry, PedalPreset, PresetId)
+import Data.Preset.Usage (Chip(..), boardNow, chipFor, chipText, isPresetModified)
 import Data.String as String
 import Data.String.CodeUnits as SCU
-import Data.Tuple (Tuple(..))
 import Effect.Class (liftEffect)
 import Effect.Aff.Class (class MonadAff)
-import Engine (EngineState, MC6Assignment, MidiConnections)
+import Engine (EngineState, MC6Assignment)
 import Foreign.FileIO as FileIO
 import Halogen as H
 import Halogen.HTML as HH
@@ -32,16 +33,27 @@ import Halogen.HTML.Properties as HP
 import Config.Registry (PedalRegistry)
 import Config.Registry as CRegistry
 import Helm.MC6.ControlBank (switchLetter)
-import Helm.MC6.Types (MC6NativeBank)
 import Data.MC6.Board as Board
 
+-- | **Area 3 of the Presets page: board presets** (plan `pwyf-layout.md`).
+-- |
+-- | Each board is a row of chips, one per pedal: its preset, On/Off, or "no
+-- | change". A chip is the link to the other two areas: clicking one selects
+-- | that pedal there. Editing a board is changing its chips in place, which
+-- | replaced the separate builder grid (one row per pedal with engage and
+-- | preset menus): those two menus are now what a chip opens.
 type Input =
   { engine :: EngineState
-  , connections :: MidiConnections
   , presets :: Array PedalPreset
   , boardPresets :: Array BoardPreset
   , registry :: PedalRegistry
-  , mc6ActiveBank :: Maybe MC6NativeBank
+  -- | Chip order: the pedals as the cards and pills order them.
+  , cardOrder :: Array PedalId
+  -- | The preset each pedal was last recalled from, for "what every pedal is
+  -- | now" (`Data.Preset.Usage.boardNow`).
+  , recalledPresets :: Map.Map PedalId PresetId
+  -- | The pedal areas 1 and 2 show, so its chips stand out in every row.
+  , selectedPedal :: Maybe PedalId
   , mc6Assignments :: Array MC6Assignment
   -- | The control bank a board switch long-presses into, if any. Needed here
   -- | only because it adds one message to the compiled board, and a budget
@@ -52,55 +64,52 @@ type Input =
 data Output
   = RecallBoard BoardPreset
   | SendEngageAudition PedalId EngageState
-  | SendPCAudition PedalId ProgramNumber
-  | RecallPresetAudition PedalPreset
-  | ValueChanged PedalId CC MidiValue
+  | AuditionPreset PedalPreset
   | SaveBoard { name :: String, notes :: String, pedals :: Map.Map PedalId BoardPresetEntry }
-  | UpdateBoard PresetId { name :: String, notes :: String }
+  | UpdateBoard PresetId { name :: String, notes :: String, pedals :: Map.Map PedalId BoardPresetEntry }
   | OverwriteBoard PresetId (Map.Map PedalId BoardPresetEntry)
   | DeleteBoard PresetId
   | ExportBoard BoardPreset
-  | ImportBoards (Array BoardPreset)
-  | FocusPedal PedalId
+  | SelectPedal PedalId
   | SendEngageAll EngageState
 
-type GridEntry =
-  { engage :: EngageState
-  , selectedPresetId :: Maybe PresetId
+-- | A board being written: a new one (from "Save the board as…") or an
+-- | existing one being edited. Both are the same row of chips.
+data DraftOf = NewBoard | ExistingBoard PresetId
+
+derive instance Eq DraftOf
+
+type Draft =
+  { target :: DraftOf
+  , name :: String
+  , notes :: String
+  , pedals :: Map.Map PedalId BoardPresetEntry
   }
 
 type State =
   { input :: Input
-  , grid :: Map.Map PedalId GridEntry
+  , draft :: Maybe Draft
+  -- | The chip whose menu is open, in the draft row. One at a time.
+  , chipMenu :: Maybe PedalId
   , recalling :: Maybe PresetId
-  , showSaveForm :: Boolean
-  , saveName :: String
-  , saveNotes :: String
-  , editingBoard :: Maybe PresetId
-  , editName :: String
-  , editNotes :: String
   }
 
 data Action
   = Receive Input
+  | ClickChip PedalId
   | ChangeEngage PedalId String
   | ChangePreset PedalId String
   | AllOn
   | AllOff
   | AllNoChange
-  | ClickRecallBoard PresetId
   | ClickLoadBoard PresetId
-  -- Board CRUD
-  | ShowBoardSaveForm
-  | CancelBoardSaveForm
-  | UpdateBoardSaveName String
-  | UpdateBoardSaveNotes String
-  | CommitBoardSave
+  | StartNewBoard
   | StartEditBoard PresetId
-  | CancelEditBoard
-  | UpdateEditName String
-  | UpdateEditNotes String
-  | CommitEditBoard PresetId
+  | CancelDraft
+  | UpdateDraftName String
+  | UpdateDraftNotes String
+  | CommitDraft
+  | CommitDraftAsNew
   | ClickOverwriteBoard PresetId
   | ClickDeleteBoard PresetId
   | ClickExportBoard BoardPreset
@@ -121,95 +130,214 @@ component =
 initialState :: Input -> State
 initialState i =
   { input: i
-  , grid: Map.fromFoldable $ map (\def -> Tuple def.meta.id { engage: EngageNoChange, selectedPresetId: Nothing }) (CRegistry.registryPedals i.registry)
+  , draft: Nothing
+  , chipMenu: Nothing
   , recalling: Nothing
-  , showSaveForm: false
-  , saveName: ""
-  , saveNotes: ""
-  , editingBoard: Nothing
-  , editName: ""
-  , editNotes: ""
   }
 
--- | Two columns: build a board on the left, the library on the right.
--- |
--- | The right column used to hold a picture of the MC6. That put two different
--- | assignment surfaces for the same twelve physical switches in the app — this
--- | one and the Controls page — and made Boards look like a page about the
--- | pedalboard controller rather than a page about sounds. Boards is the
--- | library; putting things on switches happens in one place, which is
--- | Controls.
 render :: forall m. State -> H.ComponentHTML Action () m
 render state =
   HH.div [ HP.class_ (H.ClassName "boards-view") ]
-    [ HH.div [ HP.class_ (H.ClassName "boards-build-col") ]
-        [ renderBuilderGrid state ]
-    , HH.div [ HP.class_ (H.ClassName "boards-library-col") ]
-        [ renderBoardList state ]
-    ]
-
-renderBuilderGrid :: forall m. State -> H.ComponentHTML Action () m
-renderBuilderGrid state =
-  HH.div_
-    [ HH.div [ HP.class_ (H.ClassName "boards-header") ]
-        [ HH.span [ HP.class_ (H.ClassName "boards-heading") ] [ HH.text "Boards" ]
-        , HH.div [ HP.class_ (H.ClassName "boards-actions") ]
-            [ HH.button [ HE.onClick \_ -> AllOn ] [ HH.text "All On" ]
-            , HH.button [ HE.onClick \_ -> AllOff ] [ HH.text "All Off" ]
-            , HH.button [ HE.onClick \_ -> AllNoChange ] [ HH.text "All \x2014\x2014" ]
-            , HH.button [ HE.onClick \_ -> ShowBoardSaveForm ] [ HH.text "Save New" ]
+    [ HH.div [ HP.class_ (H.ClassName "presets-area-heading") ]
+        [ HH.span [ HP.class_ (H.ClassName "presets-area-number") ] [ HH.text "3" ]
+        , HH.text "Board presets"
+        ]
+    , case state.draft of
+        Just draft | draft.target == NewBoard -> renderDraft state draft
+        _ -> HH.text ""
+    , if Array.null state.input.boardPresets
+        then HH.div [ HP.class_ (H.ClassName "boards-empty") ] [ HH.text "No boards saved" ]
+        else HH.div [ HP.class_ (H.ClassName "boards-list") ]
+          (map (renderBoard state) state.input.boardPresets)
+    , case state.draft of
+        Just draft | draft.target == NewBoard -> HH.text ""
+        _ ->
+          HH.button
+            [ HP.class_ (H.ClassName "boards-save-as")
+            , HP.title "Keep what every pedal is now: its engage state and the preset it was recalled from."
+            , HE.onClick \_ -> StartNewBoard
             ]
-        ]
-    , if state.showSaveForm
-        then renderBoardSaveForm state
-        else HH.text ""
-    , HH.div [ HP.class_ (H.ClassName "boards-pedal-grid") ]
-        (map (renderPedalRow state) (CRegistry.registryPedals state.input.registry))
+            [ HH.text "Save the board as\x2026" ]
     ]
 
-renderBoardSaveForm :: forall m. State -> H.ComponentHTML Action () m
-renderBoardSaveForm state =
-  HH.div [ HP.class_ (H.ClassName "preset-save-form") ]
-    [ HH.input
-        [ HP.type_ HP.InputText
-        , HP.placeholder "Board name"
-        , HP.value state.saveName
-        , HE.onValueInput UpdateBoardSaveName
-        ]
-    , HH.textarea
-        [ HP.placeholder "Notes (optional)"
-        , HP.value state.saveNotes
-        , HE.onValueInput UpdateBoardSaveNotes
-        ]
-    , HH.div [ HP.class_ (H.ClassName "preset-form-buttons") ]
+-- | The pedals a chip row shows, in card order. A pedal the registry has lost
+-- | (a stored order can outlive a pedal) has no chip.
+chipPedals :: State -> Array PedalDef
+chipPedals state =
+  Array.mapMaybe (CRegistry.findPedal state.input.registry) state.input.cardOrder
+
+renderBoard :: forall m. State -> BoardPreset -> H.ComponentHTML Action () m
+renderBoard state board = case state.draft of
+  Just draft | draft.target == ExistingBoard board.id -> renderDraft state draft
+  _ ->
+    -- Read-only: assignment is made from the MC6 page, where you are looking
+    -- at the switch you are filling. This just says where the sound ended up.
+    let assignedPlaces = Array.filter (\a -> a.boardPresetId == board.id) state.input.mc6Assignments
+    in HH.div [ HP.class_ (H.ClassName "boards-item") ]
+      [ HH.div [ HP.class_ (H.ClassName "boards-item-header") ]
+          [ HH.span [ HP.class_ (H.ClassName "boards-item-name") ] [ HH.text board.name ]
+          , if Array.null assignedPlaces then HH.text "" else
+              HH.span [ HP.class_ (H.ClassName "boards-item-assigned-badge") ]
+                [ HH.text (String.joinWith " "
+                    (map (\a -> BankNumber.shown a.bankNumber <> switchLetter a.switchIndex) assignedPlaces)) ]
+          , HH.span [ HP.class_ (H.ClassName "boards-item-date") ] [ HH.text (SCU.take 10 board.modified) ]
+          , HH.button
+              [ HP.class_ (H.ClassName "boards-load")
+              , HP.title "Send this board to the pedals"
+              , HE.onClick \_ -> ClickLoadBoard board.id
+              ]
+              [ HH.text (if state.recalling == Just board.id then "Sending\x2026" else "Load \x25B8") ]
+          ]
+      , renderChipRow state false board.pedals
+      , renderBudget state board
+      , if board.notes /= ""
+          then HH.div [ HP.class_ (H.ClassName "preset-description") ] [ HH.text board.notes ]
+          else HH.text ""
+      , HH.div [ HP.class_ (H.ClassName "boards-item-actions") ]
+          [ HH.button [ HE.onClick \_ -> StartEditBoard board.id ] [ HH.text "Edit" ]
+          , HH.button
+              [ HP.title "Replace this board with what every pedal is now"
+              , HE.onClick \_ -> ClickOverwriteBoard board.id
+              ]
+              [ HH.text "Overwrite" ]
+          , HH.button [ HE.onClick \_ -> ClickExportBoard board ] [ HH.text "Export" ]
+          , HH.button
+              [ HP.class_ (H.ClassName "delete-btn")
+              , HE.onClick \_ -> ClickDeleteBoard board.id
+              ]
+              [ HH.text "Delete" ]
+          ]
+      ]
+
+-- | One chip per pedal. In the draft row a chip also opens its menu: the
+-- | engage and preset selects the builder grid had, one pedal at a time.
+renderChipRow :: forall m. State -> Boolean -> Map.Map PedalId BoardPresetEntry -> H.ComponentHTML Action () m
+renderChipRow state editing pedals =
+  HH.div [ HP.class_ (H.ClassName "board-chips") ]
+    (map renderChip (chipPedals state))
+  where
+  renderChip def =
+    let
+      pid = def.meta.id
+      entry = Map.lookup pid pedals
+      chip = chipFor state.input.presets entry
+      menuOpen = editing && state.chipMenu == Just pid
+      cls = "board-chip"
+        <> chipClass chip
+        <> (if state.input.selectedPedal == Just pid then " selected" else "")
+        <> (if menuOpen then " open" else "")
+    in
+      HH.div [ HP.class_ (H.ClassName "board-chip-cell") ]
         [ HH.button
-            [ HP.class_ (H.ClassName "save-confirm")
-            , HE.onClick \_ -> CommitBoardSave
+            [ HP.class_ (H.ClassName cls)
+            , HP.title (def.meta.name <> ": " <> chipTitle def chip)
+            , HE.onClick \_ -> ClickChip pid
             ]
-            [ HH.text "Save to Library" ]
-        , HH.button
-            [ HE.onClick \_ -> CancelBoardSaveForm ]
-            [ HH.text "Cancel" ]
+            [ HH.span
+                [ HP.class_ (H.ClassName "board-chip-pedal")
+                , HP.attr (HH.AttrName "style") (case def.meta.color of
+                    Just c -> "color: " <> toHexString c
+                    Nothing -> "")
+                ]
+                [ HH.text def.meta.shortName ]
+            , HH.span [ HP.class_ (H.ClassName "board-chip-value") ]
+                [ HH.text (chipText def.engage chip) ]
+            ]
+        , if menuOpen then renderChipMenu state def entry else HH.text ""
         ]
-    ]
 
-renderPedalRow :: forall m. State -> PedalDef -> H.ComponentHTML Action () m
-renderPedalRow state def =
-  HH.div [ HP.class_ (H.ClassName "boards-pedal-row") ]
-    [ HH.span
-        [ HP.class_ (H.ClassName "boards-pedal-name")
-        , HP.attr (HH.AttrName "style") (case def.meta.color of
-            Just c -> "color: " <> toHexString c
-            Nothing -> "")
-        ]
-        [ HH.text def.meta.name ]
-    , renderEngageSelect def.meta.id def.engage currentEntry.engage
-    , renderPresetSelect def.meta.id currentEntry.selectedPresetId pedalPresets state.input.engine
+  chipClass = case _ of
+    ChipNoChange -> " no-change"
+    ChipEngage EngageOff -> " off"
+    ChipEngage _ -> " engage"
+    ChipPreset _ EngageOff -> " preset off"
+    ChipPreset _ _ -> " preset"
+    ChipMissingPreset _ -> " missing"
+
+  -- The hover says the whole entry, including the half the chip's one word
+  -- leaves out (a preset recalled and then switched off).
+  chipTitle def = case _ of
+    ChipNoChange -> "no change"
+    ChipEngage engage -> engageTitle def.engage engage
+    ChipPreset preset engage ->
+      "\x201C" <> preset.name <> "\x201D" <> slotLabel preset
+        <> (if engage == EngageNoChange then "" else ", " <> engageTitle def.engage engage)
+    ChipMissingPreset _ -> "names a preset that has been deleted"
+
+  engageTitle config engage = chipText config (ChipEngage engage)
+
+  slotLabel preset = case preset.savedSlot of
+    Just slot -> " [" <> show (unProgramNumber slot) <> "]"
+    Nothing -> " [LIB]"
+
+renderChipMenu :: forall m. State -> PedalDef -> Maybe BoardPresetEntry -> H.ComponentHTML Action () m
+renderChipMenu state def entry =
+  HH.div [ HP.class_ (H.ClassName "board-chip-menu") ]
+    [ renderEngageSelect def.meta.id def.engage current.engage
+    , renderPresetSelect def.meta.id current.presetId pedalPresets state.input.engine
     ]
   where
-  currentEntry = fromMaybe { engage: EngageNoChange, selectedPresetId: Nothing }
-    (Map.lookup def.meta.id state.grid)
+  current = fromMaybe { engage: EngageNoChange, presetId: Nothing } entry
   pedalPresets = Array.filter (\p -> p.pedalId == def.meta.id) state.input.presets
+
+-- | The board being written, in place of its row: name, notes, the chips (each
+-- | opening its menu), the whole-row actions the builder grid had, and save.
+renderDraft :: forall m. State -> Draft -> H.ComponentHTML Action () m
+renderDraft state draft =
+  HH.div [ HP.class_ (H.ClassName "boards-item editing") ]
+    [ HH.div [ HP.class_ (H.ClassName "boards-draft-fields") ]
+        [ HH.input
+            [ HP.type_ HP.InputText
+            , HP.class_ (H.ClassName "boards-draft-name")
+            , HP.placeholder "Board name"
+            , HP.value draft.name
+            , HE.onValueInput UpdateDraftName
+            ]
+        , HH.textarea
+            [ HP.placeholder "Notes (optional)"
+            , HP.value draft.notes
+            , HE.onValueInput UpdateDraftNotes
+            ]
+        ]
+    , renderChipRow state true draft.pedals
+    , renderBudgetOf state draft.pedals
+    , HH.div [ HP.class_ (H.ClassName "boards-row-actions") ]
+        [ HH.span [ HP.class_ (H.ClassName "boards-row-actions-label") ] [ HH.text "Every chip:" ]
+        , HH.button
+            [ HP.title "Set every pedal on, here and on the board"
+            , HE.onClick \_ -> AllOn
+            ]
+            [ HH.text "All On" ]
+        , HH.button
+            [ HP.title "Set every pedal off, here and on the board"
+            , HE.onClick \_ -> AllOff
+            ]
+            [ HH.text "All Off" ]
+        , HH.button
+            [ HP.title "Leave every pedal alone: start from nothing and add the pedals this board is about"
+            , HE.onClick \_ -> AllNoChange
+            ]
+            [ HH.text "All \x2014\x2014" ]
+        ]
+    , HH.div [ HP.class_ (H.ClassName "preset-form-buttons") ]
+        ( [ HH.button
+              [ HP.class_ (H.ClassName "save-confirm")
+              , HE.onClick \_ -> CommitDraft
+              ]
+              [ HH.text (case draft.target of
+                  NewBoard -> "Save to Library"
+                  ExistingBoard _ -> "Save") ]
+          ]
+        -- Editing a board and keeping the result as another is what the old
+        -- page did with Load (into the builder) and Save New.
+        <> ( case draft.target of
+               ExistingBoard _ ->
+                 [ HH.button [ HE.onClick \_ -> CommitDraftAsNew ] [ HH.text "Save as new board" ] ]
+               NewBoard -> []
+           )
+        <> [ HH.button [ HE.onClick \_ -> CancelDraft ] [ HH.text "Cancel" ] ]
+        )
+    ]
 
 renderEngageSelect :: forall m. PedalId -> EngageConfig -> EngageState -> H.ComponentHTML Action () m
 renderEngageSelect pid engageCfg currentState =
@@ -270,24 +398,6 @@ renderPresetSelect pid selectedId presets engine =
         prefix = if modified then "* " else ""
     in HH.option [ HP.value p.id ] [ HH.text (prefix <> p.name <> slotLabel) ]
 
-renderBoardList :: forall m. State -> H.ComponentHTML Action () m
-renderBoardList state =
-  HH.div [ HP.class_ (H.ClassName "boards-list") ]
-    [ HH.div [ HP.class_ (H.ClassName "boards-header") ]
-        [ HH.span [ HP.class_ (H.ClassName "boards-heading") ] [ HH.text "Saved Boards" ] ]
-    , if Array.null state.input.boardPresets
-        then HH.div [ HP.class_ (H.ClassName "boards-empty") ] [ HH.text "No boards saved" ]
-        else HH.div_ (map (renderBoardItem state) state.input.boardPresets)
-    ]
-
-renderBoardItem :: forall m. State -> BoardPreset -> H.ComponentHTML Action () m
-renderBoardItem state bp =
-  HH.div [ HP.class_ (H.ClassName "boards-item") ]
-    [ case state.editingBoard of
-        Just eid | eid == bp.id -> renderEditForm state bp
-        _ -> renderBoardItemNormal state bp
-    ]
-
 -- | What this board costs on the MC6, out of the sixteen a preset can hold.
 -- |
 -- | Worth showing on every board rather than only when it overflows, because
@@ -296,8 +406,8 @@ renderBoardItem state bp =
 -- | same twelve pedals can differ by four. The count comes from compiling the
 -- | board — the same function that sends it — so it cannot flatter.
 renderBudget :: forall m. State -> BoardPreset -> H.ComponentHTML Action () m
-renderBudget state bp =
-  HH.span
+renderBudget state board =
+  HH.div
     [ HP.class_ (H.ClassName ("boards-item-budget" <> if over then " over" else ""))
     , HP.title (if over
         then "Over the MC6's 16-message limit: the last "
@@ -305,242 +415,132 @@ renderBudget state bp =
                <> " would be dropped. Set a pedal to \x2014\x2014 to get back under."
         else "Compiles to " <> show n <> " of the MC6's 16 messages.")
     ]
-    [ HH.text (show n <> "/" <> show Board.messageLimit) ]
+    [ HH.text (show n <> " of " <> show Board.messageLimit <> " MC6 messages") ]
   where
   n = Board.boardMessageCount state.input.registry state.input.presets
-        state.input.controlBankNum bp
+        state.input.controlBankNum board
   over = n > Board.messageLimit
 
-renderBoardItemNormal :: forall m. State -> BoardPreset -> H.ComponentHTML Action () m
-renderBoardItemNormal state bp =
-  -- Read-only: assignment is made from Controls, where you are looking at the
-  -- switch you are filling. This just says where the sound ended up.
-  let assignedPlaces = Array.filter (\a -> a.boardPresetId == bp.id) state.input.mc6Assignments
-  in HH.div_
-    [ HH.div [ HP.class_ (H.ClassName "boards-item-header") ]
-        [ HH.span [ HP.class_ (H.ClassName "boards-item-name") ] [ HH.text bp.name ]
-        , if Array.null assignedPlaces then HH.text "" else
-            HH.span [ HP.class_ (H.ClassName "boards-item-assigned-badge") ]
-              [ HH.text (String.joinWith " "
-                  (map (\a -> BankNumber.shown a.bankNumber <> switchLetter a.switchIndex) assignedPlaces)) ]
-        , renderBudget state bp
-        , HH.span [ HP.class_ (H.ClassName "boards-item-date") ] [ HH.text (SCU.take 10 bp.modified) ]
-        ]
-    , if bp.notes /= ""
-        then HH.div [ HP.class_ (H.ClassName "preset-description") ] [ HH.text bp.notes ]
-        else HH.text ""
-    , HH.div [ HP.class_ (H.ClassName "preset-description") ]
-        [ HH.text (boardSummary state.input.registry bp state.input.presets) ]
-    , HH.div [ HP.class_ (H.ClassName "boards-item-actions") ]
-        [ HH.button
-            [ HP.class_ (H.ClassName "recall-btn")
-            , HE.onClick \_ -> ClickRecallBoard bp.id
-            ]
-            [ HH.text (if state.recalling == Just bp.id then "Sending..." else "Recall") ]
-        , HH.button
-            [ HE.onClick \_ -> ClickLoadBoard bp.id ]
-            [ HH.text "Load" ]
-        , HH.button
-            [ HE.onClick \_ -> StartEditBoard bp.id ]
-            [ HH.text "Edit" ]
-        , HH.button
-            [ HE.onClick \_ -> ClickOverwriteBoard bp.id ]
-            [ HH.text "Overwrite" ]
-        , HH.button
-            [ HE.onClick \_ -> ClickExportBoard bp ]
-            [ HH.text "Export" ]
-        , HH.button
-            [ HP.class_ (H.ClassName "delete-btn")
-            , HE.onClick \_ -> ClickDeleteBoard bp.id
-            ]
-            [ HH.text "Delete" ]
-        ]
-    ]
+-- | The budget of a board still being written, compiled as if it were saved.
+renderBudgetOf :: forall m. State -> Map.Map PedalId BoardPresetEntry -> H.ComponentHTML Action () m
+renderBudgetOf state pedals =
+  renderBudget state
+    { id: "", name: "", description: "", notes: "", pedals, created: "", modified: "" }
 
-renderEditForm :: forall m. State -> BoardPreset -> H.ComponentHTML Action () m
-renderEditForm state bp =
-  HH.div [ HP.class_ (H.ClassName "preset-save-form") ]
-    [ HH.input
-        [ HP.type_ HP.InputText
-        , HP.placeholder "Board name"
-        , HP.value state.editName
-        , HE.onValueInput UpdateEditName
-        ]
-    , HH.textarea
-        [ HP.placeholder "Notes (optional)"
-        , HP.value state.editNotes
-        , HE.onValueInput UpdateEditNotes
-        ]
-    , HH.div [ HP.class_ (H.ClassName "preset-form-buttons") ]
-        [ HH.button
-            [ HP.class_ (H.ClassName "save-confirm")
-            , HE.onClick \_ -> CommitEditBoard bp.id
-            ]
-            [ HH.text "Save" ]
-        , HH.button
-            [ HE.onClick \_ -> CancelEditBoard ]
-            [ HH.text "Cancel" ]
-        ]
-    ]
+modifyDraft :: forall m. (Draft -> Draft) -> H.HalogenM State Action () Output m Unit
+modifyDraft f = H.modify_ \st -> st { draft = map f st.draft }
 
+-- | Set one pedal's entry in the draft; a pedal not yet in it starts as "no
+-- | change".
+setEntry :: PedalId -> (BoardPresetEntry -> BoardPresetEntry) -> Draft -> Draft
+setEntry pid f draft =
+  let current = fromMaybe { engage: EngageNoChange, presetId: Nothing } (Map.lookup pid draft.pedals)
+  in draft { pedals = Map.insert pid (f current) draft.pedals }
 
-boardSummary :: PedalRegistry -> BoardPreset -> Array PedalPreset -> String
-boardSummary reg bp allPresets =
-  let entries = Map.toUnfoldable bp.pedals :: Array (Tuple PedalId BoardPresetEntry)
-      parts = Array.mapMaybe summarizeEntry entries
-  in if Array.null parts then "Empty" else Array.intercalate "  " parts
-  where
-  summarizeEntry (Tuple pid entry) = case entry.engage of
-    EngageNoChange -> Nothing
-    EngageOff -> do
-      def <- CRegistry.findPedal reg pid
-      Just (def.meta.name <> " off")
-    _ -> do
-      def <- CRegistry.findPedal reg pid
-      let presetLabel = case entry.presetId of
-            Just presetId -> case Array.find (\p -> p.id == presetId) allPresets of
-              Just preset -> case preset.savedSlot of
-                Just slot -> "[" <> show (unProgramNumber slot) <> "]"
-                Nothing -> "[LIB]"
-              Nothing -> ""
-            Nothing -> ""
-      Just (def.meta.name <> presetLabel)
-
--- Build BoardPresetEntry map from current grid state
-captureGrid :: Map.Map PedalId GridEntry -> Map.Map PedalId BoardPresetEntry
-captureGrid grid =
-  map (\entry -> { presetId: entry.selectedPresetId, engage: entry.engage }) grid
-
--- | Infer engage state from engine CC values for a pedal
-inferEngageState :: PedalDef -> Map.Map CC MidiValue -> EngageState
-inferEngageState def vals = case def.engage of
-  SingleEngage cc ->
-    if Map.lookup cc vals > Just (unsafeMidiValue 63) then EngageOn else EngageOff
-  DualEngage { a, b } ->
-    let aOn = Map.lookup a.cc vals > Just (unsafeMidiValue 63)
-        bOn = Map.lookup b.cc vals > Just (unsafeMidiValue 63)
-    in case aOn, bOn of
-         true, true   -> EngageOn
-         true, false  -> EngageA
-         false, true  -> EngageB
-         false, false -> EngageOff
-
--- | Check if engine state has diverged from a preset's stored values
-isPresetModified :: EngineState -> PedalPreset -> Boolean
-isPresetModified engine preset =
-  case Map.lookup preset.pedalId engine of
-    Nothing -> false
-    Just ps ->
-      let presetEntries = Map.toUnfoldable preset.values :: Array (Tuple CC MidiValue)
-      in any (\(Tuple cc val) -> Map.lookup cc ps.values /= Just val) presetEntries
+-- | Every chip the row shows, set alike.
+setEvery :: Array PedalId -> BoardPresetEntry -> Draft -> Draft
+setEvery pids entry draft =
+  draft { pedals = Map.union (Map.fromFoldable (map (\pid -> Tuple pid entry) pids)) draft.pedals }
 
 handleAction :: forall m. MonadAff m => Action -> H.HalogenM State Action () Output m Unit
 handleAction = case _ of
-  Receive input -> do
-    st <- H.get
-    -- Sync engage state from engine for each pedal
-    let updatedGrid = Array.foldl (\g def ->
-          let pid = def.meta.id
-          in case Map.lookup pid input.engine of
-               Nothing -> g
-               Just ps -> Map.update (\e -> Just e { engage = inferEngageState def ps.values }) pid g
-          ) st.grid (CRegistry.registryPedals input.registry)
-    H.modify_ _ { input = input, grid = updatedGrid }
+  Receive input -> H.modify_ _ { input = input }
 
+  -- A chip always selects its pedal in areas 1 and 2. In the row being
+  -- edited it also opens (or closes) that pedal's menu.
+  ClickChip pid -> do
+    st <- H.get
+    case st.draft of
+      Just _ -> H.modify_ _ { chipMenu = if st.chipMenu == Just pid then Nothing else Just pid }
+      Nothing -> pure unit
+    H.raise (SelectPedal pid)
+
+  -- Changing a chip auditions it, as the builder grid's menus did: what you
+  -- set is what you hear before you save it.
   ChangeEngage pid valStr -> do
-    let eng = valueToEngage valStr
-    H.modify_ \st -> st { grid = Map.update (\e -> Just e { engage = eng }) pid st.grid }
-    H.raise (SendEngageAudition pid eng)
+    let engage = valueToEngage valStr
+    modifyDraft (setEntry pid _ { engage = engage })
+    H.raise (SendEngageAudition pid engage)
 
   ChangePreset pid valStr -> do
-    let mPresetId = if valStr == "" then Nothing else Just valStr
-    H.modify_ \st -> st { grid = Map.update (\e -> Just e { selectedPresetId = mPresetId }) pid st.grid }
-    -- Live audition: send PC if preset has a saved slot, otherwise stream CCs
-    case mPresetId of
-      Nothing -> pure unit
-      Just presetId -> do
-        st <- H.get
-        case Array.find (\p -> p.id == presetId) st.input.presets of
-          Just preset -> do
-            case preset.savedSlot of
-              Just slot -> H.raise (SendPCAudition pid slot)
-              Nothing -> H.raise (RecallPresetAudition preset)
-            H.raise (FocusPedal pid)
-          Nothing -> pure unit
-
-  AllOn ->
-    H.raise (SendEngageAll EngageOn)
-
-  AllOff ->
-    H.raise (SendEngageAll EngageOff)
-
-  AllNoChange ->
-    H.modify_ \st -> st { grid = map (\e -> e { engage = EngageNoChange, selectedPresetId = Nothing }) st.grid }
-
-  ClickRecallBoard presetId -> do
+    let presetId = if valStr == "" then Nothing else Just valStr
+    modifyDraft (setEntry pid _ { presetId = presetId })
     st <- H.get
-    case Array.find (\bp -> bp.id == presetId) st.input.boardPresets of
+    case presetId >>= \id -> Array.find (\p -> p.id == id) st.input.presets of
+      Just preset -> H.raise (AuditionPreset preset)
       Nothing -> pure unit
-      Just bp -> do
-        let entries = Map.toUnfoldable bp.pedals :: Array (Tuple PedalId BoardPresetEntry)
-            newGrid = Map.fromFoldable $ map (\(Tuple pid entry) ->
-              Tuple pid { engage: entry.engage, selectedPresetId: entry.presetId }
-            ) entries
-        H.modify_ \s -> s { grid = Map.union newGrid s.grid, recalling = Just presetId }
-        H.raise (RecallBoard bp)
-        H.modify_ _ { recalling = Nothing }
+
+  -- All On and All Off send, as the builder's did; All "no change" only sets
+  -- the row, because there is nothing to send for leaving a pedal alone.
+  AllOn -> do
+    st <- H.get
+    modifyDraft (setEvery (map _.meta.id (chipPedals st)) { engage: EngageOn, presetId: Nothing })
+    H.raise (SendEngageAll EngageOn)
+  AllOff -> do
+    st <- H.get
+    modifyDraft (setEvery (map _.meta.id (chipPedals st)) { engage: EngageOff, presetId: Nothing })
+    H.raise (SendEngageAll EngageOff)
+  AllNoChange -> do
+    st <- H.get
+    modifyDraft (setEvery (map _.meta.id (chipPedals st)) { engage: EngageNoChange, presetId: Nothing })
 
   ClickLoadBoard presetId -> do
     st <- H.get
-    case Array.find (\bp -> bp.id == presetId) st.input.boardPresets of
+    case Array.find (\board -> board.id == presetId) st.input.boardPresets of
       Nothing -> pure unit
-      Just bp -> do
-        let entries = Map.toUnfoldable bp.pedals :: Array (Tuple PedalId BoardPresetEntry)
-            newGrid = Map.fromFoldable $ map (\(Tuple pid entry) ->
-              Tuple pid { engage: entry.engage, selectedPresetId: entry.presetId }
-            ) entries
-        H.modify_ \s -> s { grid = Map.union newGrid s.grid }
+      Just board -> do
+        H.modify_ _ { recalling = Just presetId }
+        H.raise (RecallBoard board)
+        H.modify_ _ { recalling = Nothing }
 
-  -- Board save form
-  ShowBoardSaveForm ->
-    H.modify_ _ { showSaveForm = true, saveName = "", saveNotes = "" }
-  CancelBoardSaveForm ->
-    H.modify_ _ { showSaveForm = false }
-  UpdateBoardSaveName s -> H.modify_ _ { saveName = s }
-  UpdateBoardSaveNotes s -> H.modify_ _ { saveNotes = s }
-  CommitBoardSave -> do
+  StartNewBoard -> do
     st <- H.get
-    when (st.saveName /= "") do
-      H.raise (SaveBoard { name: st.saveName, notes: st.saveNotes, pedals: captureGrid st.grid })
-      H.modify_ _ { showSaveForm = false }
+    H.modify_ _
+      { draft = Just
+          { target: NewBoard
+          , name: ""
+          , notes: ""
+          , pedals: boardNow st.input.registry st.input.engine st.input.recalledPresets
+          }
+      , chipMenu = Nothing
+      }
 
-  -- Edit board
   StartEditBoard presetId -> do
     st <- H.get
-    case Array.find (\bp -> bp.id == presetId) st.input.boardPresets of
-      Nothing -> pure unit
-      Just bp ->
-        H.modify_ _ { editingBoard = Just presetId, editName = bp.name, editNotes = bp.notes }
-  CancelEditBoard ->
-    H.modify_ _ { editingBoard = Nothing }
-  UpdateEditName s -> H.modify_ _ { editName = s }
-  UpdateEditNotes s -> H.modify_ _ { editNotes = s }
-  CommitEditBoard presetId -> do
-    st <- H.get
-    when (st.editName /= "") do
-      H.raise (UpdateBoard presetId { name: st.editName, notes: st.editNotes })
-      H.modify_ _ { editingBoard = Nothing }
+    for_ (Array.find (\board -> board.id == presetId) st.input.boardPresets) \board ->
+      H.modify_ _
+        { draft = Just { target: ExistingBoard presetId, name: board.name, notes: board.notes, pedals: board.pedals }
+        , chipMenu = Nothing
+        }
 
-  -- Overwrite / Delete / Export
+  CancelDraft -> H.modify_ _ { draft = Nothing, chipMenu = Nothing }
+  UpdateDraftName name -> modifyDraft _ { name = name }
+  UpdateDraftNotes notes -> modifyDraft _ { notes = notes }
+
+  CommitDraft -> do
+    st <- H.get
+    for_ st.draft \draft -> when (draft.name /= "") do
+      case draft.target of
+        NewBoard -> H.raise (SaveBoard { name: draft.name, notes: draft.notes, pedals: draft.pedals })
+        ExistingBoard presetId ->
+          H.raise (UpdateBoard presetId { name: draft.name, notes: draft.notes, pedals: draft.pedals })
+      H.modify_ _ { draft = Nothing, chipMenu = Nothing }
+
+  CommitDraftAsNew -> do
+    st <- H.get
+    for_ st.draft \draft -> when (draft.name /= "") do
+      H.raise (SaveBoard { name: draft.name, notes: draft.notes, pedals: draft.pedals })
+      H.modify_ _ { draft = Nothing, chipMenu = Nothing }
+
   ClickOverwriteBoard presetId -> do
-    ok <- liftEffect $ FileIO.confirm "Overwrite this board with current grid state?"
+    ok <- liftEffect $ FileIO.confirm "Overwrite this board with what every pedal is now?"
     when ok do
       st <- H.get
-      H.raise (OverwriteBoard presetId (captureGrid st.grid))
+      H.raise (OverwriteBoard presetId
+        (boardNow st.input.registry st.input.engine st.input.recalledPresets))
 
   ClickDeleteBoard presetId -> do
     ok <- liftEffect $ FileIO.confirm "Delete this board?"
     when ok $ H.raise (DeleteBoard presetId)
 
-  ClickExportBoard bp -> H.raise (ExportBoard bp)
-
+  ClickExportBoard board -> H.raise (ExportBoard board)

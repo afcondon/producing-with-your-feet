@@ -66,7 +66,7 @@ render state =
     [ HP.class_ (H.ClassName "app-header") ]
     [ HH.div [ HP.class_ (H.ClassName "view-toggle") ]
         [ viewButton "Overview" OverviewView
-        , viewButton "Boards" BoardsView
+        , viewButton "Presets" BoardsView
         , viewButton "MC6" ControlsView
         , viewButton "MIDI" ConnectView
         , viewButton "\x21C5" FilesView

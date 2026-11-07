@@ -1576,23 +1576,196 @@ body {
 }
 .compact-print:hover { background: rgba(255,255,255,0.25); }
 
-/* --- Boards persistence wrapper --- */
+/* --- Presets page (the Boards view in code) ---
+   Three areas, left to right, one direction of travel (pwyf-layout.md):
+   1 the pedal, 2 its presets, 3 board presets. The boards area stays
+   rendered off this page, hidden, so a board half-written survives. */
 .boards-persist-hidden { display: none; }
-.boards-wrapper { display: flex; gap: 12px; }
-.boards-wrapper > .grid-view { flex: 0 0 340px; grid-template-columns: 1fr; }
-.boards-wrapper > .boards-view { flex: 1; min-width: 0; }
-
-/* Build on the left, library on the right. The right column was the MC6;
-   assignment to switches now lives on the Controls page instead. */
-.boards-view {
+.boards-wrapper {
   display: grid;
-  grid-template-columns: minmax(0, 560px) minmax(0, 1fr);
-  gap: 20px;
+  grid-template-columns: minmax(300px, 1fr) minmax(260px, 0.85fr) minmax(340px, 1.25fr);
+  gap: 24px;
   align-items: start;
+  padding-top: 16px;
 }
-.boards-build-col, .boards-library-col { min-width: 0; }
 @media (max-width: 1100px) {
-  .boards-view { grid-template-columns: minmax(0, 1fr); }
+  .boards-wrapper { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .presets-area-boards { grid-column: 1 / -1; }
+}
+@media (max-width: 700px) {
+  .boards-wrapper { grid-template-columns: minmax(0, 1fr); }
+}
+.presets-area { min-width: 0; }
+.presets-area > .grid-view { grid-template-columns: 1fr; padding: 0; }
+.presets-area-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg);
+  padding-bottom: 6px;
+  margin-bottom: 12px;
+  border-bottom: 2px solid var(--fg);
+}
+.presets-area-number {
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-light);
+}
+
+/* Area 1: where the pedal came from. */
+.card-recalled {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-muted);
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-light);
+}
+.card-recalled.none { color: var(--fg-light); font-weight: 400; }
+.card-recalled.differs { color: #b26a00; }
+
+/* Area 2: the preset in play, and the boards that use each one. */
+.preset-current-mark {
+  font-size: 11px;
+  color: var(--fg-light);
+  width: 12px;
+  flex-shrink: 0;
+}
+.preset-item.current .preset-current-mark { color: var(--fg); }
+.preset-item.current .preset-name { font-weight: 700; }
+.preset-used-in {
+  font-size: 11px;
+  color: var(--fg-muted);
+  margin-top: 2px;
+}
+.preset-rename {
+  font: inherit;
+  font-size: 13px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  min-width: 0;
+  flex: 1;
+}
+
+/* Area 3: a board is a row of chips, one per pedal. */
+.board-chips {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 4px;
+  margin: 8px 0 6px;
+}
+.board-chip-cell { position: relative; min-width: 0; }
+.board-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 3px 6px 4px;
+  font: inherit;
+  text-align: left;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  min-width: 0;
+}
+.board-chip:hover { border-color: var(--fg-muted); }
+.board-chip-pedal {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.board-chip-value {
+  font-size: 12px;
+  font-weight: 600;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board-chip.no-change { background: transparent; border-style: dashed; border-color: var(--border-light); }
+.board-chip.no-change .board-chip-value { color: var(--fg-light); font-weight: 400; }
+.board-chip.off .board-chip-value,
+.board-chip.preset.off .board-chip-value { color: var(--fg-light); text-decoration: line-through; }
+.board-chip.missing .board-chip-value { color: var(--absent); }
+.board-chip.selected { box-shadow: 0 0 0 2px var(--fg); border-color: var(--fg); }
+.board-chip.open { background: var(--bg-section); }
+.board-chip-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 220px;
+  padding: 8px;
+  background: var(--bg);
+  border: 1px solid var(--fg);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+}
+.board-chip-menu .boards-engage-select,
+.board-chip-menu .boards-preset-select { width: 100%; }
+
+.boards-item.editing {
+  padding: 12px;
+  margin: 8px 0;
+  background: var(--bg-section);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.boards-draft-fields { display: flex; flex-direction: column; gap: 6px; }
+.boards-draft-fields input,
+.boards-draft-fields textarea {
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.boards-draft-name { font-weight: 600; }
+.boards-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0;
+}
+.boards-row-actions-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+}
+.boards-row-actions button,
+.boards-save-as,
+.boards-load {
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.boards-load {
+  background: var(--active-bg);
+  color: var(--active-fg);
+  border-color: var(--active-bg);
+  flex-shrink: 0;
+}
+.boards-save-as {
+  margin-top: 16px;
+  width: 100%;
+  padding: 8px 12px;
+  font-weight: 600;
+  border: 1px solid var(--fg);
 }
 
 /* --- Boards View --- */
@@ -1955,19 +2128,10 @@ body {
   font-size: 11px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  padding: 1px 6px;
-  border-radius: 10px;
   color: var(--fg-muted);
-  background: var(--bg-section);
-  border: 1px solid var(--border-light);
   white-space: nowrap;
-  flex-shrink: 0;
 }
-.boards-item-budget.over {
-  color: #fff;
-  background: #b3261e;
-  border-color: #b3261e;
-}
+.boards-item-budget.over { color: #b3261e; }
 
 .boards-item-assigned-badge {
   font-size: 10px;
@@ -3596,6 +3760,6 @@ body {
   <!-- Stamped by tools/bundle.sh with the bundle's own mtime. Without it a
        reload can serve yesterday's app and say nothing, which has cost this
        project whole afternoons more than once. -->
-  <script src="./index.js?v=1794072494"></script>
+  <script src="./index.js?v=1794072905"></script>
 </body>
 </html>

@@ -94,6 +94,12 @@ type AppState =
   , hiddenPedals :: Array PedalId
   , focusPedalId :: Maybe PedalId
   , boardsActivePedal :: Maybe PedalId
+  -- | The preset each pedal was last recalled from (or saved as, or
+  -- | overwritten into): what the Presets page marks as the one in play, what
+  -- | it says the pedal differs from, and what "Save the board as…" keeps for
+  -- | each pedal. Nothing else says it: the engine holds values, not where
+  -- | they came from. Not persisted; a reload starts with no pedal recalled.
+  , recalledPresets :: Map PedalId PresetId
   , overviewActivePedal :: Maybe PedalId
   , suppressTwister :: Boolean
   -- | What each of the Twister's lights was last told to be, keyed by the CC
@@ -389,6 +395,7 @@ initAppState =
   , hiddenPedals: []
   , focusPedalId: Nothing
   , boardsActivePedal: Nothing
+  , recalledPresets: Map.empty
   , overviewActivePedal: Nothing
   , suppressTwister: false
   , twisterLit: Map.empty

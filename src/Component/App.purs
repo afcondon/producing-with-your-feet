@@ -2,6 +2,8 @@ module Component.App (component) where
 
 import Prelude
 
+import Control.Alt ((<|>))
+
 import Data.MC6.BankNumber as BankNumber
 import Component.Boards.View as BoardsView
 import Component.Controls.View as ControlsView
@@ -168,6 +170,7 @@ type Slots =
   , boards :: BoardsView.Slot Unit
   , controls :: ControlsView.Slot Unit
   , sideGrid :: GridView.Slot Unit
+  , sidePresets :: GridView.Slot Unit
   , pedal :: PedalView.Slot Unit
   , overview :: OverviewView.Slot Unit
   )
@@ -198,7 +201,8 @@ render state = case state.configError of
         { view: state.view
         , cardOrder: state.cardOrder
         , hiddenPedals: state.hiddenPedals
-        , boardsActivePedal: state.boardsActivePedal
+        -- The pedal the Presets page shows, which is never none.
+        , boardsActivePedal: presetsPedal state
         , overviewActivePedal: state.overviewActivePedal
         , registry: state.registry
         -- Either direction counts: the MC6 is there if we can hear it or
@@ -217,6 +221,7 @@ render state = case state.configError of
             , connections: state.connections
             , registry: state.registry
             , baselineStatus: state.baselineStatus
+            , parts: GridView.WholeCard
             }
             HandleGrid
         DetailView pid ->
@@ -284,39 +289,91 @@ render state = case state.configError of
         FilesView -> renderFilesView state
         ConnectView -> renderConnectView state
         BoardsView -> HH.text ""
-    -- Boards always rendered for state persistence
+    -- **The Presets page** (still `BoardsView` in the code; plan
+    -- `pwyf-layout.md`): three areas, left to right, one direction of travel.
+    -- 1 shapes a pedal, 2 keeps it as a pedal preset, 3 combines pedal
+    -- presets into boards. Areas 1 and 2 are one Grid card cut in two
+    -- (`GridView.CardParts`), so a pedal is drawn and its presets kept by the
+    -- same code as everywhere else. The boards area is always rendered, and
+    -- hidden off this page, so a board half-written survives a trip to
+    -- another tab.
     , HH.div
         [ HP.class_ (H.ClassName (if state.view == BoardsView then "boards-wrapper" else "boards-persist-hidden")) ]
-        ( case state.view, state.boardsActivePedal of
+        ( case state.view, presetsPedal state of
             BoardsView, Just pid ->
-              [ HH.slot (Proxy :: _ "sideGrid") unit GridView.component
-                  { engine: state.engine
-                  , cardOrder: [pid]
-                  , hiddenPedals: []
-                  , presets: state.presets
-                  , connections: state.connections
-                  , registry: state.registry
-                  , baselineStatus: state.baselineStatus
-                  }
-                  HandleSideGrid
+              let recalled = recalledPresetOf state pid in
+              [ HH.div [ HP.class_ (H.ClassName "presets-area presets-area-pedal") ]
+                  [ areaHeading "1" "The pedal"
+                  , HH.slot (Proxy :: _ "sideGrid") unit GridView.component
+                      (sideGridInput state pid (GridView.PedalPart { recalled }))
+                      HandleSideGrid
+                  ]
+              , HH.div [ HP.class_ (H.ClassName "presets-area presets-area-presets") ]
+                  [ areaHeading "2" "Its presets"
+                  , HH.slot (Proxy :: _ "sidePresets") unit GridView.component
+                      (sideGridInput state pid (GridView.PresetsPart
+                          { current: map _.id recalled, boards: state.boardPresets }))
+                      HandleSideGrid
+                  ]
               ]
             _, _ -> []
         <>
-          [ HH.slot (Proxy :: _ "boards") unit BoardsView.component
-              { engine: state.engine
-              , connections: state.connections
-              , presets: state.presets
-              , boardPresets: state.boardPresets
-              , registry: state.registry
-              , mc6ActiveBank: Array.find (\b -> b.bankNumber == state.mc6BoardBankNum) state.mc6Banks
-              , mc6Assignments: state.mc6Assignments
-              , controlBankNum: map _.mc6BankNumber
-                  (state.activeControlBankIdx >>= Array.index state.controlBanks)
-              }
-              HandleBoards
+          [ HH.div [ HP.class_ (H.ClassName "presets-area presets-area-boards") ]
+              [ HH.slot (Proxy :: _ "boards") unit BoardsView.component
+                  { engine: state.engine
+                  , presets: state.presets
+                  , boardPresets: state.boardPresets
+                  , registry: state.registry
+                  , cardOrder: state.cardOrder
+                  , recalledPresets: state.recalledPresets
+                  , selectedPedal: presetsPedal state
+                  , mc6Assignments: state.mc6Assignments
+                  , controlBankNum: map _.mc6BankNumber
+                      (state.activeControlBankIdx >>= Array.index state.controlBanks)
+                  }
+                  HandleBoards
+              ]
           ]
         )
     ]
+  where
+  areaHeading number label =
+    HH.div [ HP.class_ (H.ClassName "presets-area-heading") ]
+      [ HH.span [ HP.class_ (H.ClassName "presets-area-number") ] [ HH.text number ]
+      , HH.text label
+      ]
+
+-- | One pedal's card, for either half of it on the Presets page.
+sideGridInput :: AppState -> PedalId -> GridView.CardParts -> GridView.Input
+sideGridInput state pid parts =
+  { engine: state.engine
+  , cardOrder: [ pid ]
+  , hiddenPedals: []
+  , presets: state.presets
+  , connections: state.connections
+  , registry: state.registry
+  , baselineStatus: state.baselineStatus
+  , parts
+  }
+
+-- | **The pedal the Presets page shows. Never none**, so area 1 is never
+-- | empty: the one last chosen there, else the one last chosen anywhere (the
+-- | focused pedal), else the first card.
+presetsPedal :: AppState -> Maybe PedalId
+presetsPedal state =
+  known state.boardsActivePedal
+    <|> known state.focusPedalId
+    <|> Array.find (isJust <<< CRegistry.findPedal state.registry) state.cardOrder
+  where
+  known = case _ of
+    Just pid | isJust (CRegistry.findPedal state.registry pid) -> Just pid
+    _ -> Nothing
+
+-- | The preset a pedal was last recalled from, if it still exists.
+recalledPresetOf :: AppState -> PedalId -> Maybe PedalPreset
+recalledPresetOf state pid = do
+  presetId <- Map.lookup pid state.recalledPresets
+  Array.find (\p -> p.id == presetId) state.presets
 
 -- | What the MC6 said it contains.
 -- |
@@ -1506,12 +1563,13 @@ handleAction = case _ of
         -- The same rule as the Overview's, below: choosing focuses, clearing
         -- leaves focus where it is. Until 2026-11-07 the Boards view's choice
         -- reached nothing, so the Twister stayed on whatever it had.
-        BoardsView ->
-          if st.boardsActivePedal == Just pid
-            then H.modify_ _ { boardsActivePedal = Nothing }
-            else do
-              H.modify_ _ { boardsActivePedal = Just pid }
-              focusPedal pid
+        --
+        -- On Presets a pill only ever selects: the page always shows a pedal,
+        -- so pressing the selected pill again leaves it selected rather than
+        -- emptying area 1.
+        BoardsView -> do
+          H.modify_ _ { boardsActivePedal = Just pid }
+          focusPedal pid
         -- **Choosing a pedal here focuses it**, and so hands it the Twister
         -- (by the machine's rule: not during a scene). Until 2026-11-05 the
         -- Overview kept a selection of its own that nothing else heard, so on
@@ -1569,28 +1627,27 @@ handleAction = case _ of
     GridView.ImportPresets presets -> handleImportPresets presets
     GridView.SaveSlotRef r -> handleSaveSlotRef r
     GridView.BaselinePedal pid -> handleBaselinePedal pid
+    GridView.RenamePreset presetId name -> handleRenamePreset presetId name
 
   HandleBoards output -> case output of
     BoardsView.RecallBoard bp -> recallBoard bp
     BoardsView.SendEngageAudition pid engState -> sendEngage pid engState
-    BoardsView.SendPCAudition pid pn -> sendPC_ pid pn
-    BoardsView.RecallPresetAudition preset -> do
-      recallPreset preset
+    BoardsView.AuditionPreset preset -> do
+      playPreset preset
       autoEngageIfNeeded preset
-    BoardsView.FocusPedal pid -> do
-      H.modify_ _ { boardsActivePedal = Just pid }
-      focusPedal pid
+    -- A chip selects its pedal in areas 1 and 2: the pill's own action, so
+    -- the two ways of choosing a pedal on this page cannot drift apart.
+    BoardsView.SelectPedal pid ->
+      handleAction (HandleHeader (Header.PedalPillClicked pid))
     BoardsView.SendEngageAll engState -> do
       st <- H.get
       for_ st.cardOrder \pid ->
         sendEngage pid engState
-    BoardsView.ValueChanged pid cc val -> handleAction (SetValue pid cc val)
     BoardsView.SaveBoard r -> handleSaveBoard r
     BoardsView.UpdateBoard presetId r -> handleUpdateBoard presetId r
     BoardsView.OverwriteBoard presetId pedals -> handleOverwriteBoard presetId pedals
     BoardsView.DeleteBoard presetId -> handleDeleteBoard presetId
     BoardsView.ExportBoard bp -> handleExportBoard bp
-    BoardsView.ImportBoards boards -> handleImportBoards boards
 
   HandleControls output -> case output of
     ControlsView.SaveControlBanks banks mActiveIdx -> do
@@ -1992,6 +2049,7 @@ handleGridOutput = case _ of
   GridView.ImportPresets presets -> handleImportPresets presets
   GridView.SaveSlotRef r -> handleSaveSlotRef r
   GridView.BaselinePedal pid -> handleBaselinePedal pid
+  GridView.RenamePreset presetId name -> handleRenamePreset presetId name
 
 -- | Spacing between CCs in a baseline sweep.
 -- |
@@ -2076,7 +2134,11 @@ handleSavePreset r = do
         , created: now
         , modified: now
         }
-  H.modify_ \s -> s { presets = Array.cons preset s.presets }
+  -- The pedal is now exactly this preset, so it is the one in play.
+  H.modify_ \s -> s
+    { presets = Array.cons preset s.presets
+    , recalledPresets = Map.insert r.pedalId uuid s.recalledPresets
+    }
   persistPresets
 
 -- | Keep a numbered slot without capturing what is in it.
@@ -2116,8 +2178,19 @@ handleOverwritePreset presetId pedalId = do
       info = case mPs of
         Just ps -> ps.info
         Nothing -> Map.empty
+  H.modify_ \s -> s
+    { presets = map (\p ->
+        if p.id == presetId then p { values = values, info = info, modified = now } else p
+      ) s.presets
+    , recalledPresets = Map.insert pedalId presetId s.recalledPresets
+    }
+  persistPresets
+
+handleRenamePreset :: forall o m. MonadAff m => PresetId -> String -> H.HalogenM AppState Action Slots o m Unit
+handleRenamePreset presetId name = do
+  now <- liftEffect Storage.nowISO
   H.modify_ \s -> s { presets = map (\p ->
-    if p.id == presetId then p { values = values, info = info, modified = now } else p
+    if p.id == presetId then p { name = name, modified = now } else p
   ) s.presets }
   persistPresets
 
@@ -2168,11 +2241,12 @@ handleSaveBoard r = do
   H.modify_ \s -> s { boardPresets = Array.cons bp s.boardPresets }
   persistBoardPresets
 
-handleUpdateBoard :: forall o m. MonadAff m => PresetId -> { name :: String, notes :: String } -> H.HalogenM AppState Action Slots o m Unit
+-- | A board edited in place on the Presets page: its name, notes and chips.
+handleUpdateBoard :: forall o m. MonadAff m => PresetId -> { name :: String, notes :: String, pedals :: Map.Map PedalId { presetId :: Maybe String, engage :: EngageState } } -> H.HalogenM AppState Action Slots o m Unit
 handleUpdateBoard presetId r = do
   now <- liftEffect Storage.nowISO
   H.modify_ \s -> s { boardPresets = map (\bp ->
-    if bp.id == presetId then bp { name = r.name, notes = r.notes, modified = now } else bp
+    if bp.id == presetId then bp { name = r.name, notes = r.notes, pedals = r.pedals, modified = now } else bp
   ) s.boardPresets }
   persistBoardPresets
 
@@ -3073,8 +3147,11 @@ recallPreset preset
   -- A slot reference has nothing to stream. Without this it would recall by
   -- sending an empty list of CCs, which looks exactly like a working recall
   -- and does nothing at all.
-  | Preset.isSlotRef preset = for_ preset.savedSlot (sendPC_ preset.pedalId)
+  | Preset.isSlotRef preset = do
+      noteRecalled preset
+      for_ preset.savedSlot (sendPC_ preset.pedalId)
 recallPreset preset = do
+  noteRecalled preset
   st <- H.get
   for_ (Map.lookup preset.pedalId st.engine) \ps ->
     for_ (makeChannel ps.channel) \_ -> do
@@ -3086,6 +3163,20 @@ recallPreset preset = do
       let infoEntries = Map.toUnfoldable preset.info :: Array (Tuple String Int)
       for_ infoEntries \(Tuple key val) ->
         handleAction (SetInfo preset.pedalId key val)
+
+-- | Remember which preset a pedal now comes from (`recalledPresets`).
+noteRecalled :: forall o m. MonadAff m => PedalPreset -> H.HalogenM AppState Action Slots o m Unit
+noteRecalled preset =
+  H.modify_ \s -> s { recalledPresets = Map.insert preset.pedalId preset.id s.recalledPresets }
+
+-- | Play a preset the way a board does: by Program Change when it has a slot,
+-- | else by streaming its values.
+playPreset :: forall o m. MonadAff m => PedalPreset -> H.HalogenM AppState Action Slots o m Unit
+playPreset preset = case preset.savedSlot of
+  Just slot -> do
+    noteRecalled preset
+    sendPC_ preset.pedalId slot
+  Nothing -> recallPreset preset
 
 sendPC_ :: forall o m. MonadAff m => PedalId -> ProgramNumber -> H.HalogenM AppState Action Slots o m Unit
 sendPC_ pid pn = do
@@ -3105,9 +3196,7 @@ recallBoard board = do
     -- Recall preset: PC if saved slot, otherwise stream CCs
     for_ entry.presetId \presetId ->
       for_ (Array.find (\p -> p.id == presetId) st.presets) \preset -> do
-        case preset.savedSlot of
-          Just slot -> sendPC_ pid slot
-          Nothing -> recallPreset preset
+        playPreset preset
         autoEngageIfNeeded preset
     H.liftAff (delay (Milliseconds 50.0))
     -- Engage CCs (explicit board engage state overrides auto-engage)

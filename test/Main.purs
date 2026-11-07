@@ -62,6 +62,7 @@ import Data.Twister.Scene as Scene
 import Data.Twister.Scenes as Scenes
 import Engine.Twister as ETw
 import Data.Twister.Holding as Holding
+import Data.Preset.Usage as Usage
 
 -- Golden fixture: JS-format engine state with 3 pedals, numeric-string CC keys
 engineFixture :: String
@@ -136,6 +137,73 @@ twisterHoldingTests = do
   assert "the looper's sentence names the MC6's bank, the reason it moved"
     (Holding.holdingSentence Holding.TwisterWithLooper
       == "Twister: with the looper (the MC6 is on the Loops bank)")
+
+-- | The Presets page's reading of pedal presets against board presets
+-- | (`Data.Preset.Usage`), on the storage fixtures above.
+presetUsageTests :: Effect Unit
+presetUsageTests = do
+  log "Running preset usage tests..."
+  let presets = fromMaybe [] (parsePresets presetsFixture)
+      boards = fromMaybe [] (parseBoardPresets boardPresetsFixture)
+      engine = fromMaybe Map.empty (parseEngine engineFixture)
+      reg = CRegistry.mkRegistry Registry.pedals [] { pedalOutput: { match: "" }, twisterInput: { match: "" }, twisterOutput: { match: "" }, mc6Input: { match: "" } }
+      boardEntry pid = Array.head boards >>= \b -> Map.lookup (PedalId pid) b.pedals
+      chipFor pid = Usage.chipFor presets (boardEntry pid)
+      isPresetChip name = case _ of
+        Usage.ChipPreset p _ -> p.name == name
+        _ -> false
+      isEngageChip engage = case _ of
+        Usage.ChipEngage e -> e == engage
+        _ -> false
+      isNoChange = case _ of
+        Usage.ChipNoChange -> true
+        _ -> false
+      isMissing = case _ of
+        Usage.ChipMissingPreset _ -> true
+        _ -> false
+  assert "fixtures load (2 presets, 1 board, 3 pedals in the engine)"
+    (Array.length presets == 2 && Array.length boards == 1 && Map.size engine == 3)
+
+  assert "a preset a board recalls names that board"
+    (map _.name (Usage.boardsUsingPreset "preset-1" boards) == ["Full Board"])
+  assert "a preset no board recalls names none, even when its pedal is in the board"
+    (Array.null (Usage.boardsUsingPreset "preset-2" boards))
+
+  assert "chip: a pedal recalled to a preset shows the preset"
+    (isPresetChip "Ambient Wash" (chipFor "mood"))
+  assert "chip: a pedal only switched off shows Off"
+    (isEngageChip EngageOff (chipFor "flint")
+      && Usage.chipText (SingleEngage (unsafeCC 1)) (chipFor "flint") == "Off")
+  assert "chip: a pedal left alone, or not in the board at all, is no change"
+    (isNoChange (chipFor "onward") && isNoChange (chipFor "brig"))
+  assert "chip: a deleted preset is said, not drawn as no change"
+    (isMissing (Usage.chipFor presets (Just { presetId: Just "gone", engage: EngageOn })))
+  assert "chip: a dual pedal's sides are named by its own labels"
+    (Usage.chipText
+       (DualEngage { a: { cc: unsafeCC 1, label: "Wet" }, b: { cc: unsafeCC 2, label: "ML" }, both: Nothing })
+       (Usage.ChipEngage EngageB) == "ML")
+
+  for_ (Array.find (\p -> p.id == "preset-1") presets) \preset -> do
+    assert "a pedal still at its preset's values has not diverged"
+      (not (Usage.isPresetModified engine preset))
+    let moved = Map.update (\ps -> Just ps { values = Map.insert (unsafeCC 14) (unsafeMV 0) ps.values })
+                  (PedalId "mood") engine
+    assert "turning one of its knobs is a divergence"
+      (Usage.isPresetModified moved preset)
+
+  let now = Usage.boardNow reg engine (Map.singleton (PedalId "mood") "preset-1")
+  assert "what every pedal is now: one entry per pedal the engine knows"
+    (Map.size now == 3)
+  assert "and each carries the preset it was recalled from, or none"
+    (map _.presetId (Map.lookup (PedalId "mood") now) == Just (Just "preset-1")
+      && map _.presetId (Map.lookup (PedalId "flint") now) == Just Nothing)
+  where
+  unsafeCC n = case makeCC n of
+    Just cc -> cc
+    Nothing -> unsafeCC 0
+  unsafeMV n = case makeMidiValue n of
+    Just mv -> mv
+    Nothing -> unsafeMV 0
 
 foreign import recordFailureImpl :: Effect Unit
 foreign import readTextImpl :: String -> Effect String
@@ -239,6 +307,7 @@ main :: Effect Unit
 main = do
   twisterSurfaceTests
   twisterHoldingTests
+  presetUsageTests
   log "Running pedal definition tests..."
 
   -- Twelve boxes on the floor. Itajara was a thirteenth entry, the app's own

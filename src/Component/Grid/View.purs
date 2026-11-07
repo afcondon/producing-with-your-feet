@@ -3,6 +3,7 @@ module Component.Grid.View
   , Output(..)
   , Slot
   , Input
+  , CardParts(..)
   ) where
 
 import Prelude
@@ -19,8 +20,10 @@ import Data.Midi (CC, MidiValue, ProgramNumber, makeProgramNumber, unProgramNumb
 import Data.String.CodeUnits as SCU
 import Data.Pedal (PedalDef, PedalId, Section, SectionLayout(..))
 import Data.Pedal.Modes (DualChannelModes)
-import Data.Preset (PedalPreset, PresetId)
+import Data.Preset (BoardPreset, PedalPreset, PresetId)
 import Data.Preset as Preset
+import Data.Preset.Usage as Usage
+import Data.String as String
 import Data.String (trim)
 import Data.Tuple (Tuple(..))
 import Effect.Class (liftEffect)
@@ -48,7 +51,23 @@ type Input =
   -- | started it. A sweep is otherwise silent for about a second and then
   -- | silent again if there was no MIDI output to send on.
   , baselineStatus :: Maybe String
+  -- | Which part of each card to draw. The Presets page draws one pedal's card
+  -- | in two places, its controls in one column and its presets in the next,
+  -- | and this is the same card cut in two rather than two new components.
+  , parts :: CardParts
   }
+
+-- | A card is a pedal's controls and then its presets. Everywhere but the
+-- | Presets page draws both.
+data CardParts
+  = WholeCard
+  -- | The controls only, every section open (the collapsed ones are the
+  -- | secondary and MIDI-only controls, which are what this part is for), and
+  -- | a mark when the pedal differs from the preset it was recalled from.
+  | PedalPart { recalled :: Maybe PedalPreset }
+  -- | The presets only, always open: the one in play marked, and which boards
+  -- | use each, so deleting or overwriting one is not a surprise.
+  | PresetsPart { current :: Maybe PresetId, boards :: Array BoardPreset }
 
 data Output
   = PedalClicked PedalId
@@ -68,6 +87,7 @@ data Output
   | ImportPresets (Array PedalPreset)
   | SaveSlotRef { pedalId :: PedalId, slot :: ProgramNumber, name :: String }
   | BaselinePedal PedalId
+  | RenamePreset PresetId String
 
 data SlotAssignPhase = EnterSlot | ConfirmSave
 
@@ -88,6 +108,8 @@ type State =
   -- | Which cards have the slot grid open. Closed by default; see the comment
   -- | at the render site for why this is a performance decision, not a visual one.
   , expandedSlots :: Array PedalId
+  -- | The preset whose name is being edited, and the name so far.
+  , renaming :: Maybe { presetId :: PresetId, name :: String }
   }
 
 data Action
@@ -124,6 +146,10 @@ data Action
   | CancelSlotRef
   | ClickBaseline PedalDef
   | ToggleSlotGrid PedalId
+  | StartRename PedalPreset
+  | UpdateRename String
+  | CommitRename
+  | CancelRename
 
 type Slot = H.Slot (Const Void) Output
 
@@ -141,6 +167,7 @@ component =
         , assigningSlot: Nothing
         , browsingSlot: Nothing
         , expandedSlots: []
+        , renaming: Nothing
         }
     , render
     , eval: H.mkEval H.defaultEval
@@ -161,13 +188,27 @@ render state =
     ps <- Map.lookup pid state.input.engine
     let pedalPresets = Array.filter (\p -> p.pedalId == pid) state.input.presets
         isExpanded = Array.elem pid state.expandedPresets
+        controls = HH.div [ HP.class_ (H.ClassName "card-sections") ]
+          (map (renderSection def.meta.id ps def.modes) def.sections)
+        body = case state.input.parts of
+          WholeCard ->
+            [ controls
+            , renderPresetToggle pid pedalPresets isExpanded
+            , if isExpanded
+                then renderPresetSection state def pedalPresets
+                else HH.text ""
+            ]
+          PedalPart { recalled } ->
+            [ renderRecalledMark recalled, controls ]
+          PresetsPart _ ->
+            [ renderPresetSection state def pedalPresets ]
     pure $ HH.div
       [ HP.class_ (H.ClassName "pedal-card")
       , HP.attr (HH.AttrName "style") (case def.meta.color of
           Just c -> "--pedal-color: " <> toHexString c
           Nothing -> "")
       ]
-      [ HH.div
+      ([ HH.div
           [ HP.class_ (H.ClassName "card-header")
           , HE.onClick \_ -> FocusPedal pid
           ]
@@ -180,13 +221,7 @@ render state =
               ]
               [ HH.text "\x25CE" ]
           ]
-      , HH.div [ HP.class_ (H.ClassName "card-sections") ]
-          (map (renderSection def.meta.id ps def.modes) def.sections)
-      , renderPresetToggle pid pedalPresets isExpanded
-      , if isExpanded
-          then renderPresetSection state def pedalPresets
-          else HH.text ""
-      ]
+      ] <> body)
 
   renderSection :: PedalId -> PedalState -> Maybe DualChannelModes -> Section -> H.ComponentHTML Action () m
   renderSection pid ps mModes section =
@@ -212,8 +247,15 @@ render state =
           else renderBody
       ]
     where
-    isCollapsed = section.collapsed && not (Array.elem section.name state.collapsedSections)
-      || not section.collapsed && Array.elem section.name state.collapsedSections
+    -- `collapsedSections` lists the sections toggled away from how they
+    -- start. On the pedal part every section starts open: the ones a card
+    -- folds away are the secondary and MIDI-only controls, which are what
+    -- that part is for.
+    startsCollapsed = section.collapsed && case state.input.parts of
+      PedalPart _ -> false
+      _ -> true
+    toggled = Array.elem section.name state.collapsedSections
+    isCollapsed = startsCollapsed /= toggled
 
     cls = "section" <> (if isCollapsed then " collapsed" else "")
 
@@ -236,6 +278,21 @@ render state =
       DefaultLayout ->
         HH.div [ HP.class_ (H.ClassName "section-body") ]
           (map renderCtrl section.controls)
+
+  -- | Says which preset the pedal came from and whether it has moved since:
+  -- | the thing to know before "Save as…" or "Overwrite".
+  renderRecalledMark :: Maybe PedalPreset -> H.ComponentHTML Action () m
+  renderRecalledMark = case _ of
+    Nothing ->
+      HH.div [ HP.class_ (H.ClassName "card-recalled none") ]
+        [ HH.text "Not recalled from a preset" ]
+    Just preset
+      | Usage.isPresetModified state.input.engine preset ->
+          HH.div [ HP.class_ (H.ClassName "card-recalled differs") ]
+            [ HH.text ("\x25D0 differs from \x201C" <> preset.name <> "\x201D") ]
+      | otherwise ->
+          HH.div [ HP.class_ (H.ClassName "card-recalled") ]
+            [ HH.text ("\x25CF as \x201C" <> preset.name <> "\x201D") ]
 
   renderPresetToggle :: PedalId -> Array PedalPreset -> Boolean -> H.ComponentHTML Action () m
   renderPresetToggle pid presets isExpanded =
@@ -379,13 +436,25 @@ render state =
 
   renderPresetItem :: State -> PedalDef -> PedalPreset -> H.ComponentHTML Action () m
   renderPresetItem st def preset =
-    HH.div [ HP.class_ (H.ClassName "preset-item") ]
+    HH.div [ HP.class_ (H.ClassName ("preset-item" <> if isCurrent then " current" else "")) ]
       [ HH.div [ HP.class_ (H.ClassName "preset-info") ]
           [ HH.div [ HP.class_ (H.ClassName "preset-name-row") ]
-              [ HH.span [ HP.class_ (H.ClassName "preset-name") ] [ HH.text preset.name ]
-              , renderSlotBadge preset
-              , HH.span [ HP.class_ (H.ClassName "preset-date") ] [ HH.text (formatDate preset.modified) ]
-              ]
+              ( currentMark
+                <>
+                [ case st.renaming of
+                    Just r | r.presetId == preset.id ->
+                      HH.input
+                        [ HP.type_ HP.InputText
+                        , HP.class_ (H.ClassName "preset-rename")
+                        , HP.value r.name
+                        , HE.onValueInput UpdateRename
+                        ]
+                    _ -> HH.span [ HP.class_ (H.ClassName "preset-name") ] [ HH.text preset.name ]
+                , renderSlotBadge preset
+                , HH.span [ HP.class_ (H.ClassName "preset-date") ] [ HH.text (formatDate preset.modified) ]
+                ]
+              )
+          , renderUsedIn
           ]
       , HH.div [ HP.class_ (H.ClassName "preset-item-actions") ]
           ( [ HH.button
@@ -394,6 +463,17 @@ render state =
                 ]
                 [ HH.text "Recall" ]
             ]
+          <> ( case st.renaming of
+                 Just r | r.presetId == preset.id ->
+                   [ HH.button
+                       [ HP.class_ (H.ClassName "save-confirm")
+                       , HE.onClick \_ -> CommitRename
+                       ]
+                       [ HH.text "Save name" ]
+                   , HH.button [ HE.onClick \_ -> CancelRename ] [ HH.text "Cancel" ]
+                   ]
+                 _ -> [ HH.button [ HE.onClick \_ -> StartRename preset ] [ HH.text "Rename" ] ]
+             )
           -- A slot reference has no values, so both of these would lie about
           -- it: Overwrite would silently turn it into a captured preset holding
           -- whatever happens to be dialled in, and Assign Slot would walk you
@@ -425,6 +505,29 @@ render state =
             renderAssignSlot st def preset
           _ -> HH.text ""
       ]
+    where
+    presetsPart = case st.input.parts of
+      PresetsPart part -> Just part
+      _ -> Nothing
+    isCurrent = (presetsPart >>= _.current) == Just preset.id
+    currentMark = case presetsPart of
+      Nothing -> []
+      Just _ ->
+        [ HH.span
+            [ HP.class_ (H.ClassName "preset-current-mark")
+            , HP.title (if isCurrent then "The preset this pedal was last recalled from" else "")
+            ]
+            [ HH.text (if isCurrent then "\x25CF" else "\x25CB") ]
+        ]
+    renderUsedIn = case presetsPart of
+      Nothing -> HH.text ""
+      Just part ->
+        let using = Usage.boardsUsingPreset preset.id part.boards
+            count = Array.length using
+        in if count == 0 then HH.text "" else
+          HH.div [ HP.class_ (H.ClassName "preset-used-in") ]
+            [ HH.text ("Used in " <> show count <> (if count == 1 then " board: " else " boards: ")
+                <> String.joinWith ", " (map _.name using)) ]
 
   renderAssignSlot :: State -> PedalDef -> PedalPreset -> H.ComponentHTML Action () m
   renderAssignSlot st def preset = case st.assigningSlot of
@@ -689,6 +792,22 @@ handleAction = case _ of
         then Array.filter (_ /= pid) st.expandedSlots
         else Array.snoc st.expandedSlots pid
     }
+
+  StartRename preset ->
+    H.modify_ _ { renaming = Just { presetId: preset.id, name: preset.name } }
+  UpdateRename name ->
+    H.modify_ \st -> st { renaming = map (_ { name = name }) st.renaming }
+  -- An empty name is not a rename; the field stays open rather than saving a
+  -- preset nobody can find in a menu.
+  CommitRename -> do
+    st <- H.get
+    for_ st.renaming \r -> do
+      let name = trim r.name
+      unless (String.null name) do
+        H.raise (RenamePreset r.presetId name)
+        H.modify_ _ { renaming = Nothing }
+  CancelRename ->
+    H.modify_ _ { renaming = Nothing }
 
   -- Confirmed, because it overwrites whatever the pedal is currently doing —
   -- including a sound dialled in by hand that was never saved.
