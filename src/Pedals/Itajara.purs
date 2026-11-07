@@ -10,7 +10,8 @@
 -- | them knowing it has no MIDI port. That was the point of registering it, and
 -- | it costs almost no code — which is what this file is now.
 -- |
--- | The surface is the Looper page, drawn from the daemon's snapshot. See
+-- | The surface is the looper's page, Quadrat's Loop tab since 2026-11-07,
+-- | drawn from the daemon's snapshot. See
 -- | `layout` below for why a second one was removed rather than updated.
 module Pedals.Itajara (pedal) where
 
@@ -47,7 +48,8 @@ pedal =
   -- | eight loops, a tape mode, per-loop feedback and tone, and a controller
   -- | with four pages.
   -- |
-  -- | The Looper page draws all of that from the daemon's snapshot. A second
+  -- | The looper's page (Quadrat's Loop tab) draws all of that from the
+  -- | daemon's snapshot. A second
   -- | picture of the same engine, built from CC values the app *sent*, can only
   -- | be the slower of the two and will sometimes disagree with it — which is
   -- | the exact failure the snapshot-only rule exists to prevent.

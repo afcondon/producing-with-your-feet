@@ -9,6 +9,7 @@ import Prelude
 
 import Data.MC6.BankNumber as BankNumber
 import Component.Controls.Survey as Survey
+import Component.Controls.LooperBanks as LooperBanks
 import Data.Array as Array
 import Data.Const (Const)
 import Data.Foldable (for_)
@@ -81,6 +82,12 @@ type Input =
   , mc6Assignments :: Array MC6Assignment
   -- Switches that belong to the instrument rather than to any one page.
   , globalSwitches :: Array GlobalSwitch
+  -- The looper's banks (`Component.Controls.LooperBanks`): where they go, what
+  -- the last write said, and whether there is an MC6 to write to at all.
+  , looperProgramStatus :: Maybe String
+  , mc6LooperBankNum :: Int
+  , mc6LoopBankBase :: Int
+  , mc6Writable :: Boolean
   }
 
 data Output
@@ -126,6 +133,13 @@ data Output
   -- | means checking it against the switches, and walking to the MC6 to find it
   -- | showing something else is how you end up editing the wrong page.
   | JumpMC6ToBank Int
+  -- | Write the looper's transport bank, or its six-loop family, or open the
+  -- | printable sheet of them. The looper's banks are programmed here, beside
+  -- | the board's, because programming the MC6 is this app's job and the
+  -- | looper is one more thing a bank can drive.
+  | ProgramLooperBank
+  | ProgramLoopBanks
+  | PrintLooperSheet
 
 -- | Flat searchable entry for one CC control from the pedal registry
 type CCEntry =
@@ -221,6 +235,7 @@ data Action
   | AdoptBankFromDevice Int
   | ToggleElideUnknown
   | RequestRead
+  | RequestLooper Output
   | RequestDeepRead
   | RequestToggleSession
   | RequestToggleAutoHold
@@ -379,6 +394,13 @@ render state =
             [ renderGlobalsCard state
             , renderMissingBuiltIns state
             , renderSurvey state
+            , LooperBanks.render
+                { programLooperBank: RequestLooper ProgramLooperBank
+                , programLoopBanks: RequestLooper ProgramLoopBanks
+                , printSheet: RequestLooper PrintLooperSheet
+                }
+                state.input.mc6Writable
+                state.input
             ]
         , HH.div [ HP.class_ (H.ClassName "controls-col-work") ]
             ( if state.viewingGlobals
@@ -1760,6 +1782,7 @@ handleAction = case _ of
   ToggleElideUnknown -> H.modify_ \st -> st { elideUnknown = not st.elideUnknown }
 
   RequestRead -> H.raise ReadMC6
+  RequestLooper output -> H.raise output
 
   RequestDeepRead -> H.raise DeepReadMC6
   RequestToggleSession -> H.raise ToggleMC6Session

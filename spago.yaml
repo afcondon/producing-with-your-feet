@@ -22,7 +22,6 @@ package:
     - integers: ">=6.0.0 <7.0.0"
     - itajara-client
     - itajara-controllers
-    - itajara-surface
     - js-date: ">=8.0.0 <9.0.0"
     - maybe: ">=6.0.0 <7.0.0"
     - newtype: ">=5.0.0 <6.0.0"
@@ -40,7 +39,11 @@ package:
     strict: true
   test:
     main: Test.Main
-    dependencies: []
+    # The looper's page is Quadrat's since 2026-11-07, so the app draws nothing
+    # from itajara's surface; this suite still checks two of its pure pieces
+    # (`Slots`' state words, `Wave`'s edges), written when the page was here.
+    dependencies:
+      - itajara-surface
   # **The outfile lives here so it cannot be forgotten on the command line.**
   # `spago bundle` without `-p` builds, prints a success line, and only then
   # refuses — the workspace has two packages — leaving `static/index.js`

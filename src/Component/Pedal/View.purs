@@ -121,8 +121,8 @@ render state =
                       -- available" would read as a promise instead of a
                       -- decision — see `Pedals.Itajara.layout`.
                       [ HH.text (if def.meta.id == PedalId "itajara"
-                                   then "Itajara has no donut. Its surface is the Looper page, \
-                                        \drawn from the daemon rather than from what the app sent."
+                                   then "Itajara has no donut. Its surface is the Loop page in Quadrat, \
+                                        \drawn from the daemon rather than from what this app sent."
                                    else "Donut view not yet available for this pedal.") ]
                   , renderBackButton
                   ]

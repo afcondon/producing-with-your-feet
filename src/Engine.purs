@@ -3,9 +3,6 @@ module Engine
   , EngineState
   , MidiConnections
   , View(..)
-  , module Itajara.Surface.Looper.Types
-  , pushLooperLog
-  , logLimit
   , AppState
   , MC6Assignment
   , initEngineFromPedals
@@ -27,10 +24,6 @@ import Data.MC6.BuiltInBanks (exampleControlBank, ambientControlBank)
 import Helm.MC6.ControlBank (ControlBank)
 import Data.MC6.Dump as Dump
 import Data.MC6.Settings as Settings
-import Data.Looper.Banks as LooperBanks
--- The Looper page's two shared types live with the page in itajara's surface;
--- re-exported here so the app's state keeps naming them from `Engine`.
-import Itajara.Surface.Looper.Types (LogLine, LooperPanel(..))
 import Data.Looper.Press as Press
 import Data.Looper.TwisterSurface as TwisterSurface
 import Data.Looper.TwisterHolder as TwisterHolder
@@ -42,7 +35,7 @@ import Data.Map (Map)
 import Halogen as H
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
-import Foreign.LooperSocket (LooperState, Peaks, SocketStatus)
+import Foreign.LooperSocket (LooperState)
 import Data.Midi (CC, MidiValue)
 import Data.Twister.Scene (Scene)
 import Data.Pedal (PedalDef, PedalId)
@@ -60,7 +53,7 @@ type PedalState =
 
 type EngineState = Map PedalId PedalState
 
-data View = GridView | DetailView PedalId | PedalView PedalId | OverviewView | BoardsView | ControlsView | LooperView | FilesView | ConnectView
+data View = GridView | DetailView PedalId | PedalView PedalId | OverviewView | BoardsView | ControlsView | FilesView | ConnectView
 
 derive instance Eq View
 
@@ -141,8 +134,6 @@ type AppState =
   -- | anything else here is a stray press of its own block buttons and is put
   -- | back. It is no longer an address for anything.
   , twisterHeardBank :: Maybe Int
-  -- | What is typed in the Looper page's Save field.
-  , looperSaveName :: String
   -- | Whether this page holds the Twister on Helm's hub, as last heard: the
   -- | record of who may paint it (`Lights.holdsTwister` reads it fresh; this
   -- | is only to notice the change). Always true through plain Web MIDI.
@@ -231,10 +222,9 @@ type AppState =
   , activeControlBankIdx :: Maybe Int
   -- Folder backup (Chrome File System Access API → Infovore path)
   -- Result of the last manual MIDI test, shown on the MIDI page.
-  -- Looper daemon (looper/ in this repo), over a socket. The app holds only
+  -- The Itajara daemon (music/itajara), over a socket. The app holds only
   -- what the daemon last reported; it never models the engine itself.
   , looper :: Maybe LooperState
-  , looperStatus :: SocketStatus
   -- MC6 bank the generated looper transport is written to. Itajara's CCs are
   -- fixed by its pedal definition, so there is no base-CC to configure.
   , mc6LooperBankNum :: Int
@@ -263,11 +253,6 @@ type AppState =
   -- | otherwise be and worse than the measurement it replaces.
   , looperDeferral :: { tapMs :: Number, holdMs :: Number }
   -- | The loop the config bank acts on — the last one a foot touched.
-  -- | How old the newest snapshot is, in milliseconds, rounded so that it does
-  -- | not re-render the page on every tick. Shown when it gets large, because a
-  -- | frozen picture under a "connected" banner is the failure this whole
-  -- | surface keeps meeting.
-  , looperSnapshotAge :: Number
   , looperFocus :: Int
   -- | The daemon's selected loop as last reported, so that a *change* in it
   -- | (another surface choosing a loop) moves `looperFocus`, and a snapshot
@@ -275,26 +260,6 @@ type AppState =
   -- | the one selection every surface shares (bare digit to set it, `selected`
   -- | in the snapshot); this app keeps a copy to act on without waiting.
   , looperSelectedSeen :: Maybe Int
-  -- | What presses have done, in words, newest first.
-  -- |
-  -- | Every press produces a line, including the refusals: a press that leaves
-  -- | no trace anywhere is the thing the whole looper surface exists to
-  -- | prevent. **It was one line until 2026-08-27** — the newest, replacing the
-  -- | last — which is fine when you are watching and useless when you are
-  -- | playing, because the interesting sequence is always the three presses
-  -- | before the one that surprised you.
-  -- |
-  -- | Consecutive repeats collapse to a count rather than being dropped. That
-  -- | is not tidiness: pressing the same dead switch twice IS two refusals and
-  -- | has to say so, which is the same reason `looperAckSeq` is a counter and
-  -- | not a string.
-  , looperLog :: Array LogLine
-  -- | The `ackSeq` of the last thing the daemon said that we have shown.
-  -- |
-  -- | A counter rather than the text, because two identical refusals in a row
-  -- | are two refusals: pressing the same dead switch twice should say so
-  -- | twice, and comparing the sentences would swallow the second.
-  , looperAckSeq :: Int
   -- | Where the gesture probe bank goes.
   -- |
   -- | **Below the family rather than above it.** It sat on 28 while the looper
@@ -314,40 +279,9 @@ type AppState =
   -- | occurrence is a failing test rather than a bank you find with your foot.
   -- | Change a number here and read the map there.
   , mc6ProbeBankNum :: Int
-  -- | Which face the Looper page is showing. The six-slot display is what the
-  -- | board drives; the old transport is kept because it can drive the engine
-  -- | by hand, which is how the six-slot display gets something to show.
-  , looperShowsSlots :: Boolean
-  -- | The open reference panel, or nothing. One at a time on purpose: they are
-  -- | things you look up, and two of them open at once is the clutter they were
-  -- | moved off the page to end.
-  , looperPanel :: Maybe LooperPanel
-  -- | The last waveform the daemon drew, and the key it was asked under —
-  -- | loop, layer count, newest layer — so the Edit panel asks again only
-  -- | when the picture would differ, not thirty times a second.
-  , looperPeaks :: Maybe Peaks
-  , looperPeaksKey :: String
-  -- | What the hand has set on an Edit slider that the snapshot has not yet
-  -- | caught up with, keyed "in" / "out" / "rot". **A slider being dragged
-  -- | must not be written to**: setting its value from a snapshot mid-drag
-  -- | is what ended the drag. So while a key is here the slider shows this,
-  -- | which is what the browser already holds, and the write is a no-op;
-  -- | the key goes on release.
-  , looperEditLocal :: Map String Int
-  -- | Which of the six looper banks the MC6 is *showing*.
-  -- |
-  -- | Not asked for and not remembered from a bank change we commanded: taken
-  -- | from the presses themselves, because the switch namespace says which bank
-  -- | every press came from. That is the whole point of encoding the bank in
-  -- | the CC number, and it means the app cannot be out of step with the board
-  -- | for longer than one press — including after a bank change the player made
-  -- | with their foot, which nothing told the app about.
-  -- |
-  -- | It matters because G to L have no markings, so the screen is the only
-  -- | thing that can say what they do — and saying it for the wrong bank is
-  -- | worse than saying nothing.
-  , looperBankShown :: Maybe LooperBanks.BankSlot
-  -- Result of the last looper-bank programming run, shown on the Looper page.
+  -- | What the last MC6 write said: the looper's banks, or a whole-map sweep.
+  -- | Shown on the MC6 page, under the looper's banks
+  -- | (`Component.Controls.LooperBanks`).
   , looperProgramStatus :: Maybe String
   , midiTest :: Maybe String
   -- | What the MC6 said when last asked (`Helm.MC6.Read`). Bank numbers are
@@ -459,7 +393,6 @@ initAppState =
   , twisterNudgeSeq: 0
   , layersAsked: Map.empty
   , twisterHeardBank: Nothing
-  , looperSaveName: ""
   , twisterHeld: false
   , twisterBankLooper: false
   , twisterPage: 0
@@ -480,7 +413,6 @@ initAppState =
   , globalSwitches: []
   , activeControlBankIdx: Just 0
   , looper: Nothing
-  , looperStatus: { connected: false, everConnected: false, lastError: "", url: "" }
   , mc6LooperBankNum: 9
   -- 22-28 (seven slots, not the six this comment used to claim), just above the
   -- legacy transport bank. Wire numbers; the editor shows each one higher.
@@ -498,18 +430,9 @@ initAppState =
   -- that far apart read as two singles) and has never been pinned. A press log
   -- against a metronome would settle it in a minute.
   , looperDeferral: Press.defaultDeferral
-  , looperSnapshotAge: 0.0
   , looperFocus: 0
   , looperSelectedSeen: Nothing
-  , looperLog: []
-  , looperAckSeq: 0
   , mc6ProbeBankNum: 10
-  , looperShowsSlots: true
-  , looperPanel: Nothing
-  , looperPeaks: Nothing
-  , looperPeaksKey: ""
-  , looperEditLocal: Map.empty
-  , looperBankShown: Just LooperBanks.LoopBank
   , looperProgramStatus: Nothing
   , midiTest: Nothing
   , mc6BankNames: Map.empty
@@ -561,24 +484,3 @@ pedalsOnChannel channel engine =
     (\(Tuple pid ps) -> if ps.channel == channel then Just pid else Nothing)
     (Map.toUnfoldable engine)
 
--- | How many lines are kept.
--- |
--- | Enough to cover a take and the fumbling either side of it; short enough
--- | that the panel never becomes the page. The list is rebuilt on every entry,
--- | so the bound is what keeps that from mattering.
-logLimit :: Int
-logLimit = 60
-
--- | Add a line, newest first, collapsing an immediate repeat into a count.
--- |
--- | **In `Engine` because three places write to it** — the machine adapter, the
--- | MC6 bank courtesy, and the daemon's own ack — and a second copy of the
--- | collapse rule is a second chance for two of them to disagree about what
--- | counts as the same press.
-pushLooperLog :: String -> AppState -> AppState
-pushLooperLog msg st = st { looperLog = next }
-  where
-  next = case Array.uncons st.looperLog of
-    Just { head, tail } | head.text == msg ->
-      Array.cons (head { times = head.times + 1 }) tail
-    _ -> Array.take logLimit (Array.cons { text: msg, times: 1 } st.looperLog)

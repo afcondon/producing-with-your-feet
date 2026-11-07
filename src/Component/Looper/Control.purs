@@ -4,7 +4,7 @@
 -- |
 -- | `Data.Looper.Machine` decides what a gesture *means* and returns a list of
 -- | `Machine.Action`s. Something has to carry those out — write to the socket,
--- | move the focus, put the refusal on screen. That is this module, and it is
+-- | move the focus, say what was refused. That is this module, and it is
 -- | the whole of the looper's route to the outside world.
 -- |
 -- | It lived in `Component.App` until 2026-08-27, where the four functions sat
@@ -34,7 +34,6 @@ module Component.Looper.Control
   ( ShowBank
   , runGesture
   , runAction
-  , followBoard
   , deferralOf
   ) where
 
@@ -46,12 +45,11 @@ import Data.Looper.Banks as LoopBanks
 import Data.Looper.Machine as Machine
 import Data.Looper.Press as Press
 import Data.Looper.Switchboard as Switchboard
-import Data.Maybe (Maybe(..))
 import Data.Traversable (traverse_)
 import Effect.Aff.Class (class MonadAff)
 import Effect.Class (liftEffect)
 import Effect.Class.Console as Console
-import Engine (AppState, pushLooperLog)
+import Engine (AppState)
 import Foreign.LooperSocket as LooperSocket
 import Halogen as H
 
@@ -76,38 +74,12 @@ runGesture
 runGesture showBank g = do
   st <- H.get
   let rig = rigOf st
-  followBoard g
   traverse_ (runAction showBank (deferralOf st.looperDeferral g)) (Switchboard.act rig g)
 
 -- | How late this command already is: `Data.Looper.Press.deferralOf`, shared
 -- | with the looper's own process.
 deferralOf :: { tapMs :: Number, holdMs :: Number } -> LoopBanks.SwitchGesture -> Number
 deferralOf = Press.deferralOf
-
--- | Keep track of which bank the board is showing, including the jumps it makes
--- | on its own.
--- |
--- | A press tells us the bank it came *from*; this works out the bank it leaves
--- | the board on, by reading the same jump table the device was programmed with.
--- | Without it the app is permanently one press behind — the long press that
--- | opens the config bank is performed entirely by the MC6, so the app sees a
--- | *loop* switch and hears nothing more until something on the config bank is
--- | pressed. The legend then names the wrong six switches, which is how "J is
--- | Clear" came to be printed under a foot standing on End Stop.
--- |
--- | `Nothing` means the looper is not on screen at all: `< Board` leaves the
--- | family, and a legend that kept describing the loop bank there would be
--- | inventing a board.
-followBoard
-  :: forall act slots o m. MonadAff m
-  => LoopBanks.SwitchGesture -> H.HalogenM AppState act slots o m Unit
-followBoard g =
-  H.modify_ _ { looperBankShown = case LoopBanks.sendsTo g.slot g.switch g.gesture of
-      Just (LoopBanks.ToSlot to) -> Just to
-      Just LoopBanks.ToBoard -> Nothing
-      -- Not a navigating switch, so the board stayed where the press came from.
-      Nothing -> Just g.slot
-    }
 
 runAction
   :: forall act slots o m. MonadAff m
@@ -119,7 +91,7 @@ runAction showBank late a = do
   case a of
     Machine.Command c -> do
       ok <- liftEffect $ LooperSocket.send (c <> "@" <> show (Int.round late))
-      note (if ok then Machine.describe a else "no daemon — " <> c <> " went nowhere")
+      unless ok $ note ("no daemon — " <> c <> " went nowhere")
     -- Here at once, so the next press acts on it without waiting a frame,
     -- and told to the daemon, which holds the selection every surface on it
     -- shares (a bare loop number selects; the snapshot reports `selected`).
@@ -133,10 +105,13 @@ runAction showBank late a = do
     -- The one action this module cannot carry out itself, and deliberately:
     -- reaching the MC6 means an editor session, and sessions belong to whoever
     -- owns that wire. See `ShowBank`.
-    Machine.ShowBank slot -> do
-      note (Machine.describe a)
-      showBank slot
-    Machine.Unavailable why -> note why
-    Machine.Handled what -> note what
+    Machine.ShowBank slot -> showBank slot
+    -- Already said: the line above describes every action, these included.
+    Machine.Unavailable _ -> pure unit
+    Machine.Handled _ -> pure unit
   where
-  note msg = H.modify_ (pushLooperLog msg)
+  -- **The console, since the looper's page left for Quadrat** (2026-11-07).
+  -- The page's log was where these lines were read; Quadrat's Loop page reads
+  -- the daemon's own acks, and what is left here is this app's fallback,
+  -- which has no page of its own to speak on.
+  note msg = liftEffect $ Console.log ("looper: " <> msg)
