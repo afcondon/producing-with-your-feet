@@ -58,6 +58,7 @@ import Data.Twister (Knob, TwisterEncoder(..), TwisterMsg(..), fromHelm)
 import Data.Twister as TwisterData
 import Data.Looper.Twister as LoopTwister
 import Control.Monad.Rec.Class (forever)
+import Effect (Effect)
 import Effect.Aff (Milliseconds(..), delay)
 import Effect.Aff as Aff
 import Foreign.MidiTransport as MidiTransport
@@ -3934,7 +3935,10 @@ paintTwister = case _ of
     when held $ case st.connections.access, st.connections.twisterOutputId of
       Just access, Just port -> do
         hub <- liftEffect (MIDI.viaHub access)
-        if hub then liftEffect (MIDI.grantName access port TwisterHolder.looperProcess)
+        up <- liftEffect (looperProcessUp access)
+        -- Granting to a process that is not there would leave the Twister
+        -- held and unpainted; this page paints the looper's pages instead.
+        if hub && up then liftEffect (MIDI.grantName access port TwisterHolder.looperProcess)
         else refreshTwister Looper.itajaraId
       _, _ -> pure unit
   TwisterSurface.PaintScene -> paintOrAsk do
@@ -3973,6 +3977,25 @@ twisterClaimsChanged = do
     H.modify_ _ { twisterLit = Map.empty }
     liftEffect $ Console.log (if held then "Twister: this page holds it" else "Twister: handed on")
     when held repaintTwister
+  for_ st.connections.access \access -> for_ st.connections.twisterOutputId \port -> do
+    holder <- liftEffect (MIDI.holderOf access port)
+    up <- liftEffect (looperProcessUp access)
+    -- **Nobody holds it**: its holder went away (the looper's process
+    -- stopped). This page is the fallback for every surface, the looper's
+    -- pages included, so it takes the Twister; the table sorts out the rest.
+    when (holder == Nothing) do
+      liftEffect $ Console.log "Twister: nobody holds it; taking it"
+      liftEffect (MIDI.wantName access port)
+    -- **The looper's process is back** while this page paints the looper's
+    -- pages for it: they are the process's, so hand them over.
+    when (held && up && twisterOwner st == Just TwisterSurface.LooperPages) $
+      liftEffect (MIDI.grantName access port TwisterHolder.looperProcess)
+
+-- | Whether the looper's own process is running, by the claim it makes on
+-- | start and releases on stop (`LoopBanks.switchesClaim`).
+looperProcessUp :: MIDI.MIDIAccess -> Effect Boolean
+looperProcessUp access =
+  (_ == Just TwisterHolder.looperProcess) <$> MIDI.holderOf access LoopBanks.switchesClaim
 
 -- | Paint what the current owner shows, as arriving there would. For a device
 -- | that has been somewhere else, or has just arrived: the machine's entry is
