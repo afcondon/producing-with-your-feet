@@ -109,8 +109,9 @@ deviceBank = 0
 -- | Verified on hardware 2026-10-17. Press one of the device's own bank
 -- | buttons, use an encoder there, and the pin in `App.TwisterMidiReceived`
 -- | sends this and the device comes straight back to `deviceBank`. The bank
--- | buttons themselves send nothing, so the pin acts on the first message
--- | from the other bank, not on the press.
+-- | buttons announce the layer they land on (ch 4, CC layer, 127: measured
+-- | 2026-11-07; the 2026-10-17 note that they send nothing was wrong), so the
+-- | pin acts on the press itself (`Helm.Twister.layerOf`).
 bankSelectMessage :: Int -> Array Int
 bankSelectMessage = Helm.layerSelect
 
