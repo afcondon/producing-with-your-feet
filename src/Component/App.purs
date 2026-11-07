@@ -1603,8 +1603,10 @@ handleAction = case _ of
   -- says the looper should have it, refused with the reason otherwise.
   TwisterWanted port by -> do
     st <- H.get
+    -- Already handed on (the process's return and its want can cross).
+    held <- holdsTwister
     for_ st.connections.access \access ->
-      when (st.connections.twisterOutputId == Just port) $
+      when (held && st.connections.twisterOutputId == Just port) $
         if twisterOwner st == Just TwisterSurface.LooperPages
           then liftEffect (MIDI.grantName access port by)
           else liftEffect (MIDI.refuseWant access port by
