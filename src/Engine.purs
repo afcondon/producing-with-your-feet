@@ -145,6 +145,9 @@ type AppState =
   -- | record of who may paint it (`Lights.holdsTwister` reads it fresh; this
   -- | is only to notice the change). Always true through plain Web MIDI.
   , twisterHeld :: Boolean
+  -- | Who holds the Twister on Helm's hub, by the name the holder gave it, as
+  -- | last heard; drawn by the nav's mark. `Nothing` through plain Web MIDI.
+  , twisterHolder :: Maybe String
   -- | Whether the MC6 stands on one of the looper's banks
   -- | (`Data.Looper.TwisterHolder`), so a change of bank that changes this
   -- | and not the scene still reaches the Twister's machine.
@@ -406,6 +409,7 @@ initAppState =
   , layersAsked: Map.empty
   , twisterHeardBank: Nothing
   , twisterHeld: false
+  , twisterHolder: Nothing
   , twisterBankLooper: false
   , twisterPage: 0
   , twisterScene: Nothing

@@ -137,12 +137,15 @@ renderTwisterMark holding =
         TwisterNotConnected -> "absent"
         TwisterWithPedals -> "ok"
         TwisterWithLooper -> "looper"
+        TwisterWithOther _ -> "other"
     , sign: case holding of
         TwisterNotConnected -> "\x2717"
         TwisterWithPedals -> "\x2713"
         TwisterWithLooper -> "\x25CF"
+        TwisterWithOther _ -> "\x25CB"
     , word: "Twister" <> case holding of
         TwisterWithLooper -> ": " <> holdingWord holding
+        TwisterWithOther _ -> ": " <> holdingWord holding
         _ -> ""
     , title: holdingSentence holding
     }

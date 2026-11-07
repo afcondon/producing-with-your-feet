@@ -127,13 +127,17 @@ twisterHoldingTests = do
   log "Running Twister holding mark tests..."
   -- Not connected wins over anything the hub last said: a held claim on a port
   -- that has gone is not a Twister you can turn.
+  let at r = Holding.twisterHolding (r { looper = "itajara-controllers" })
+      base = { connected: true, heldHere: false, holder: Nothing, looper: "" }
   assert "no Twister output: not connected, whatever the claim says"
-    (Holding.twisterHolding { connected: false, heldHere: true } == Holding.TwisterNotConnected
-      && Holding.twisterHolding { connected: false, heldHere: false } == Holding.TwisterNotConnected)
+    (at base { connected = false, heldHere = true } == Holding.TwisterNotConnected
+      && at base { connected = false, holder = Just "itajara-controllers" } == Holding.TwisterNotConnected)
   assert "connected and held here: the pedals have it"
-    (Holding.twisterHolding { connected: true, heldHere: true } == Holding.TwisterWithPedals)
-  assert "connected and not held here: the looper has it"
-    (Holding.twisterHolding { connected: true, heldHere: false } == Holding.TwisterWithLooper)
+    (at base { heldHere = true } == Holding.TwisterWithPedals)
+  assert "held by the looper's process, by name: the looper has it"
+    (at base { holder = Just "itajara-controllers" } == Holding.TwisterWithLooper)
+  assert "held by another tab of this app: said by name, never taken for the looper"
+    (at base { holder = Just "pwyf" } == Holding.TwisterWithOther "pwyf")
   assert "the looper's sentence names the MC6's bank, the reason it moved"
     (Holding.holdingSentence Holding.TwisterWithLooper
       == "Twister: with the looper (the MC6 is on the Loops bank)")

@@ -15,12 +15,18 @@ module Data.Twister.Holding
 
 import Prelude
 
+import Data.Maybe (Maybe(..))
+
 data TwisterHolding
   = TwisterNotConnected
   -- | This page holds it: the knobs reach the focused pedal or a scene.
   | TwisterWithPedals
   -- | The looper's process holds it, because the MC6 is on the Loops bank.
   | TwisterWithLooper
+  -- | Some other client of Helm's hub holds it, by the name it gave the hub:
+  -- | a second PWYF tab, or anything else that took it. Said by name, so a
+  -- | second tab is never mistaken for the looper.
+  | TwisterWithOther String
 
 derive instance eqTwisterHolding :: Eq TwisterHolding
 
@@ -29,22 +35,28 @@ instance showTwisterHolding :: Show TwisterHolding where
     TwisterNotConnected -> "TwisterNotConnected"
     TwisterWithPedals -> "TwisterWithPedals"
     TwisterWithLooper -> "TwisterWithLooper"
+    TwisterWithOther who -> "(TwisterWithOther " <> show who <> ")"
 
--- | Derived from what the app already keeps, not from a field of its own:
--- | whether the Twister's output is open, and whether this page holds it on
--- | Helm's hub (`twisterHeld`, always true through plain Web MIDI, where there
--- | is no one to hold it from).
+-- | Derived from what the app already keeps: whether the Twister's output is
+-- | open, whether this connection holds it on Helm's hub (`twisterHeld`,
+-- | always true through plain Web MIDI, where there is no one to hold it
+-- | from), and the holder's name as the hub last said it (`twisterHolder`).
 -- |
--- | **Not held here is read as the looper's.** The hub's table has exactly two
--- | holders for the Twister, this page and the looper's process, so a Twister
--- | that is connected and not ours is the looper's. The one case that reads
--- | wrong is a second PWYF tab holding it, which the hub allows and nothing
--- | here can tell apart without asking the hub for the holder's name.
-twisterHolding :: { connected :: Boolean, heldHere :: Boolean } -> TwisterHolding
-twisterHolding = case _ of
-  { connected: false } -> TwisterNotConnected
-  { heldHere: true } -> TwisterWithPedals
-  _ -> TwisterWithLooper
+-- | **The looper by name, not by elimination.** A second PWYF tab can hold the
+-- | Twister too, so "not held here" is not enough to say "the looper";
+-- | the hub's claims carry the holder's name, and that is what is read.
+-- | Nobody holding it is momentary (this page then takes it), and is shown as
+-- | this page's rather than as a fourth thing to explain.
+twisterHolding
+  :: { connected :: Boolean, heldHere :: Boolean, holder :: Maybe String, looper :: String }
+  -> TwisterHolding
+twisterHolding r
+  | not r.connected = TwisterNotConnected
+  | r.heldHere = TwisterWithPedals
+  | otherwise = case r.holder of
+      Just who | who == r.looper -> TwisterWithLooper
+      Just who -> TwisterWithOther who
+      Nothing -> TwisterWithPedals
 
 -- | The mark's word, beside its dot.
 holdingWord :: TwisterHolding -> String
@@ -52,6 +64,7 @@ holdingWord = case _ of
   TwisterNotConnected -> "not connected"
   TwisterWithPedals -> "pedals"
   TwisterWithLooper -> "looper"
+  TwisterWithOther who -> who
 
 -- | The sentence on hover, and on anything drawn greyed while the looper has
 -- | it, so the reason is the same words wherever it is given.
@@ -60,3 +73,4 @@ holdingSentence = case _ of
   TwisterNotConnected -> "Twister: not connected"
   TwisterWithPedals -> "Twister: with this app (the knobs reach the pedals)"
   TwisterWithLooper -> "Twister: with the looper (the MC6 is on the Loops bank)"
+  TwisterWithOther who -> "Twister: held by " <> who <> " (another app on Helm's hub)"

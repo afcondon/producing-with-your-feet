@@ -3754,7 +3754,10 @@ twisterClaimsChanged :: forall o m. MonadAff m => H.HalogenM AppState Action Slo
 twisterClaimsChanged = do
   st <- H.get
   held <- holdsTwister
-  H.modify_ _ { twisterHeld = held }
+  holderNow <- liftEffect case st.connections.access, st.connections.twisterOutputId of
+    Just access, Just port -> MIDI.holderOf access port
+    _, _ -> pure Nothing
+  H.modify_ _ { twisterHeld = held, twisterHolder = holderNow }
   when (held /= st.twisterHeld) do
     H.modify_ _ { twisterLit = Map.empty }
     liftEffect $ Console.log (if held then "Twister: this page holds it" else "Twister: handed on")
@@ -3794,6 +3797,8 @@ twisterHoldingOf st =
   Holding.twisterHolding
     { connected: isJust st.connections.twisterOutput
     , heldHere: st.twisterHeld
+    , holder: st.twisterHolder
+    , looper: TwisterHolder.looperProcess
     }
 
 twisterOwner :: AppState -> Maybe TwisterSurface.Owner
