@@ -1672,12 +1672,15 @@ handleAction = case _ of
               then Array.filter (_ /= pid) s.hiddenPedals
               else Array.snoc s.hiddenPedals pid
           }
+        -- The same rule as the Overview's, below: choosing focuses, clearing
+        -- leaves focus where it is. Until 2026-11-07 the Boards view's choice
+        -- reached nothing, so the Twister stayed on whatever it had.
         BoardsView ->
-          H.modify_ \s -> s { boardsActivePedal =
-            if s.boardsActivePedal == Just pid
-              then Nothing
-              else Just pid
-          }
+          if st.boardsActivePedal == Just pid
+            then H.modify_ _ { boardsActivePedal = Nothing }
+            else do
+              H.modify_ _ { boardsActivePedal = Just pid }
+              focusPedal pid
         -- **Choosing a pedal here focuses it**, and so hands it the Twister
         -- (by the machine's rule: not during a scene). Until 2026-11-05 the
         -- Overview kept a selection of its own that nothing else heard, so on
@@ -1688,8 +1691,8 @@ handleAction = case _ of
           if st.overviewActivePedal == Just pid
             then H.modify_ _ { overviewActivePedal = Nothing }
             else do
-              H.modify_ _ { overviewActivePedal = Just pid, focusPedalId = Just pid }
-              feedTwister (focusEvent (Just pid))
+              H.modify_ _ { overviewActivePedal = Just pid }
+              focusPedal pid
         _ -> pure unit
 
   HandleDetail output -> case output of
@@ -1743,7 +1746,9 @@ handleAction = case _ of
     BoardsView.RecallPresetAudition preset -> do
       recallPreset preset
       autoEngageIfNeeded preset
-    BoardsView.FocusPedal pid -> H.modify_ _ { boardsActivePedal = Just pid }
+    BoardsView.FocusPedal pid -> do
+      H.modify_ _ { boardsActivePedal = Just pid }
+      focusPedal pid
     BoardsView.SendEngageAll engState -> do
       st <- H.get
       for_ st.cardOrder \pid ->
@@ -3906,6 +3911,14 @@ feedTwister ev = do
     H.modify_ _ { twisterSurface = Just fed.surface }
     for_ fed.refused \why -> liftEffect (Console.log ("Twister: " <> why))
     traverse_ paintTwister fed.paints
+
+-- | **Choosing a pedal focuses it**, and so offers it the Twister (the machine
+-- | decides: not on a bank that names another holder). One place, so every
+-- | view that lets you choose a pedal means the same thing by it.
+focusPedal :: forall o m. MonadAff m => PedalId -> H.HalogenM AppState Action Slots o m Unit
+focusPedal pid = do
+  H.modify_ _ { focusPedalId = Just pid }
+  feedTwister (focusEvent (Just pid))
 
 -- | What each entry command means on this device.
 paintTwister :: forall o m. MonadAff m => TwisterSurface.Paint -> H.HalogenM AppState Action Slots o m Unit
