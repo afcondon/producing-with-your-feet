@@ -54,6 +54,7 @@ import Data.String.Pattern (Pattern(..))
 import Data.Tuple (Tuple(..))
 import Data.Twister (Knob, TwisterEncoder(..), TwisterMsg(..), fromHelm)
 import Data.Twister as TwisterData
+import Data.Twister.Holding as Holding
 import Data.Looper.Twister as LoopTwister
 import Control.Monad.Rec.Class (forever)
 import Effect (Effect)
@@ -200,6 +201,10 @@ render state = case state.configError of
         , boardsActivePedal: state.boardsActivePedal
         , overviewActivePedal: state.overviewActivePedal
         , registry: state.registry
+        -- Either direction counts: the MC6 is there if we can hear it or
+        -- write to it. Both handles are dropped when its port goes away.
+        , mc6Connected: isJust state.connections.mc6Input || isJust state.connections.mc6Output
+        , twister: twisterHoldingOf state
         }
         HandleHeader
     , case state.view of
@@ -3692,6 +3697,15 @@ repaintTwister :: forall o m. MonadAff m => H.HalogenM AppState Action Slots o m
 repaintTwister = do
   st <- H.get
   for_ st.twisterSurface \surface -> traverse_ paintTwister (TwisterSurface.repaint surface)
+
+-- | Who has the Twister, for the nav's mark: derived, not stored
+-- | (`Data.Twister.Holding`).
+twisterHoldingOf :: AppState -> Holding.TwisterHolding
+twisterHoldingOf st =
+  Holding.twisterHolding
+    { connected: isJust st.connections.twisterOutput
+    , heldHere: st.twisterHeld
+    }
 
 twisterOwner :: AppState -> Maybe TwisterSurface.Owner
 twisterOwner st = map TwisterSurface.owner st.twisterSurface

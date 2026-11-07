@@ -61,6 +61,7 @@ import Pedals.Registry as Registry
 import Data.Twister.Scene as Scene
 import Data.Twister.Scenes as Scenes
 import Engine.Twister as ETw
+import Data.Twister.Holding as Holding
 
 -- Golden fixture: JS-format engine state with 3 pedals, numeric-string CC keys
 engineFixture :: String
@@ -118,6 +119,23 @@ assert :: String -> Boolean -> Effect Unit
 assert label ok = do
   log $ (if ok then "PASS" else "FAIL") <> " - " <> label
   unless ok recordFailure
+
+-- | The nav's Twister mark (`Data.Twister.Holding`).
+twisterHoldingTests :: Effect Unit
+twisterHoldingTests = do
+  log "Running Twister holding mark tests..."
+  -- Not connected wins over anything the hub last said: a held claim on a port
+  -- that has gone is not a Twister you can turn.
+  assert "no Twister output: not connected, whatever the claim says"
+    (Holding.twisterHolding { connected: false, heldHere: true } == Holding.TwisterNotConnected
+      && Holding.twisterHolding { connected: false, heldHere: false } == Holding.TwisterNotConnected)
+  assert "connected and held here: the pedals have it"
+    (Holding.twisterHolding { connected: true, heldHere: true } == Holding.TwisterWithPedals)
+  assert "connected and not held here: the looper has it"
+    (Holding.twisterHolding { connected: true, heldHere: false } == Holding.TwisterWithLooper)
+  assert "the looper's sentence names the MC6's bank, the reason it moved"
+    (Holding.holdingSentence Holding.TwisterWithLooper
+      == "Twister: with the looper (the MC6 is on the Loops bank)")
 
 foreign import recordFailureImpl :: Effect Unit
 foreign import readTextImpl :: String -> Effect String
@@ -220,6 +238,7 @@ padTo n s = s <> power " " (max 0 (n - String.length s))
 main :: Effect Unit
 main = do
   twisterSurfaceTests
+  twisterHoldingTests
   log "Running pedal definition tests..."
 
   -- Twelve boxes on the floor. Itajara was a thirteenth entry, the app's own
