@@ -27,6 +27,8 @@ module Engine.Storage
   , loadGlobalSwitchesParsed
   , saveMC6AutoHold
   , loadMC6AutoHold
+  , saveLooperSwitchChannel
+  , loadLooperSwitchChannel
   , loadLegacyOverrides
   , parseEngine
   , parseCardOrder
@@ -54,6 +56,7 @@ import Data.Argonaut.Parser (jsonParser)
 import Data.Array as Array
 import Data.Either (hush)
 import Data.Int as Int
+import Data.Looper.Banks as LoopBanks
 import Data.JSDate as JSDate
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
@@ -86,6 +89,7 @@ data StorageKey
   | DumpedBanksKey
   | SweepRunKey
   | MC6AutoHoldKey
+  | LooperSwitchChannelKey
 
 keyString :: StorageKey -> String
 keyString = case _ of
@@ -102,6 +106,7 @@ keyString = case _ of
   DeviceReadKey -> "pedal-explorer-mc6-device-read"
   DumpedBanksKey -> "pedal-explorer-mc6-dumped-banks"
   MC6AutoHoldKey -> "pedal-explorer-mc6-auto-hold"
+  LooperSwitchChannelKey -> "pedal-explorer-looper-switch-channel"
   SweepRunKey -> "pedal-explorer-mc6-sweep-run"
 
 getStorage :: Effect Storage.Storage
@@ -829,3 +834,16 @@ saveMC6AutoHold on = setItem MC6AutoHoldKey (if on then "true" else "false")
 
 loadMC6AutoHold :: Effect Boolean
 loadMC6AutoHold = map (_ /= Just "false") (getItem MC6AutoHoldKey)
+
+-- | The channel the looper's banks speak on. The default (nine) unless this
+-- | browser was told otherwise; anything stored that is not a channel 1-16
+-- | reads as the default rather than as a channel nobody chose.
+saveLooperSwitchChannel :: LoopBanks.SwitchChannel -> Effect Unit
+saveLooperSwitchChannel channel =
+  setItem LooperSwitchChannelKey (show (LoopBanks.switchChannelNumber channel))
+
+loadLooperSwitchChannel :: Effect LoopBanks.SwitchChannel
+loadLooperSwitchChannel =
+  map (\stored -> fromMaybe LoopBanks.defaultSwitchChannel
+        (stored >>= Int.fromString >>= LoopBanks.switchChannelFrom))
+    (getItem LooperSwitchChannelKey)

@@ -300,7 +300,7 @@ handleAction = case _ of
 
   -- Halogen calls `receive` on every parent render, not only when this
   -- component's input changed — and the parent re-renders ten times a second to
-  -- poll the looper. Rebuilding thirteen HATS trees at that rate tears the DOM
+  -- poll the looper. Rebuilding twelve HATS trees at that rate tears the DOM
   -- out from under the pointer: mousedown lands on one node, mouseup on its
   -- replacement, and the browser never synthesises a `click`. Footswitches went
   -- dead while knobs kept working, because knobs fire on `pointerdown`, which

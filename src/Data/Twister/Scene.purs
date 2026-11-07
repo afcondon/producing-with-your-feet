@@ -21,9 +21,10 @@
 -- |
 -- | ## What a scene deliberately cannot do
 -- |
--- | Reach the looper. A scene is CCs to pedals, and Itajara is not a pedal —
--- | `Pedals.Itajara.twister` is `Nothing` on purpose, because filling it in
--- | would install a second route to the daemon beside `Machine.perform`. The
+-- | Reach the looper. A scene is CCs to pedals, and the looper is not a pedal
+-- | (it was registered as one, with no Twister map, until 2026-11-07; a map
+-- | would have installed a second route to the daemon beside
+-- | `Machine.perform`). The
 -- | looper's surface is `Data.Looper.Twister`, which speaks `Duty` and shares
 -- | nothing with this but the hardware.
 module Data.Twister.Scene

@@ -49,7 +49,7 @@ pedalsPerBank = returnIndex
 -- | the board as you found it.
 -- | How many consecutive banks `bypassBanks` will occupy for this registry.
 -- |
--- | Exported because it is not one. Thirteen pedals at eight to a bank is two
+-- | Exported because it is not one. Twelve pedals at eight to a bank is two
 -- | banks, and the reserved-bank table claimed a single number for
 -- | "diagnostics" — so bank 12 was spoken for and simultaneously listed as
 -- | spare. Derived from the same chunking the banks themselves use, so the two

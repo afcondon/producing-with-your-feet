@@ -6,14 +6,14 @@
 -- | and this app owns nothing of the looper but this: putting its banks on the
 -- | hardware, the same job it does for every other page on the device, and the
 -- | printed sheet of them. So the panel sits with the board's own banks rather
--- | than on a looper tab. The banks themselves are the looper's (the six-loop
--- | family is `Data.Looper.Banks`, in itajara); only the write is this app's,
+-- | than on a looper tab. The banks themselves are the looper's (the Loops
+-- | bank is `Data.Looper.Banks`, in itajara); only the write is this app's,
 -- | because it goes out through this app's MIDI ports.
 -- |
 -- | Until 2026-11-07 this was the Looper page's "MC6 banks" panel
--- | (`Component.Looper.Banks`), and it drew the six-loop table twice: the
--- | transport card carried the family card inside it as well as beside it.
--- | Drawn once here.
+-- | (`Component.Looper.Banks`). The same day the single-loop transport bank
+-- | and the looper's six other pages went (AC), leaving the Loops bank and
+-- | the channel it speaks on.
 module Component.Controls.LooperBanks
   ( State
   , Handlers
@@ -23,26 +23,28 @@ module Component.Controls.LooperBanks
 import Prelude
 
 import Data.Array as Array
-import Data.Looper as Looper
 import Data.Looper.Banks as LoopBanks
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), fromMaybe)
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 
 -- | Everything the panel reads. Open, so the MC6 page's input passes unchanged.
+-- | `looperSwitchChannelClash` is computed by the app, which knows the
+-- | registry (`Data.Looper.switchChannelClash`).
 type State r =
   ( looperProgramStatus :: Maybe String
-  , mc6LooperBankNum :: Int
   , mc6LoopBankBase :: Int
   , mc6BoardBankNum :: Int
+  , looperSwitchChannel :: LoopBanks.SwitchChannel
+  , looperSwitchChannelClash :: Maybe String
   | r
   )
 
--- | The two writes the panel can ask for, and the sheet.
+-- | The write the panel can ask for, the channel it can set, and the sheet.
 type Handlers i =
-  { programLooperBank :: i
-  , programLoopBanks :: i
+  { programLoopBanks :: i
+  , setSwitchChannel :: LoopBanks.SwitchChannel -> i
   , printSheet :: i
   }
 
@@ -55,9 +57,8 @@ render
   -> HH.HTML w i
 render h mc6 state =
   HH.div [ HP.class_ (HH.ClassName "controls-looper-banks") ]
-    [ HH.h4_ [ HH.text "The looper's banks" ]
-    , transportCard
-    , loopFamilyCard
+    [ HH.h4_ [ HH.text "The looper's bank" ]
+    , loopsCard
     -- **Not a write, but it belongs with them.** The sheet is the board's
     -- pages and the recipes on paper, opened in its own tab so the paper can be
     -- read beside the rig while the looper's page keeps focus — a background
@@ -76,57 +77,72 @@ render h mc6 state =
         Just msg -> HH.p [ HP.class_ (HH.ClassName "controls-looper-note") ] [ HH.text msg ]
     ]
   where
-  -- Itajara is a pedal now, so its full surface lives on its own Detail page
-  -- and any switch can be assigned to any of it. What remains here is the one
-  -- thing that page cannot do: put a usable bank on the hardware today.
-  transportCard =
-    HH.div [ HP.class_ (HH.ClassName "controls-looper-card") ]
-      [ HH.h5_ [ HH.text "Footswitch control" ]
-      , HH.p [ HP.class_ (HH.ClassName "controls-looper-note") ]
-          [ HH.text $
-              "Itajara is a pedal on channel " <> show Looper.itajaraChannel
-              <> ", so the MC6 addresses it exactly as it addresses Habit or MOOD — "
-              <> "and every control is on its own page, assignable to any switch. "
-              <> "This writes a starter transport bank to MC6 bank "
-              <> show state.mc6LooperBankNum <> "."
-          ]
-      , HH.table [ HP.class_ (HH.ClassName "docs-table") ]
-          [ HH.tbody_ (map bankRow (Looper.looperBank state.mc6LooperBankNum state.mc6BoardBankNum).switches) ]
-      , HH.button
-          [ HP.class_ (HH.ClassName "files-btn")
-          , HP.disabled (not mc6)
-          , HE.onClick \_ -> h.programLooperBank
-          ]
-          [ HH.text "Program MC6 looper bank" ]
-      ]
+  channelNumber = LoopBanks.switchChannelNumber state.looperSwitchChannel
 
-  -- The six-loop machine's own banks, which are a different thing wearing a
-  -- similar name to the transport bank above: that one drives one loop through
-  -- Itajara's pedal CCs, this one gives the looper twelve labelled places to
-  -- stand on each of its pages and lets the looper decide what standing there
+  -- The looper's own bank: twelve labelled places to stand, each sending its
+  -- own CC on the looper's channel, and the looper decides what standing there
   -- means.
-  loopFamilyCard =
+  loopsCard =
     HH.div [ HP.class_ (HH.ClassName "controls-looper-card") ]
-      [ HH.h5_ [ HH.text "Six-loop banks" ]
+      [ HH.h5_ [ HH.text "Loops bank" ]
       , HH.p [ HP.class_ (HH.ClassName "controls-looper-note") ]
           [ HH.text $
-              show (Array.length LoopBanks.allSlots)
-              <> " banks from MC6 bank " <> show state.mc6LoopBankBase
+              "MC6 bank " <> show state.mc6LoopBankBase
               <> ", uploaded once. Every switch sends its own CC on channel "
-              <> show LoopBanks.switchChannel
+              <> show channelNumber
               <> ", so a press says which bank it came from and the looper never has "
               <> "to remember which page the board is showing."
           ]
       , HH.table [ HP.class_ (HH.ClassName "docs-table") ]
           [ HH.tbody_ (map familyRow (LoopBanks.banks
-              { base: state.mc6LoopBankBase, boardBank: state.mc6BoardBankNum })) ]
+              { base: state.mc6LoopBankBase
+              , boardBank: state.mc6BoardBankNum
+              , channel: state.looperSwitchChannel
+              })) ]
+      , channelPicker
       , HH.button
           [ HP.class_ (HH.ClassName "files-btn")
           , HP.disabled (not mc6)
           , HE.onClick \_ -> h.programLoopBanks
           ]
-          [ HH.text "Program MC6 loop banks" ]
+          [ HH.text "Program MC6 loops bank" ]
       ]
+
+  -- **One setting, two readers.** This app writes the bank on it and answers
+  -- presses on it when the looper's process is not running; the process reads
+  -- its own copy from `LOOPER_MC6_CHANNEL`. So the sentence says both halves
+  -- of a change, because doing only the first leaves a board whose presses
+  -- the process never hears.
+  channelPicker =
+    HH.div [ HP.class_ (HH.ClassName "controls-looper-channel") ]
+      [ HH.label_
+          [ HH.text "MIDI channel "
+          , HH.select
+              [ HE.onSelectedIndexChange \index ->
+                  h.setSwitchChannel
+                    (fromMaybe LoopBanks.defaultSwitchChannel
+                      (Array.index LoopBanks.allSwitchChannels index))
+              ]
+              (map channelOption LoopBanks.allSwitchChannels)
+          ]
+      , HH.p [ HP.class_ (HH.ClassName "controls-looper-note") ]
+          [ HH.text $
+              "Changing it means writing the bank again (the button below) and \
+              \restarting the looper's process with LOOPER_MC6_CHANNEL="
+              <> show channelNumber
+              <> ". Nine unless something else on the board needs it: the MC6 \
+                 \routes channels this app does not know about (LoopyPro is 16)."
+          ]
+      , case state.looperSwitchChannelClash of
+          Nothing -> HH.text ""
+          Just why -> HH.p [ HP.class_ (HH.ClassName "controls-looper-note controls-looper-warning") ]
+            [ HH.text why ]
+      ]
+
+  channelOption channel =
+    HH.option
+      [ HP.selected (channel == state.looperSwitchChannel) ]
+      [ HH.text (show (LoopBanks.switchChannelNumber channel)) ]
 
   familyRow cb =
     HH.tr_
@@ -135,12 +151,4 @@ render h mc6 state =
       , HH.td_
           [ HH.text $ Array.intercalate ", "
               (Array.filter (_ /= "") (map _.label cb.switches)) ]
-      ]
-
-  -- Switch letters run A–F on the MC6 itself, then G/H/I on the first FS3X.
-  bankRow sw =
-    if sw.label == "" then HH.text ""
-    else HH.tr_
-      [ HH.td [ HP.class_ (HH.ClassName "docs-cc") ] [ HH.text sw.label ]
-      , HH.td_ [ HH.text sw.longName ]
       ]

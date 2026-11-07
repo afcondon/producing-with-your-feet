@@ -44,7 +44,7 @@ import Data.Tuple (Tuple(..))
 import Glassbox.Codec.JSON (parseSpec)
 import Glassbox.Lint as Lint
 import Glassbox.Run as Run
-import Glassbox.Spec (CommandId(..), EventId(..), FactId(..), Outcome(..), RefusalId(..), Spec, StateId(..), Value(..), commandIds, entryOf, eventIds, stateIds)
+import Glassbox.Spec (CommandId(..), EventId(..), FactId(..), Outcome(..), RefusalId(..), Spec, StateId(..), commandIds, entryOf, eventIds, stateIds)
 
 data Owner
   = PedalPage
@@ -63,7 +63,6 @@ derive instance eqPaint :: Eq Paint
 
 data Event
   = FocusPedal
-  | FocusLooper
   -- | Where the MC6 stands: on a scene's bank, on one of the looper's, or on
   -- | one that names no holder.
   | BankScene
@@ -73,12 +72,13 @@ data Event
 -- | A machine that has passed the alphabet check, and where it is.
 newtype Surface = Surface { spec :: Spec, state :: StateId }
 
--- | Every state, and whose it is. Two are the looper's: by focus, and by
--- | the MC6's bank (where focus changes nothing).
+-- | Every state, and whose it is. The looper's is reached by the MC6's bank
+-- | alone (where focus changes nothing): until 2026-11-07 it was also reached
+-- | by focusing the looper's pedal, state `looper`, and the looper is not a
+-- | pedal now.
 states :: Array (Tuple String Owner)
 states =
   [ Tuple "pedal" PedalPage
-  , Tuple "looper" LooperPages
   , Tuple "scene" ScenePage
   , Tuple "looper-bank" LooperPages
   ]
@@ -92,7 +92,6 @@ paintName = case _ of
 eventName :: Event -> String
 eventName = case _ of
   FocusPedal -> "focus-pedal"
-  FocusLooper -> "focus-looper"
   BankScene -> "bank-scene"
   BankLooper -> "bank-looper"
   BankPlain -> "bank-plain"
@@ -101,11 +100,14 @@ paints :: Array Paint
 paints = [ PaintPedal, HandToLooper, PaintScene ]
 
 events :: Array String
-events = map eventName [ FocusPedal, FocusLooper, BankScene, BankLooper, BankPlain ]
+events = map eventName [ FocusPedal, BankScene, BankLooper, BankPlain ]
 
--- | The facts `feed` sets, every one of them, on every event.
+-- | The facts `feed` sets: none. `pedal-focused` went with the looper's
+-- | pedal (it chose between a focused pedal and the looper on leaving a
+-- | holder's bank). Still checked, so a fact added to the file is a load
+-- | error rather than a guard that silently reads false.
 facts :: Array String
-facts = [ "pedal-focused" ]
+facts = []
 
 -- | Parse the artifact, refuse it if Glassbox's lint does (a state owing a
 -- | command nobody declared, a rule missing, a state nothing reaches), and
@@ -163,17 +165,14 @@ start (Surface s) = Array.mapMaybe paintOf (Run.startCommands s.spec)
 repaint :: Surface -> Array Paint
 repaint (Surface s) = Array.mapMaybe paintOf (entryOf s.spec s.state)
 
--- | One event. `pedalFocused` (a pedal other than the looper) is the one fact
--- | the machine reads: where the Twister goes when the MC6 leaves a bank that
--- | named a holder. With none, it goes to the looper.
+-- | One event.
 feed
-  :: { pedalFocused :: Boolean }
-  -> Event
+  :: Event
   -> Surface
   -> { surface :: Surface, paints :: Array Paint, refused :: Maybe String }
-feed { pedalFocused } ev (Surface s) =
+feed ev (Surface s) =
   let
-    world = Run.setFact (FactId "pedal-focused") (VBoolean pedalFocused) (Run.worldFrom s.spec)
+    world = Run.worldFrom s.spec
     Tuple next stepped = Run.step s.spec world s.state (EventId (eventName ev))
     refused = case stepped.outcome of
       Refuse (RefusalId r) -> Just (textOf r)

@@ -16,7 +16,7 @@ import Data.Midi (CC)
 -- | `both` on a dual pedal is a single message that takes the whole pedal out,
 -- | where `a` and `b` would need one each. It matters because a board preset is
 -- | compiled into an MC6 preset with a hard ceiling of sixteen messages, and
--- | four of the thirteen pedals are dual — costing two apiece for a bypass puts
+-- | four of the twelve pedals are dual — costing two apiece for a bypass puts
 -- | an all-twelve board over the limit (DESIGN-v2 §5).
 -- |
 -- | `Nothing` is the honest default rather than a gap to be filled in blindly.

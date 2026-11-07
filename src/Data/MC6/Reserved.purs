@@ -1,8 +1,8 @@
 -- | Who claims which MC6 bank — in one place, because more than one thing does.
 -- |
 -- | The device has thirty banks and this app writes to several of them for its
--- | own reasons: the board mirror, the probe, the looper transport, the seven
--- | consecutive banks of the six-loop machine, the diagnostics page. On top of
+-- | own reasons: the board mirror, the probe, the looper's bank (the loop
+-- | machine), the diagnostics page. On top of
 -- | those sit the user's own control banks, which carry whatever number they
 -- | were given.
 -- |
@@ -36,8 +36,10 @@
 -- |
 -- | ```
 -- |    1   board mirror              — what the board boots into
--- |  2-8   the loop machine          — one bank per BankSlot, base + slotIndex
--- |    9   looper transport          — the legacy one, driven by hand
+-- |    2   the loop machine          — one bank per BankSlot, base + slotIndex;
+-- |        the Loops bank alone since 2026-11-07 (it was 2-8, seven banks)
+-- |  3-9   spare — the six looper pages and the single-loop transport bank
+-- |        (9) were removed 2026-11-07, so a whole-map write clears them
 -- |   10   probe
 -- | 11-12  diagnostics — a RANGE, one page per eight pedals, so it grows
 -- |        with the registry (`Diagnostics.bypassBankCount`)
@@ -86,12 +88,11 @@ import Data.Maybe (Maybe(..))
 type BankNumbers =
   { board :: Int
   , probe :: Int
-  , looperTransport :: Int
   , loopMachineBase :: Int
   , diagnostics :: Int
   -- | How many consecutive banks the diagnostics pages take. NOT one:
   -- | `Diagnostics.bypassBankCount` chunks the registry eight pedals to a bank,
-  -- | so thirteen pedals is two banks. Passed in rather than assumed, because
+  -- | so twelve pedals is two banks. Passed in rather than assumed, because
   -- | this module has no business knowing how many pedals there are — and
   -- | assuming it was how bank 12 came to be both spoken for and listed spare.
   , diagnosticsCount :: Int
@@ -103,7 +104,6 @@ type BankNumbers =
 data Claimant
   = Board
   | Probe
-  | LooperTransport
   | LoopMachine BankSlot
   | Diagnostics Int
   -- | One of the user's own pages, by id — the only claimant this module cannot
@@ -122,7 +122,6 @@ claimantLabel :: Claimant -> String
 claimantLabel = case _ of
   Board -> "the board mirror"
   Probe -> "the probe bank"
-  LooperTransport -> "the looper transport"
   LoopMachine slot -> "the loop machine's " <> slotName slot <> " page"
   Diagnostics i -> "diagnostics page " <> show (i + 1)
   Control cbId -> "control bank `" <> cbId <> "`"
@@ -142,7 +141,6 @@ appClaims :: BankNumbers -> Array BankClaim
 appClaims n =
   [ { bank: n.board, claimant: Board }
   , { bank: n.probe, claimant: Probe }
-  , { bank: n.looperTransport, claimant: LooperTransport }
   ]
     <> map (\i -> { bank: n.diagnostics + i, claimant: Diagnostics i })
          (Array.range 0 (max 1 n.diagnosticsCount - 1))

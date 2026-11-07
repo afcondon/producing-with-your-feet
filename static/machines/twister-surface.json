@@ -4,9 +4,10 @@
   "title": "Who should hold the Twister",
   "notes": [
     "PWYF's Midi Fighter Twister serves the pedals, scenes and the looper. This says who SHOULD hold it now; Helm's hub says who does (its claim on the Twister's output is the record, and nobody paints a Twister they do not hold). Plan docs/kb/plans/quadrat-the-sampler.md, phase 3.",
-    "The table (AC, 2026-11-05; itajara/controllers Data.Looper.TwisterHolder): an MC6 bank can name who holds the Twister, and when it does, that holder has it. A scene's bank names PWYF (bank-scene); the looper's banks name the looper's own process (bank-looper); any other bank names nobody (bank-plain), and focus decides. While a bank names a holder, focus changes are remembered by the host and change nothing on the device.",
-    "Leaving a bank that named a holder hands the Twister to a focused pedal if there is one (other than the looper), otherwise to the looper (the pedal-focused fact). Kept as a fact rather than split into states, because Glassbox commands run on entry and two scene states would repaint the scene on every focus change, and because which pedal is focused is the host's data (review 2026-11-05, declined item 5).",
+    "The table (AC, 2026-11-05; itajara/controllers Data.Looper.TwisterHolder): an MC6 bank can name who holds the Twister, and when it does, that holder has it. A scene's bank names PWYF (bank-scene); the looper's bank names the looper's own process (bank-looper); any other bank names nobody (bank-plain), and the focused pedal has it. While a bank names a holder, focus changes are remembered by the host and change nothing on the device.",
+    "Leaving a bank that named a holder hands the Twister back to the pedal page (the focused pedal's knobs, or dark rings if none is focused).",
     "Every arrival is an entry, and entries act: paint-pedal and paint-scene paint if PWYF holds the Twister and ask the hub for it if not (painting when granted); hand-to-looper grants it to the looper's process if PWYF holds it. Focusing what is already focused re-enters on purpose, because PWYF has always repainted then.",
+    "2026-11-07: the looper stopped being a pedal in PWYF (AC: \"remove the pill and that control page\"), so it can no longer be focused. Removed: the state looper (the looper's pages by focus), the event focus-looper, and the fact pedal-focused, which only chose between a focused pedal and the looper on leaving a holder's bank. The MC6 standing on the looper's bank is now the only way the Twister reaches the looper.",
     "Transcribed from Component.App 2026-11-04, not designed; reshaped 2026-11-05 when the looper's pages moved to the looper's own process. Before this machine, a frame from the daemon or a side button could paint over a scene."
   ],
   "initial": "pedal",
@@ -17,13 +18,6 @@
       "label": "A pedal's page",
       "entry": [
         "paint-pedal"
-      ]
-    },
-    {
-      "id": "looper",
-      "label": "The looper's pages, by focus",
-      "entry": [
-        "hand-to-looper"
       ]
     },
     {
@@ -48,11 +42,6 @@
       "source": "user"
     },
     {
-      "id": "focus-looper",
-      "label": "the looper is focused",
-      "source": "user"
-    },
-    {
       "id": "bank-scene",
       "label": "the MC6 stands on a bank with a scene",
       "source": "runtime"
@@ -69,12 +58,7 @@
     }
   ],
   "config": [],
-  "facts": [
-    {
-      "id": "pedal-focused",
-      "label": "A pedal other than the looper is focused"
-    }
-  ],
+  "facts": [],
   "refusals": [],
   "commands": [
     {
@@ -102,15 +86,6 @@
     },
     {
       "from": "pedal",
-      "on": "focus-looper",
-      "cases": [
-        {
-          "to": "looper"
-        }
-      ]
-    },
-    {
-      "from": "pedal",
       "on": "bank-scene",
       "cases": [
         {
@@ -137,62 +112,8 @@
       ]
     },
     {
-      "from": "looper",
-      "on": "focus-pedal",
-      "cases": [
-        {
-          "to": "pedal"
-        }
-      ]
-    },
-    {
-      "from": "looper",
-      "on": "focus-looper",
-      "cases": [
-        {
-          "to": "looper"
-        }
-      ]
-    },
-    {
-      "from": "looper",
-      "on": "bank-scene",
-      "cases": [
-        {
-          "to": "scene"
-        }
-      ]
-    },
-    {
-      "from": "looper",
-      "on": "bank-looper",
-      "cases": [
-        {
-          "to": "looper-bank"
-        }
-      ]
-    },
-    {
-      "from": "looper",
-      "on": "bank-plain",
-      "cases": [
-        {
-          "stay": true
-        }
-      ]
-    },
-    {
       "from": "scene",
       "on": "focus-pedal",
-      "cases": [
-        {
-          "stay": true
-        }
-      ]
-    },
-    {
-      "from": "scene",
-      "on": "focus-looper",
       "cases": [
         {
           "stay": true
@@ -222,28 +143,13 @@
       "on": "bank-plain",
       "cases": [
         {
-          "when": {
-            "fact": "pedal-focused"
-          },
           "to": "pedal"
-        },
-        {
-          "to": "looper"
         }
       ]
     },
     {
       "from": "looper-bank",
       "on": "focus-pedal",
-      "cases": [
-        {
-          "stay": true
-        }
-      ]
-    },
-    {
-      "from": "looper-bank",
-      "on": "focus-looper",
       "cases": [
         {
           "stay": true
@@ -273,13 +179,7 @@
       "on": "bank-plain",
       "cases": [
         {
-          "when": {
-            "fact": "pedal-focused"
-          },
           "to": "pedal"
-        },
-        {
-          "to": "looper"
         }
       ]
     }

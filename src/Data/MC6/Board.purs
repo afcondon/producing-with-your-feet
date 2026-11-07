@@ -89,7 +89,7 @@ boardToMC6Messages registry presets mControlBankNum bp =
           Just slot -> [ MC6Msg.pcMessage ch (unProgramNumber slot) ActionPress ]
 
     -- One message where a dual pedal declares a whole-pedal bypass, two where
-    -- it does not. Four of the thirteen pedals are dual, so this is the
+    -- it does not. Four of the twelve pedals are dual, so this is the
     -- difference between an all-twelve board costing twelve and sixteen.
     bypassMsg = case entry.engage of
       EngageOff -> case CRegistry.findPedal registry pid of

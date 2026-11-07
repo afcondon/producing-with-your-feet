@@ -34,6 +34,7 @@ module Component.Twister.Lights
   , asOwner
   , holdsTwister
   , refreshTwister
+  , refreshLooperPages
   , sendSceneLEDs
   , showTwisterPage
   , adoptTwisterPage
@@ -54,7 +55,6 @@ import Data.Array as Array
 import Data.Foldable (for_)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
-import Data.Looper as Looper
 import Data.Looper.TwisterSurface as TwisterSurface
 import Data.Looper.Machine as Machine
 import Data.Looper.Press as Press
@@ -81,38 +81,42 @@ import Halogen as H
 rigOf :: AppState -> Machine.Rig
 rigOf st = Press.rigFrom st.looper st.looperFocus
 
--- | Hand the controller over to whatever is now in focus.
+-- | Paint a pedal's page: the focused pedal's knobs.
 -- |
 -- | **Dim first, always.** The two surfaces light different numbers of banks —
 -- | a pedal uses one, the looper two — so walking from the looper to a pedal
 -- | without clearing would leave the loop bank's colours burning under a page
 -- | of knobs that know nothing about them. It costs one burst of messages on a
--- | focus change, which is not a thing that happens mid-take.
+-- | change of holder, which is not a thing that happens mid-take.
+-- |
+-- | `sendAllLEDs` has always addressed bank 0 and nothing ever put the device
+-- | there, so walking from the looper to a pedal while the device sat on
+-- | another block lit a page nobody was looking at. Pinning first makes the
+-- | address true.
 refreshTwister :: forall act slots o m. MonadAff m => PedalId -> H.HalogenM AppState act slots o m Unit
 refreshTwister pid = do
   dimAllLEDs
-  if Looper.isItajara pid
-    then do
-      -- **Hand it over on page 1.** Walking back to the looper and finding the
-      -- controller still on the parameter page is walking back to a surface
-      -- that looks like the loops and is not, which is worse than a page you
-      -- have to reach for.
-      --
-      -- `showTwisterPage` rather than a bare block change, since 2026-08-27:
-      -- the old line moved the device and left `twisterPage` wherever it had
-      -- been, so after `dimAllLEDs` had zeroed every ring the app could believe
-      -- it was on page 2 while the pager stood at the bottom of its travel. The
-      -- next brush of that knob then read as page 1 and looked like a spurious
-      -- page change. Now the page, the lights and the encoder are set together
-      -- from one call, and zero is page one on all three.
-      showTwisterPage 0
-    else do
-      -- `sendAllLEDs` has always addressed bank 0 and nothing ever put the
-      -- device there, so walking from the looper to a pedal while the device
-      -- sat on another block lit a page nobody was looking at. Pinning first
-      -- makes the address true.
-      pinDevice
-      sendAllLEDs pid
+  pinDevice
+  sendAllLEDs pid
+
+-- | Paint the looper's pages, when this page is left holding them (the
+-- | looper's own process is not running). Until 2026-11-07 this was
+-- | `refreshTwister` on the looper's pedal id; the looper is not a pedal now.
+-- |
+-- | **On page 1.** Walking back to the looper and finding the controller still
+-- | on the parameter page is walking back to a surface that looks like the
+-- | loops and is not, which is worse than a page you have to reach for.
+-- |
+-- | `showTwisterPage` rather than a bare block change, since 2026-08-27: the
+-- | old line moved the device and left `twisterPage` wherever it had been, so
+-- | after `dimAllLEDs` had zeroed every ring the app could believe it was on
+-- | page 2 while the pager stood at the bottom of its travel. Now the page, the
+-- | lights and the encoder are set together from one call, and zero is page
+-- | one on all three.
+refreshLooperPages :: forall act slots o m. MonadAff m => H.HalogenM AppState act slots o m Unit
+refreshLooperPages = do
+  dimAllLEDs
+  showTwisterPage 0
 
 -- | Turn to a page: the app moves, and the device does not.
 -- |

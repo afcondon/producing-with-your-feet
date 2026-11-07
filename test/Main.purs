@@ -143,60 +143,52 @@ twisterSurfaceTests = do
     Right s0 -> do
       assert "twister-surface.json loads, lints, and fits the alphabet" true
       let
-        go pedalFocused ev s = TwisterSurface.feed { pedalFocused } ev s
+        go ev s = TwisterSurface.feed ev s
         own s = TwisterSurface.owner s
       assert "starts on the pedal page, and its entry paints the pedal"
         (own s0 == TwisterSurface.PedalPage && TwisterSurface.start s0 == [ TwisterSurface.PaintPedal ])
-      let looper = go false TwisterSurface.FocusLooper s0
-      assert "focusing the looper hands the Twister to the looper's process"
-        (own looper.surface == TwisterSurface.LooperPages && looper.paints == [ TwisterSurface.HandToLooper ])
-      let scene = go false TwisterSurface.BankScene looper.surface
-      assert "a scene's bank wins over the looper by focus"
+      let scene = go TwisterSurface.BankScene s0
+      assert "a scene's bank takes the Twister from the pedal page"
         (own scene.surface == TwisterSurface.ScenePage && scene.paints == [ TwisterSurface.PaintScene ])
-      let focusDuring = go true TwisterSurface.FocusPedal scene.surface
+      let focusDuring = go TwisterSurface.FocusPedal scene.surface
       assert "focus during a scene changes nothing on the device"
         (own focusDuring.surface == TwisterSurface.ScenePage && focusDuring.paints == [])
-      let again = go false TwisterSurface.BankScene scene.surface
+      let again = go TwisterSurface.BankScene scene.surface
       assert "one scene giving way to another re-enters and repaints"
         (own again.surface == TwisterSurface.ScenePage && again.paints == [ TwisterSurface.PaintScene ])
-      let offToPedal = go true TwisterSurface.BankPlain scene.surface
-      assert "leaving a scene with a pedal focused goes to the pedal"
+      let offToPedal = go TwisterSurface.BankPlain scene.surface
+      assert "leaving a scene goes to the pedal page"
         (own offToPedal.surface == TwisterSurface.PedalPage && offToPedal.paints == [ TwisterSurface.PaintPedal ])
-      let offToLooper = go false TwisterSurface.BankPlain scene.surface
-      assert "leaving a scene with no pedal focused goes to the looper"
-        (own offToLooper.surface == TwisterSurface.LooperPages && offToLooper.paints == [ TwisterSurface.HandToLooper ])
-      let refocus = go true TwisterSurface.FocusPedal (go true TwisterSurface.FocusPedal s0).surface
+      let refocus = go TwisterSurface.FocusPedal (go TwisterSurface.FocusPedal s0).surface
       assert "focusing a pedal on the pedal page re-enters and repaints"
         (own refocus.surface == TwisterSurface.PedalPage && refocus.paints == [ TwisterSurface.PaintPedal ])
-      let offOutside = go true TwisterSurface.BankPlain looper.surface
+      let offOutside = go TwisterSurface.BankPlain s0
       assert "a plain bank when no bank named a holder changes nothing"
-        (own offOutside.surface == TwisterSurface.LooperPages && offOutside.paints == [])
-      -- The looper's banks (the table, AC 2026-11-05).
-      let loopBank = go true TwisterSurface.BankLooper (go true TwisterSurface.FocusPedal s0).surface
+        (own offOutside.surface == TwisterSurface.PedalPage && offOutside.paints == [])
+      -- The looper's bank (the table, AC 2026-11-05): since 2026-11-07 the
+      -- only way the Twister reaches the looper.
+      let loopBank = go TwisterSurface.BankLooper (go TwisterSurface.FocusPedal s0).surface
       assert "the looper's bank takes the Twister from a pedal, for the looper's process"
         (own loopBank.surface == TwisterSurface.LooperPages && loopBank.paints == [ TwisterSurface.HandToLooper ])
-      let focusOnLoopBank = go true TwisterSurface.FocusPedal loopBank.surface
+      let focusOnLoopBank = go TwisterSurface.FocusPedal loopBank.surface
       assert "focus on the looper's bank changes nothing on the device"
         (own focusOnLoopBank.surface == TwisterSurface.LooperPages && focusOnLoopBank.paints == [])
-      let loopToLoop = go true TwisterSurface.BankLooper loopBank.surface
-      assert "moving between the looper's banks changes nothing"
+      let loopToLoop = go TwisterSurface.BankLooper loopBank.surface
+      assert "the looper's bank again changes nothing"
         (own loopToLoop.surface == TwisterSurface.LooperPages && loopToLoop.paints == [])
-      let loopOffToPedal = go true TwisterSurface.BankPlain loopBank.surface
-      assert "leaving the looper's banks with a pedal focused goes to the pedal"
+      let loopOffToPedal = go TwisterSurface.BankPlain loopBank.surface
+      assert "leaving the looper's bank goes to the pedal page"
         (own loopOffToPedal.surface == TwisterSurface.PedalPage && loopOffToPedal.paints == [ TwisterSurface.PaintPedal ])
-      let loopOffStays = go false TwisterSurface.BankPlain loopBank.surface
-      assert "leaving the looper's banks with the looper focused stays with the looper"
-        (own loopOffStays.surface == TwisterSurface.LooperPages)
-      let loopToScene = go true TwisterSurface.BankScene loopBank.surface
+      let loopToScene = go TwisterSurface.BankScene loopBank.surface
       assert "a scene's bank after the looper's: the scene"
         (own loopToScene.surface == TwisterSurface.ScenePage && loopToScene.paints == [ TwisterSurface.PaintScene ])
-      let sceneToLoop = go true TwisterSurface.BankLooper scene.surface
+      let sceneToLoop = go TwisterSurface.BankLooper scene.surface
       assert "the looper's bank after a scene's: the looper's process"
         (own sceneToLoop.surface == TwisterSurface.LooperPages && sceneToLoop.paints == [ TwisterSurface.HandToLooper ])
   -- A guard on a fact this app never sets would read false and quietly take
   -- the other arm; the load refuses a file that declares one.
-  let unknownFact = String.replace (String.Pattern "\"facts\": [")
-        (String.Replacement "\"facts\": [ { \"id\": \"looper-live\", \"label\": \"not set by this app\" },") text
+  let unknownFact = String.replace (String.Pattern "\"facts\": []")
+        (String.Replacement "\"facts\": [ { \"id\": \"looper-live\", \"label\": \"not set by this app\" } ]") text
   assert "a machine declaring a fact this app does not set is refused at load"
     (isLeft (TwisterSurface.load unknownFact))
 
@@ -211,6 +203,12 @@ pad s = if String.length s >= 2 then s else " " <> s
 sh4 :: LoopTw.Shape
 sh4 = { maxLayers: 4 }
 
+-- | Decode a switch CC on the default channel, arriving on that channel: what
+-- | every switch test means unless it is testing the channel itself.
+decodeOnDefault :: Int -> Int -> Maybe LB.SwitchGesture
+decodeOnDefault =
+  LB.decodeSwitch LB.defaultSwitchChannel (LB.switchChannelNumber LB.defaultSwitchChannel)
+
 intAbs :: Int -> Int
 intAbs n = if n < 0 then negate n else n
 
@@ -224,42 +222,22 @@ main = do
   twisterSurfaceTests
   log "Running pedal definition tests..."
 
-  -- Twelve boxes on the floor, plus Itajara.
-  --
-  -- Itajara is the app's own looper rather than a pedal we bought, so its
-  -- definition is split differently: the baseline and the sections live in
-  -- config/pedals/itajara.json and the PureScript entry carries only the donut
-  -- layout. The two assertions below are about pedals that ship their data in
-  -- PureScript, so they exclude it rather than being weakened for it.
+  -- Twelve boxes on the floor. Itajara was a thirteenth entry, the app's own
+  -- looper registered as a pedal, until 2026-11-07 (AC: "remove the pill and
+  -- that control page"); the looper reaches the board through its own MC6
+  -- bank now.
   let count = Array.length Registry.pedals
-  assert "Pedal count is 13 (12 hardware + Itajara)" (count == 13)
-
-  let hardwarePedals = Array.filter (\p -> p.meta.id /= PedalId "itajara") Registry.pedals
-  assert "12 hardware pedals" (Array.length hardwarePedals == 12)
+  assert "Pedal count is 12" (count == 12)
+  assert "and the looper is not one of them"
+    (not (Array.any (\p -> p.meta.id == PedalId "itajara") Registry.pedals))
 
   -- Each hardware pedal has a non-empty baseline
-  let allHaveBaseline = Array.all (\p -> not (Map.isEmpty p.baseline)) hardwarePedals
+  let allHaveBaseline = Array.all (\p -> not (Map.isEmpty p.baseline)) Registry.pedals
   assert "All hardware pedals have baselines" allHaveBaseline
 
   -- Each hardware pedal has at least one section
-  let allHaveSections = Array.all (\p -> not (Array.null p.sections)) hardwarePedals
+  let allHaveSections = Array.all (\p -> not (Array.null p.sections)) Registry.pedals
   assert "All hardware pedals have sections" allHaveSections
-
-  -- **Itajara must NOT bring a layout**, which is the reverse of what this
-  -- asserted until 2026-08-27.
-  --
-  -- It had one, and the assertion was right at the time: the Looper page drew
-  -- the donut and would have rendered nothing without it. The page now draws
-  -- eight loops from the daemon's snapshot, and a second face built from the CC
-  -- values the app *sent* would be the slower of two pictures of one engine —
-  -- the failure the snapshot-only rule exists to prevent. So the layout is gone
-  -- and this test guards the decision rather than the old shape.
-  --
-  -- The pedal itself stays registered, and the two assertions either side of
-  -- this one are the ones that matter for that: thirteen pedals, and channel 13
-  -- Itajara's alone.
-  assert "Itajara has no layout — its surface is the Looper page"
-    (Array.any (\p -> p.meta.id == PedalId "itajara" && isNothing p.layout) Registry.pedals)
 
   -- findPedal works (via registry)
   let reg = CRegistry.mkRegistry Registry.pedals [] { pedalOutput: { match: "" }, twisterInput: { match: "" }, twisterOutput: { match: "" }, mc6Input: { match: "" } }
@@ -366,7 +344,7 @@ main = do
   --
   -- DESIGN-v2 §5 originally costed a board at "twelve pedals, twelve messages,
   -- four spare", which was wrong: a dual-engage pedal needs two CCs to bypass
-  -- unless it declares a whole-pedal bypass, and four of the thirteen are dual.
+  -- unless it declares a whole-pedal bypass, and four of the twelve are dual.
   -- These pin the arithmetic, because the failure mode is silent — SysEx pads
   -- with `Array.take 16` and the overflow is simply dropped.
   let dualPedals = Array.filter (\p -> case p.engage of
@@ -400,7 +378,7 @@ main = do
         , created: "", modified: ""
         }
       allOffCost = Board.boardMessageCount reg [] (Just 20) allOffBoard
-  assert ("all-thirteen-off board fits in " <> show Board.messageLimit
+  assert ("all-pedals-off board fits in " <> show Board.messageLimit
            <> " (costs " <> show allOffCost <> ")")
     (allOffCost <= Board.messageLimit)
   assert "boardFits agrees with the count"
@@ -418,13 +396,13 @@ main = do
       (\p -> Array.elem p.meta.id (pedalsOnChannel p.meta.defaultChannel liveEngine))
       Registry.pedals)
 
-  -- Channel 1 is the app's own board-recall relay and channel 13 is Itajara's;
-  -- a hardware pedal appearing on either would have its CCs swallowed by an
-  -- earlier branch of the handler and never observed.
-  assert "no hardware pedal sits on the board-recall channel (1)"
-    (Array.all (_ == PedalId "itajara") (pedalsOnChannel 1 liveEngine))
-  assert "channel 13 belongs to Itajara alone"
-    (pedalsOnChannel 13 liveEngine == [ PedalId "itajara" ])
+  -- Channel 1 is the app's own board-recall relay; a hardware pedal on it
+  -- would have its CCs swallowed by an earlier branch of the handler and never
+  -- observed. (Channel 13 was Itajara's, and is free since 2026-11-07.)
+  assert "no pedal sits on the board-recall channel (1)"
+    (Array.null (pedalsOnChannel 1 liveEngine))
+  assert "channel 13, the looper pedal's, is free"
+    (Array.null (pedalsOnChannel 13 liveEngine))
 
   assert "an unused channel matches nothing" (Array.null (pedalsOnChannel 9 liveEngine))
 
@@ -942,14 +920,14 @@ main = do
   -- way nobody could see; refusing it puts a line in the console instead.
   assert "and a release from the old press/release programming is not a gesture"
     (LB.gestureFromValue 0 == Nothing
-      && LB.decodeSwitch LB.switchChannel (LB.switchCC LB.LoopBank 0) 0 == Nothing)
+      && decodeOnDefault (LB.switchCC LB.LoopBank 0) 0 == Nothing)
 
   let loopBankSwitch i = do
-        cb <- Array.head (LB.banks { base: 22, boardBank: 1 })
+        cb <- Array.head (LB.banks { base: 22, boardBank: 1, channel: LB.defaultSwitchChannel })
         Array.index cb.switches i
       -- Which actions carry a CC on the app's own channel, and with what value.
       ccsOf sw = map (\m -> Tuple m.action m.data2)
-        (Array.filter (\m -> m.msgType == MsgCC && m.channel == LB.switchChannel)
+        (Array.filter (\m -> m.msgType == MsgCC && m.channel == LB.switchChannelNumber LB.defaultSwitchChannel)
           sw.messages)
       jumpsOf sw = map _.action
         (Array.filter (\m -> m.msgType == MsgBankJump) sw.messages)
@@ -967,7 +945,7 @@ main = do
   -- answering with silence; that fallback still exists and is checked below.
   assert "the switch with three gestures sends all three, one per action, on the release side"
     (let set = do
-           b <- LB.banks { base: 22, boardBank: 1 }
+           b <- LB.banks { base: 22, boardBank: 1, channel: LB.defaultSwitchChannel }
            Array.take 1 (Array.drop 9 b.switches)
      in Array.length set == Array.length LB.allSlots
           && Array.all
@@ -982,7 +960,7 @@ main = do
   -- replaced: there, both the tap and its double were bank jumps.
   assert "the set switch jumps on the hold alone"
     (let set = do
-           b <- Array.drop 1 (LB.banks { base: 22, boardBank: 1 })
+           b <- (LB.banks { base: 22, boardBank: 1, channel: LB.defaultSwitchChannel })
            Array.take 1 (Array.drop 9 b.switches)
      in Array.all (\sw -> jumpsOf sw == [ ActionLongPress ]) set)
 
@@ -994,21 +972,10 @@ main = do
   assert "a switch carrying one meaning reports at press-down and only there"
     (map ccsOf (loopBankSwitch 11) == Just [ Tuple ActionPress 127 ])
 
-  -- **A CC and a bank jump never share an action.** That configuration has cost
-  -- this project twice: once it ate the release, once it ate the CC itself and
-  -- selecting a loop silently did nothing. The report goes at press-down and the
-  -- board moves when the foot lifts, so the app is told before the thing it is
-  -- being told about happens.
-  -- The config bank's first switch, since a loop switch stopped being one
-  -- meaning and gained its double. Same shape: one meaning, and it is a place —
-  -- so the CC reports at press-down and the board moves on the lift.
-  assert "a press-side navigating switch reports on the press and jumps on the release"
-    (let cfg = do
-           b <- Array.index (LB.banks { base: 22, boardBank: 1 })
-                  (LB.slotIndex LB.ConfigBank)
-           Array.index b.switches 0
-     in map ccsOf cfg == Just [ Tuple ActionPress 127 ]
-          && map jumpsOf cfg == Just [ ActionRelease, ActionDoubleTapRelease ])
+  -- "a press-side navigating switch reports on the press and jumps on the
+  -- release" was here, on the config bank's first switch. The config bank went
+  -- 2026-11-07 and no switch on the Loops bank navigates on a sole gesture, so
+  -- nothing is shaped that way to check. The builder still does it.
 
   -- **The fallback, which now applies only on the release side.** A switch that
   -- carries a hold is on the release, and the device suppresses Release on a
@@ -1027,7 +994,7 @@ main = do
   -- tap stopped navigating.
   assert "a loop switch reports two gestures and goes nowhere"
     (let places = do
-           b <- Array.take 1 (LB.banks { base: 22, boardBank: 1 })
+           b <- Array.take 1 (LB.banks { base: 22, boardBank: 1, channel: LB.defaultSwitchChannel })
            Array.take LB.loopSwitches b.switches
      in Array.length places == LB.loopSwitches
           && Array.all
@@ -1053,7 +1020,7 @@ main = do
                Just j, Just c -> c < j
                _, _ -> true)
         cb.switches)
-      (LB.banks { base: 22, boardBank: 1 }))
+      (LB.banks { base: 22, boardBank: 1, channel: LB.defaultSwitchChannel }))
 
   -- A hold that is an app-side action leaves the MC6 doing nothing at all,
   -- which is right: the app is the only thing that can act on it.
@@ -1066,13 +1033,10 @@ main = do
   assert "selecting a loop goes nowhere, on any gesture it carries"
     (LB.sendsTo LB.LoopBank 0 LB.Tap == Nothing
       && LB.sendsTo LB.LoopBank 0 LB.Double == Nothing
-      && LB.sendsTo LB.LoopBank 0 LB.Hold == Nothing
-      && LB.sendsTo LB.LoopPage 5 LB.Tap == Just (LB.ToSlot LB.ConfigBank)
-      && LB.sendsTo LB.ConfigBank 0 LB.Tap == Just (LB.ToSlot LB.QuantiseBank)
-      && LB.sendsTo LB.ConfigBank 0 LB.Hold == Nothing)
+      && LB.sendsTo LB.LoopBank 0 LB.Hold == Nothing)
 
-  -- **The two the pedal cannot reach are exactly the two the Grab bank aims
-  -- at**, and both lists come from `loopRows` rather than from each other. A
+  -- **The two the pedal cannot reach are the fourth column** (the Grab bank
+  -- that aimed at them went 2026-11-07; a `Grab` still lands there), and both lists come from `loopRows` rather than from each other. A
   -- literal on either side would let the grid grow a column and leave one of
   -- them describing the old shape — which is the failure that would look like
   -- a routing bug, since every loop would still be reachable from *somewhere*.
@@ -1082,34 +1046,21 @@ main = do
       && Array.sort (LB.grabLoops <> LB.switchLoops)
         == Array.range 0 (LB.nLoops - 1))
 
-  -- The Grab bank's own layout has to agree with `grabSwitchForLoop`, because
-  -- the screen prints the letter from one and the foot presses the other.
-  -- Getting this wrong prints "A" beside loop 4 and sends you to loop 8, and
-  -- the two would still agree about which loops are involved.
-  assert "and each of them is under the switch its letter claims"
-    (Array.all
-      (\l -> map (\i -> LB.dutyAt LB.GrabBank i) (Array.fromFoldable (LB.grabSwitchForLoop l))
-               == [ Just (LB.SelectLoop l) ])
-      LB.grabLoops
-      && LB.grabSwitchForLoop 0 == Nothing
-      && map (LB.faceLoopKey (LB.face (Just LB.GrabBank))) [ 3, 7 ] == [ "D", "A" ]
-      -- And nowhere else, because on every other bank those switches are
-      -- something else entirely.
-      && map (LB.faceLoopKey (LB.face (Just LB.SpeedBank))) [ 3, 7 ] == [ "4", "8" ])
+  -- With no Grab bank, nothing prints a letter beside the fourth column: the
+  -- Loops bank cannot reach those two, so they keep their numbers.
+  assert "the loops no switch reaches are labelled by number on the Loops bank"
+    (map (LB.faceLoopKey (LB.face (Just LB.LoopBank))) [ 3, 7 ] == [ "4", "8" ])
 
-  -- **One switch shuttles between the two pages that get used**, and it is the
-  -- one whose own timing does not matter. Arm waits for your note, so the
-  -- double-tap window it now sits behind costs nothing; Record could not have
-  -- paid that and is untouched.
-  assert "the grab bank is a hold away, and the loops are a hold back"
-    (LB.sendsTo LB.LoopBank 6 LB.Hold == Just (LB.ToSlot LB.GrabBank)
-      && LB.sendsTo LB.GrabBank 6 LB.Hold == Just (LB.ToSlot LB.LoopBank)
-      && LB.sendsTo LB.SpeedBank 6 LB.Hold == Just (LB.ToSlot LB.GrabBank)
-      -- Arm itself is unmoved; only what a hold on it means is new.
-      && LB.dutyAt LB.GrabBank 6 == Just LB.ArmLoop
-      -- And the printed way out is on the bank as well, which is the one you
-      -- can find without remembering a hold.
-      && LB.sendsTo LB.GrabBank 2 LB.Tap == Just (LB.ToSlot LB.LoopBank))
+  -- **G is Arm alone.** Its hold was the only way onto the Grab bank and went
+  -- with it (2026-11-07), so G carries one gesture again and reports at
+  -- press-down. A board programmed before still sends a hold on G (value 1);
+  -- it decodes, and nothing is bound to it.
+  assert "G's hold is blank: Arm alone, at press-down, going nowhere"
+    (LB.dutyAt LB.LoopBank 6 == Just LB.ArmLoop
+      && map _.hold (LB.dutiesAt LB.LoopBank 6) == Just Nothing
+      && LB.sendsTo LB.LoopBank 6 LB.Hold == Nothing
+      && LB.firesAtPressDown LB.LoopBank 6 LB.Tap
+      && map _.gesture (decodeOnDefault (LB.switchCC LB.LoopBank 6) 1) == Just LB.Hold)
 
   log ""
   log "What a gesture means (Data.Looper.Machine)..."
@@ -1173,16 +1124,16 @@ main = do
   -- page. Nothing about it is new to the daemon — what is new is that the beat
   -- starts underneath it.
   assert "a grab starts the session, then opens a take of the length it names"
-    (Switchboard.act ((rigOf [ idle 0, idle 1, idle 2, idle 3 ]) { focus = 3 })
-       (LB.switchGesture LB.GrabBank 4 LB.Tap)
+    (Machine.perform ((rigOf [ idle 0, idle 1, idle 2, idle 3 ]) { focus = 3 })
+       LB.Focused (LB.Grab 4)
       == [ Machine.Command "play1"
          , Machine.Command "3g1"
          , Machine.Command "3src3"
          , Machine.Command "3len4"
          , Machine.Command "3r"
          ]
-      && Switchboard.act ((rigOf [ idle 0, idle 1, idle 2, idle 3 ]) { focus = 3 })
-           (LB.switchGesture LB.GrabBank 1 LB.Tap)
+      && Machine.perform ((rigOf [ idle 0, idle 1, idle 2, idle 3 ]) { focus = 3 })
+           LB.Focused (LB.Grab 8)
         == [ Machine.Command "play1"
            , Machine.Command "3g1"
            , Machine.Command "3src3"
@@ -1200,11 +1151,11 @@ main = do
   -- stack two machines in phase: an overdub starts at the play head rather
   -- than on a boundary, while the transport restarts the iPad on the next bar,
   -- so a pattern longer than a bar comes back rotated. Two machines go in the
-  -- two grab loops. See `own GrabBank`.
+  -- two grab loops.
   assert "and a second grab says only what is not already true"
-    (Switchboard.act
+    (Machine.perform
        ((rigOf [ (withState 0 "playing" 1) { quant = true, src = 3 } ]) { focus = 0 })
-       (LB.switchGesture LB.GrabBank 4 LB.Tap)
+       LB.Focused (LB.Grab 4)
       == [ Machine.Command "play1"
          , Machine.Command "0len4"
          , Machine.Command "0r"
@@ -1256,7 +1207,7 @@ main = do
   -- where you reached the bank with something else in focus. Anything else
   -- would be a grab that quietly ran free.
   assert "and a grab prepares whatever it is aimed at, grab loop or not"
-    (Switchboard.act ((rigOf octet) { focus = 5 }) (LB.switchGesture LB.GrabBank 4 LB.Tap)
+    (Machine.perform ((rigOf octet) { focus = 5 }) LB.Focused (LB.Grab 4)
       == [ Machine.Command "play1"
          , Machine.Command "5g1"
          , Machine.Command "5src3"
@@ -1268,12 +1219,12 @@ main = do
   -- in a log beside a column of prefixed ones reads like one that forgot its
   -- prefix, which is why this is asserted rather than assumed.
   assert "and Halt stops the session, not a loop"
-    (Switchboard.act ((rigOf [ idle 0, idle 1 ]) { focus = 1 })
-       (LB.switchGesture LB.GrabBank 5 LB.Tap)
+    (Machine.perform ((rigOf [ idle 0, idle 1 ]) { focus = 1 })
+       LB.Focused (LB.LinkPlay false)
       == [ Machine.Command "play0" ])
 
   assert "recording an empty loop opens a take"
-    (Switchboard.act (rigOf [ idle 0 ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
+    (Machine.perform (rigOf [ idle 0 ]) LB.Focused (LB.RecordLoop)
       == [ Machine.Command "0r" ])
 
   -- The one that was wrong in use. Undo removes a layer and deliberately keeps
@@ -1282,8 +1233,8 @@ main = do
   -- layers == 0` made that a playing loop: Record offered stop, and a loop
   -- undone to nothing could never be recorded into from the board again.
   assert "a loop undone to nothing records again, length and state notwithstanding"
-    (Switchboard.act (rigOf [ (withState 0 "playing" 0) { loopFrames = 155215 } ])
-       (LB.switchGesture LB.LoopPage 0 LB.Tap)
+    (Machine.perform (rigOf [ (withState 0 "playing" 0) { loopFrames = 155215 } ])
+       LB.Focused (LB.RecordLoop)
       == [ Machine.Command "0r" ])
 
   -- One command, because the engine has one command: `r` opens a first take,
@@ -1291,58 +1242,58 @@ main = do
   -- tap's seven branches were this one verb.
   assert "and closes one that is open, whichever way it is open"
     (Array.all
-      (\s -> Switchboard.act (rigOf [ withState 0 s 1 ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
+      (\s -> Machine.perform (rigOf [ withState 0 s 1 ]) LB.Focused (LB.RecordLoop)
                == [ Machine.Command "0r" ])
       [ "recordingFirst", "overdubbing", "multiplying" ])
 
   -- A listening loop holds the one converter the rig has and locks out the
   -- other five, so taking the wait back has to be reachable.
   assert "and takes back a wait that may never end"
-    (Switchboard.act (rigOf [ (idle 0) { armed = true } ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
+    (Machine.perform (rigOf [ (idle 0) { armed = true } ]) LB.Focused (LB.RecordLoop)
       == [ Machine.Command "0r", Machine.Handled "loop 1 stopped listening" ])
 
   -- Transport. Explicit h0/h1 rather than a flipping h, because a stopped loop
   -- is invisible and a dropped toggle would leave the app and the engine
   -- disagreeing with nothing on screen to show it.
   assert "Stop/Go stops a playing loop and brings back a stopped one"
-    (Switchboard.act (rigOf [ withState 0 "playing" 1 ]) (LB.switchGesture LB.LoopPage 2 LB.Tap)
+    (Machine.perform (rigOf [ withState 0 "playing" 1 ]) LB.Focused (LB.Transport)
       == [ Machine.Command "0h0" ]
-      && Switchboard.act (rigOf [ (withState 0 "playing" 1) { muted = true } ])
-           (LB.switchGesture LB.LoopPage 2 LB.Tap)
+      && Machine.perform (rigOf [ (withState 0 "playing" 1) { muted = true } ])
+           LB.Focused (LB.Transport)
         == [ Machine.Command "0h1" ])
 
   -- Not the overload sneaking back: a one-shot is silent between passes by
   -- definition, so it has no playing and stopped to move between.
   assert "and fires a one-shot, which has no playing and stopped to move between"
-    (Switchboard.act (rigOf [ (withState 0 "playing" 1) { oneShot = true } ])
-       (LB.switchGesture LB.LoopPage 2 LB.Tap)
+    (Machine.perform (rigOf [ (withState 0 "playing" 1) { oneShot = true } ])
+       LB.Focused (LB.Transport)
       == [ Machine.Command "0f" ])
 
   assert "and refuses a loop with nothing in it rather than inventing a take"
-    (Switchboard.act (rigOf [ idle 0 ]) (LB.switchGesture LB.LoopPage 2 LB.Tap)
+    (Machine.perform (rigOf [ idle 0 ]) LB.Focused (LB.Transport)
       == [ Machine.Unavailable "loop 1 has nothing to play" ])
 
   -- Overdubbing onto something you cannot hear is a way to record a mistake
   -- twice, so the loop comes back first.
   assert "Overdub unmutes a stopped loop before going over it"
-    (Switchboard.act (rigOf [ (withState 0 "playing" 1) { muted = true } ])
-       (LB.switchGesture LB.LoopPage 1 LB.Tap)
+    (Machine.perform (rigOf [ (withState 0 "playing" 1) { muted = true } ])
+       LB.Focused (LB.OverdubLoop)
       == [ Machine.Command "0h1", Machine.Command "0r" ])
 
   -- Starting a first take here would be Overdub quietly becoming Record, which
   -- is the switch immediately to its left.
   assert "and refuses an empty loop rather than becoming Record"
-    (Switchboard.act (rigOf [ idle 0 ]) (LB.switchGesture LB.LoopPage 1 LB.Tap)
+    (Machine.perform (rigOf [ idle 0 ]) LB.Focused (LB.OverdubLoop)
       == [ Machine.Unavailable "loop 1 is empty — record it first" ])
 
   -- The mode and the gesture in one press: `lev1` so the `r` that follows finds
   -- the loop listening and waits for a sound rather than starting on the foot.
   assert "Listen arms and starts waiting, in that order"
-    (Switchboard.act (rigOf [ idle 0 ]) (LB.switchGesture LB.LoopPage 3 LB.Tap)
+    (Machine.perform (rigOf [ idle 0 ]) LB.Focused (LB.ArmLoop)
       == [ Machine.Command "0lev1", Machine.Command "0r" ])
 
   assert "and says so rather than arming twice"
-    (Switchboard.act (rigOf [ (idle 0) { armed = true } ]) (LB.switchGesture LB.LoopPage 3 LB.Tap)
+    (Machine.perform (rigOf [ (idle 0) { armed = true } ]) LB.Focused (LB.ArmLoop)
       == [ Machine.Handled "loop 1 is already listening" ])
 
   -- **The one that actually bit, and it bit at a glance.** A loop undone to
@@ -1572,32 +1523,29 @@ main = do
   -- it back first, because working on something you cannot hear is never what
   -- was meant.
   assert "recording a muted loop unmutes it first"
-    (Switchboard.act (rigOf [ (idle 0) { muted = true } ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
+    (Machine.perform (rigOf [ (idle 0) { muted = true } ]) LB.Focused (LB.RecordLoop)
       == [ Machine.Command "0h1", Machine.Command "0r" ]
-      && Switchboard.act (rigOf [ (withState 0 "playing" 2) { muted = true } ])
-           (LB.switchGesture LB.LoopPage 0 LB.Tap)
+      && Machine.perform (rigOf [ (withState 0 "playing" 2) { muted = true } ])
+           LB.Focused (LB.RecordLoop)
         == [ Machine.Command "0h1", Machine.Command "0r" ])
 
   assert "but closing a take that is already audible does not touch the mute"
-    (Switchboard.act (rigOf [ withState 0 "recordingFirst" 0 ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
+    (Machine.perform (rigOf [ withState 0 "recordingFirst" 0 ]) LB.Focused (LB.RecordLoop)
       == [ Machine.Command "0r" ])
 
   -- Whatever the engine calls it, no layers means record.
   assert "any state with no layers records"
-    (Switchboard.act (rigOf [ withState 0 "weird" 0 ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
+    (Machine.perform (rigOf [ withState 0 "weird" 0 ]) LB.Focused (LB.RecordLoop)
       == [ Machine.Command "0r" ])
 
   -- The page acts on the loop the loop bank selected. One page serving six
   -- loops only works because of that, and it is the same arrangement the config
   -- family has always had.
   assert "the page acts on the focused loop, not on the switch pressed"
-    (Switchboard.act ((rigOf [ idle 0, idle 1, withState 2 "playing" 2 ]) { focus = 2 })
-       (LB.switchGesture LB.LoopPage 2 LB.Tap)
+    (Machine.perform ((rigOf [ idle 0, idle 1, withState 2 "playing" 2 ]) { focus = 2 })
+       LB.Focused (LB.Transport)
       == [ Machine.Command "2h0" ])
 
-  assert "and its Config switch only agrees the MC6 changed bank"
-    (Switchboard.act (rigOf [ idle 0 ]) (LB.switchGesture LB.LoopPage 5 LB.Tap)
-      == [ Machine.Handled "showing config" ])
 
   -- Both off the MC6 now and on the Twister's first page, so both are asked
   -- for directly. The property is the one that mattered: the config family acts
@@ -1633,14 +1581,14 @@ main = do
   -- The config family acts on the focused loop, which is what a hold sets. One
   -- config bank serving six loops only works because of that.
   assert "reverse and clear act on the focused loop, not the pressed switch"
-    (Switchboard.act ((rigOf [ idle 0, idle 1, idle 2 ]) { focus = 2 }) (LB.switchGesture LB.ConfigBank 3 LB.Tap)
+    (Machine.perform ((rigOf [ idle 0, idle 1, idle 2 ]) { focus = 2 }) LB.Focused (LB.Reverse)
       == [ Machine.Command "2rev1" ]
       && Machine.perform ((rigOf []) { focus = 1 }) LB.Focused LB.ClearLoop
         == [ Machine.Command "1c" ])
 
   assert "the pan bank places the focused loop across the field"
-    (map (\i -> Switchboard.act ((rigOf []) { focus = 0 }) (LB.switchGesture LB.PanBank i LB.Tap))
-       [ 0, 2, 4 ]
+    (map (\duty -> Machine.perform ((rigOf []) { focus = 0 }) LB.Focused duty)
+       [ LB.Place 0, LB.Place 64, LB.Place 127 ]
       == [ [ Machine.Command "0pan0" ]
          , [ Machine.Command "0pan64" ]
          , [ Machine.Command "0pan127" ] ])
@@ -1648,14 +1596,14 @@ main = do
   -- Free and Grid are real; the bar counts have nothing to select, because the
   -- engine's grid is the anchor loop's cycle and not a bar.
   assert "quantise sets the grid flag and is honest about bar counts"
-    (Switchboard.act ((rigOf []) { focus = 3 }) (LB.switchGesture LB.QuantiseBank 0 LB.Tap)
+    (Machine.perform ((rigOf []) { focus = 3 }) LB.Focused (LB.Free)
       == [ Machine.Command "3g0" ]
-      && Switchboard.act ((rigOf []) { focus = 3 }) (LB.switchGesture LB.QuantiseBank 1 LB.Tap)
+      && Machine.perform ((rigOf []) { focus = 3 }) LB.Focused (LB.Grid 1)
         == [ Machine.Command "3g1"
            , Machine.Handled "on the grid — bar counts need the frame-to-bar join" ])
 
-  assert "and stop-all works the same from any bank"
-    (Switchboard.act (rigOf [ withState 0 "playing" 1 ]) (LB.switchGesture LB.QuantiseBank 9 LB.Tap)
+  assert "and stop-all is on J"
+    (Switchboard.act (rigOf [ withState 0 "playing" 1 ]) (LB.switchGesture LB.LoopBank 9 LB.Tap)
       == [ Machine.Command "0h0" ])
 
   -- Direction is the sign of speed, not a second control, so the bottom row is
@@ -1754,8 +1702,8 @@ main = do
   -- No reverse row: direction is the sign of speed, so backwards at half speed
   -- is Reverse on the config bank and then a half here.
   assert "the speed bank sends a rate"
-    (map (\i -> Switchboard.act ((rigOf []) { focus = 2 }) (LB.switchGesture LB.SpeedBank i LB.Tap))
-       [ 0, 2, 4 ]
+    (map (\duty -> Machine.perform ((rigOf []) { focus = 2 }) LB.Focused duty)
+       [ LB.Rate 0.25, LB.Rate 1.0, LB.Rate 2.0 ]
       == [ [ Machine.Command "2sp0.25" ]
          , [ Machine.Command "2sp1.0" ]
          , [ Machine.Command "2sp2.0" ] ])
@@ -1764,7 +1712,7 @@ main = do
   -- snapshot and send the explicit form, so a dropped command cannot leave the
   -- app and the engine disagreeing for ever about which way a loop is facing.
   assert "and pendulum is a config switch of its own, sent as a value"
-    (Switchboard.act ((rigOf []) { focus = 4 }) (LB.switchGesture LB.ConfigBank 4 LB.Tap)
+    (Machine.perform ((rigOf []) { focus = 4 }) LB.Focused (LB.Pendulum)
       == [ Machine.Command "4pend1" ])
 
   -- **The mode changes what the switch means, and the switch keeps its name.**
@@ -1775,11 +1723,11 @@ main = do
   -- does depends on a fact only the engine holds, and no amount of remembering
   -- on this side would be as good as being told.
   assert "Stop/Go fires a one-shot, where on any other loop it stops it"
-    (Switchboard.act (rigOf [ (withState 0 "playing" 1) { oneShot = true } ])
-       (LB.switchGesture LB.LoopPage 2 LB.Tap)
+    (Machine.perform (rigOf [ (withState 0 "playing" 1) { oneShot = true } ])
+       LB.Focused (LB.Transport)
       == [ Machine.Command "0f" ]
-      && Switchboard.act (rigOf [ withState 0 "playing" 1 ])
-           (LB.switchGesture LB.LoopPage 2 LB.Tap)
+      && Machine.perform (rigOf [ withState 0 "playing" 1 ])
+           LB.Focused (LB.Transport)
         == [ Machine.Command "0h0" ])
 
   -- A level-armed loop waits for a sound that may never come, holding the one
@@ -1796,7 +1744,7 @@ main = do
   -- page opens on selection with Record right there under A, and the screen says
   -- the loop is still writing.
   assert "Record takes back an arm that is still waiting"
-    (Switchboard.act (rigOf [ (idle 0) { armed = true } ]) (LB.switchGesture LB.LoopPage 0 LB.Tap)
+    (Machine.perform (rigOf [ (idle 0) { armed = true } ]) LB.Focused (LB.RecordLoop)
       == [ Machine.Command "0r", Machine.Handled "loop 1 stopped listening" ])
 
   -- **Through `perform`, not through a switch, since 2026-08-30.** The modes
@@ -1880,7 +1828,7 @@ main = do
   -- switch that shrugs must not be tellable from a broken cable only by reading
   -- two files.
   assert "an unimplemented switch names itself and what it waits for"
-    (map Machine.describe (Switchboard.act (rigOf []) (LB.switchGesture LB.SpeedBank 5 LB.Tap))
+    (map Machine.describe (Machine.perform (rigOf []) LB.Focused (LB.Back LB.ToBoard))
       == [ "out" ]
       && LB.dutyLabel (LB.NotYet "Groups" "no membership model yet") == "Groups"
       && LB.dutyName (LB.NotYet "Groups" "no membership model yet") == "Groups"
@@ -1889,15 +1837,14 @@ main = do
   -- A switch with nothing on it is a different answer from one that is waiting
   -- for the engine, and both are different from silence.
   assert "and a switch with nothing on it says that instead"
-    (map Machine.describe (Switchboard.act (rigOf []) (LB.switchGesture LB.PanBank 99 LB.Tap))
-      == [ "pan switch 99 has nothing on it" ])
+    (map Machine.describe (Switchboard.act (rigOf []) (LB.switchGesture LB.LoopBank 99 LB.Tap))
+      == [ "loops switch 99 has nothing on it" ])
 
-  -- The letters are only true where the board can reach the loops. With the
-  -- board on config, A is Quantise, so labelling a loop "A" there points a foot
-  -- at the wrong thing. Loop 1 is switch D and loop 4 has no switch at all.
+  -- The letters are only true where the board can reach the loops. Off the
+  -- Loops bank, A is something else, so labelling a loop "A" there points a
+  -- foot at the wrong thing. Loop 1 is switch D and loop 4 has no switch at all.
   assert "a loop is lettered only when the board is on the bank that reaches it"
     (map (LB.faceLoopKey (LB.face (Just LB.LoopBank))) [ 0, 3 ] == [ "D", "4" ]
-      && map (LB.faceLoopKey (LB.face (Just LB.ConfigBank))) [ 0, 3 ] == [ "1", "4" ]
       && map (LB.faceLoopKey (LB.face Nothing)) [ 0, 3 ] == [ "1", "4" ])
 
   -- The device refuses a name it cannot print rather than truncating it, so a
@@ -1909,7 +1856,7 @@ main = do
       (\b -> Array.all
         (\sw -> String.length sw.label <= 8 && String.length sw.longName <= 24)
         b.switches)
-      (LB.banks { base: 22, boardBank: 1 }))
+      (LB.banks { base: 22, boardBank: 1, channel: LB.defaultSwitchChannel }))
 
   -- The MC6 numbers from the bottom, so the far row is D E F.
   assert "the board's rows are the device's, not the index order"
@@ -1917,12 +1864,12 @@ main = do
 
   assert "every action can say what it did"
     (Array.all (\a -> Machine.describe a /= "")
-      [ Machine.Command "0r", Machine.ShowBank LB.ConfigBank, Machine.Focus 0
+      [ Machine.Command "0r", Machine.ShowBank LB.LoopBank, Machine.Focus 0
       , Machine.Unavailable "x", Machine.Handled "y" ])
 
   -- A loop the snapshot does not contain is not a loop we may guess about.
   assert "a gesture for a loop that is not in the snapshot is refused, not assumed"
-    (Switchboard.act (rigOf []) (LB.switchGesture LB.LoopPage 0 LB.Tap)
+    (Machine.perform (rigOf []) LB.Focused (LB.RecordLoop)
       == [ Machine.Unavailable "loop 1 is not in the snapshot" ])
 
   log ""
@@ -2005,9 +1952,9 @@ main = do
       assert "every channel sends to all ports but one"
         (Array.length (Array.filter (\c -> c.sendToPort == 2047) chs) == 15
           && map _.sendToPort (Array.filter (\c -> c.channel == 16) chs) == [ 2034 ])
-      assert "and channel 9, which we took, is unnamed and unrestricted"
+      assert "and channel 9, the looper's default, is unnamed and unrestricted"
         (map (\c -> { n: c.name, p: c.sendToPort })
-          (Array.filter (\c -> c.channel == LB.switchChannel) chs)
+          (Array.filter (\c -> c.channel == LB.switchChannelNumber LB.defaultSwitchChannel) chs)
             == [ { n: "", p: 2047 } ])
     _ -> assert "03 20 is the channel table" false
 
@@ -2188,7 +2135,7 @@ main = do
   assert "every switch's CC decodes back to itself, for every gesture"
     (Array.all
       (\s -> Array.all
-        (\g -> LB.decodeSwitch LB.switchChannel (LB.switchCC s.slot s.i) (LB.gestureValue g)
+        (\g -> decodeOnDefault (LB.switchCC s.slot s.i) (LB.gestureValue g)
                  == Just (LB.switchGesture s.slot s.i g))
         LB.allGestures)
       everySwitch)
@@ -2203,27 +2150,29 @@ main = do
   assert "the gap above each block is not a switch"
     (Array.all
       (\slot -> Array.all
-        (\off -> LB.decodeSwitch LB.switchChannel (LB.switchCC slot 0 + off) 127 == Nothing)
+        (\off -> decodeOnDefault (LB.switchCC slot 0 + off) 127 == Nothing)
         [ 12, 13, 14, 15 ])
       LB.allSlots)
 
   assert "CCs below the first block are not switches"
-    (Array.all (\cc -> LB.decodeSwitch LB.switchChannel cc 127 == Nothing)
+    (Array.all (\cc -> decodeOnDefault cc 127 == Nothing)
       (Array.range 0 15))
 
-  -- Itajara's own pedal CCs run 1-83 on channel 13, and board recall is on
-  -- channel 1. Both overlap this CC range numerically, so the only thing
-  -- keeping them apart is the channel.
-  assert "the switch channel is nobody else's"
-    (LB.switchChannel /= Looper.itajaraChannel
-      && LB.switchChannel /= Board.boardRecallChannel)
+  -- Board recall is on channel 1 and overlaps this CC range numerically, so
+  -- the only thing keeping them apart is the channel. (Itajara's pedal CCs on
+  -- channel 13 were the other overlap, until the pedal went 2026-11-07.)
+  assert "the default switch channel is nobody else's"
+    (LB.switchChannelNumber LB.defaultSwitchChannel /= Board.boardRecallChannel
+      && Looper.switchChannelClash LB.defaultSwitchChannel
+           (pedalsOnChannel (LB.switchChannelNumber LB.defaultSwitchChannel) liveEngine)
+         == Nothing)
 
   -- Asked of the registry rather than of a comment. This namespace first
   -- shipped on channel 16 because `Data.Looper` said 9, 13 and 16 were free;
   -- 13 had since been taken by Itajara, and 16 is LoopyPro on the device. A
   -- comment cannot go stale in a way anything notices. This can.
   assert "and no pedal in the registry answers on it"
-    (Array.null (pedalsOnChannel LB.switchChannel liveEngine))
+    (Array.null (pedalsOnChannel (LB.switchChannelNumber LB.defaultSwitchChannel) liveEngine))
 
   -- And an honest note about how far that goes. The registry holds *our*
   -- pedals, so it would not have caught the original collision either:
@@ -2234,9 +2183,55 @@ main = do
     (Array.null (pedalsOnChannel 16 liveEngine))
 
   assert "a switch CC on another channel is refused"
-    (LB.decodeSwitch Looper.itajaraChannel (LB.switchCC LB.LoopBank 0) 127 == Nothing)
+    (LB.decodeSwitch LB.defaultSwitchChannel 13 (LB.switchCC LB.LoopBank 0) 127 == Nothing)
 
-  let family = LB.banks { base: 22, boardBank: 1 }
+  -- **The channel is a setting (2026-11-07), and every reader takes it.**
+  -- Written on one channel and read on another is a board whose presses go
+  -- nowhere, so both halves are checked against a channel that is not nine.
+  let channelTwelve = LB.switchChannelFrom 12
+      onTwelve channel = LB.banks { base: 2, boardBank: 1, channel }
+  assert "a switch channel is 1 to 16 and nothing else"
+    (map LB.switchChannelNumber (LB.switchChannelFrom 1) == Just 1
+      && map LB.switchChannelNumber (LB.switchChannelFrom 16) == Just 16
+      && LB.switchChannelFrom 0 == Nothing
+      && LB.switchChannelFrom 17 == Nothing
+      && map LB.switchChannelNumber LB.allSwitchChannels == Array.range 1 16
+      && LB.switchChannelNumber LB.defaultSwitchChannel == 9)
+  assert "decoding on channel 12 accepts 12 and refuses 9"
+    (case channelTwelve of
+       Nothing -> false
+       Just twelve ->
+         LB.decodeSwitch twelve 12 (LB.switchCC LB.LoopBank 0) 127
+             == Just (LB.switchGesture LB.LoopBank 0 LB.Tap)
+           && LB.decodeSwitch twelve 9 (LB.switchCC LB.LoopBank 0) 127 == Nothing
+           && LB.switchStatus twelve == 0xBB)
+  assert "the bank built for channel 12 sends every CC on 12, and none on 9"
+    (case channelTwelve of
+       Nothing -> false
+       Just twelve ->
+         let ccs = do
+               cb <- onTwelve twelve
+               sw <- cb.switches
+               Array.filter (\m -> m.msgType == MsgCC) sw.messages
+         in not (Array.null ccs) && Array.all (\m -> m.channel == 12) ccs)
+  assert "and the same bank on the default channel differs only in the channel"
+    (case channelTwelve of
+       Nothing -> false
+       Just twelve ->
+         let strip cbs = map (\cb -> map (\sw -> map (\m -> m { channel = 0 }) sw.messages) cb.switches) cbs
+         in strip (onTwelve twelve) == strip (onTwelve LB.defaultSwitchChannel))
+  -- The setting says why a channel would be misread, from the registry and
+  -- the board-recall channel; nothing is refused, because the device's own
+  -- routing (LoopyPro on 16) is something only the device knows.
+  assert "a switch channel a pedal or board recall uses is named as a clash"
+    (map (\n -> do
+            channel <- LB.switchChannelFrom n
+            pure (isJust (Looper.switchChannelClash channel
+                    (pedalsOnChannel n liveEngine))))
+       [ 1, 9, 15 ]
+      == [ Just true, Just false, Just true ])
+
+  let family = LB.banks { base: 22, boardBank: 1, channel: LB.defaultSwitchChannel }
       familySwitches = do
         cb <- family
         Array.mapWithIndex (\i sw -> { cb, i, sw }) cb.switches
@@ -2245,7 +2240,7 @@ main = do
       -- uploaded to real hardware by a real button, and it broke twice by being
       -- treated as somehow less real than the rest.
       everyGeneratedSwitch =
-        (LB.banks { base: 22, boardBank: 0 } <> [ Diagnostics.gestureProbeBank 20 0 ])
+        (LB.banks { base: 22, boardBank: 0, channel: LB.defaultSwitchChannel } <> [ Diagnostics.gestureProbeBank 20 0 ])
           >>= _.switches
 
   assert "one bank per slot, on consecutive numbers from the base"
@@ -2305,15 +2300,9 @@ main = do
   -- to be seen, and a hold nobody made came to be fired. The gesture is one
   -- message now, so the ordering is belt as well as braces — kept because the
   -- reason it was needed has not stopped being true of the device.
-  assert "and so does every other press-side navigating switch in the family"
-    (let
-       cfg = LB.banks { base: 22, boardBank: 0 }
-       switchA = do
-         cb <- Array.find (\b -> b.name == "Loop Cfg") cfg
-         Array.index cb.switches 0
-       acts = maybe [] (map _.action <<< _.messages) switchA
-     -- Quantise carries one meaning: report at press-down, move on the release.
-     in acts == [ ActionPress, ActionRelease, ActionDoubleTapRelease ])
+  -- "and so does every other press-side navigating switch in the family" was
+  -- here, on the config bank's switch A (Quantise). No such switch is left on
+  -- the Loops bank; the rule below still holds over every generated switch.
 
   -- **The rule, stated once over the whole family — and it is about the press
   -- specifically.** On the release the two coexist happily and always have: the
@@ -2354,7 +2343,7 @@ main = do
         slot <- LB.allSlots
         cb <- Array.filter
           (\b -> b.mc6BankNumber == 22 + LB.slotIndex slot)
-          (LB.banks { base: 22, boardBank: 1 })
+          (LB.banks { base: 22, boardBank: 1, channel: LB.defaultSwitchChannel })
         Array.mapWithIndex (\i sw -> { slot, i, sw }) cb.switches
       live = Array.filter (\e -> not (Array.null e.sw.messages)) placedSwitches
 
@@ -2379,18 +2368,14 @@ main = do
       -- of its own on the toolbar's `I`.
       && not (LB.firesAtPressDown LB.LoopBank 0 LB.Tap)
       && LB.firesAtPressDown LB.LoopBank 8 LB.Tap
-      -- **And Arm waits too**, since `G` gained the hold onto the Grab bank.
-      -- The same cost, spent on the one duty in the toolbar that can afford
-      -- it: Arm listens for your note, so when the foot landed is not what
-      -- starts the recording. That sentence is why the hold went on `G` and
-      -- not on `I`.
-      && not (LB.firesAtPressDown LB.LoopBank 6 LB.Tap)
-      && LB.firesAtPressDown LB.SpeedBank 0 LB.Tap
+      -- **And Arm reports at once again**: `G`'s hold onto the Grab bank went
+      -- with the bank (2026-11-07), so G carries one gesture.
+      && LB.firesAtPressDown LB.LoopBank 6 LB.Tap
       -- Only a gesture the switch actually carries can fire at press-down, and
       -- a hold never does: it is a hold.
       && not (LB.firesAtPressDown LB.LoopBank 0 LB.Hold)
       -- The set switch carries three, so it waits.
-      && not (LB.firesAtPressDown LB.ConfigBank 9 LB.Tap))
+      && not (LB.firesAtPressDown LB.LoopBank 9 LB.Tap))
 
   -- One CC per gesture, all on the switch's own number: the number says where
   -- the press came from and the value says which gesture it was.
@@ -2503,10 +2488,9 @@ main = do
     defaultNumbers =
       { board: 1
       , probe: 10
-      , looperTransport: 9
       , loopMachineBase: 2
       , diagnostics: 11
-      -- From the registry, not a guess. Thirteen pedals at eight to a bank is
+      -- From the registry, not a guess. Twelve pedals at eight to a bank is
       -- two banks — the number this table originally assumed was one.
       , diagnosticsCount: Diagnostics.bypassBankCount reg
       }
@@ -2558,8 +2542,7 @@ main = do
   let
     ownedNums =
       map _.mc6BankNumber
-        ( LB.banks { base: 2, boardBank: 1 }
-            <> [ Looper.looperBank 9 1 ]
+        ( LB.banks { base: 2, boardBank: 1, channel: LB.defaultSwitchChannel }
             <> [ Diagnostics.gestureProbeBank 10 1 ]
             <> Diagnostics.bypassBanks 11 1 reg
             <> [ BuiltInBanks.exampleControlBank ]
@@ -2577,6 +2560,12 @@ main = do
   assert "the sweep never mentions a bank the device does not have"
     (Array.all (\b -> b >= 0 && b < Survey.bankCount)
       (plan.write <> plan.clear <> plan.untouched))
+  -- The looper's six other pages (3-8) and its transport bank (9) went
+  -- 2026-11-07. Nothing claims them, so a whole-map write blanks them rather
+  -- than leaving a stale page a foot could still land on.
+  assert "the looper's removed banks are cleared by a whole-map write"
+    (Array.all (\b -> Array.elem b plan.clear) (Array.range 3 9)
+      && plan.write == Array.sort ownedNums)
   assert "the sweep's three sets cover every bank exactly once"
     ( Array.sort (plan.write <> plan.clear <> plan.untouched)
         == Array.range 0 (Survey.bankCount - 1)
@@ -3884,12 +3873,12 @@ main = do
            [ 0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14 ]
       && Array.all (\i -> isNothing (Scene.encoderAt ambientScene i)) [ 3, 7, 11, 15 ])
 
-  -- A scene is CCs to pedals, and Itajara is not a pedal. Reaching the daemon
-  -- from here would be a second route beside `Machine.perform`, which is the
-  -- thing `Pedals.Itajara.twister = Nothing` exists to prevent.
+  -- A scene is CCs to pedals, and the looper is not a pedal. Reaching the
+  -- daemon from here would be a second route beside `Machine.perform`. Its
+  -- old pedal id is checked, in case a stored scene still names it.
   assert "no scene can reach the looper"
     (Array.all
-      (\d -> not (Array.elem Looper.itajaraId
+      (\d -> not (Array.elem (PedalId "itajara")
                     (Scene.pedalsIn (Scene.resolve lookupTw d))))
       Scenes.scenes)
 

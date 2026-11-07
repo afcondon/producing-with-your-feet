@@ -24,6 +24,7 @@ import Data.MC6.BuiltInBanks (exampleControlBank, ambientControlBank)
 import Helm.MC6.ControlBank (ControlBank)
 import Data.MC6.Dump as Dump
 import Data.MC6.Settings as Settings
+import Data.Looper.Banks as LoopBanks
 import Data.Looper.Press as Press
 import Data.Looper.TwisterSurface as TwisterSurface
 import Data.Looper.TwisterHolder as TwisterHolder
@@ -225,14 +226,18 @@ type AppState =
   -- The Itajara daemon (music/itajara), over a socket. The app holds only
   -- what the daemon last reported; it never models the engine itself.
   , looper :: Maybe LooperState
-  -- MC6 bank the generated looper transport is written to. Itajara's CCs are
-  -- fixed by its pedal definition, so there is no base-CC to configure.
-  , mc6LooperBankNum :: Int
-  -- | First of the consecutive banks the six-loop machine occupies
-  -- | (`Data.Looper.Banks`, one per `BankSlot`). One number rather than seven,
-  -- | because "which bank is the speed bank" should be arithmetic and not a
-  -- | setting that can be set inconsistently.
+  -- | First of the consecutive banks the looper's family occupies
+  -- | (`Data.Looper.Banks`, one per `BankSlot`): one bank, the Loops bank,
+  -- | since 2026-11-07, with room for a second. A base rather than a list,
+  -- | because "which bank is which" should be arithmetic and not a setting
+  -- | that can be set inconsistently.
   , mc6LoopBankBase :: Int
+  -- | The MIDI channel the looper's banks are written on and answered on
+  -- | (`Data.Looper.Banks.SwitchChannel`; nine by default, and why is told at
+  -- | `defaultSwitchChannel`). Remembered per browser. The looper's own
+  -- | process reads its copy from `LOOPER_MC6_CHANNEL`, so changing this means
+  -- | writing the banks again and restarting that process.
+  , looperSwitchChannel :: LoopBanks.SwitchChannel
   -- | How long the MC6 sat on a gesture before telling us, in milliseconds.
   -- |
   -- | **An estimate, and the one thing device-side recognition cost.** When the
@@ -413,12 +418,11 @@ initAppState =
   , globalSwitches: []
   , activeControlBankIdx: Just 0
   , looper: Nothing
-  , mc6LooperBankNum: 9
-  -- 22-28 (seven slots, not the six this comment used to claim), just above the
-  -- legacy transport bank. Wire numbers; the editor shows each one higher.
-  -- `Data.MC6.Reserved` derives the seven from this base rather than restating
-  -- them, so the range cannot be written down wrongly a second time.
+  -- Wire numbers; the editor shows each one higher. `Data.MC6.Reserved`
+  -- derives the family's banks from this base rather than restating them, so
+  -- the range cannot be written down wrongly a second time.
   , mc6LoopBankBase: TwisterHolder.loopBankBase
+  , looperSwitchChannel: LoopBanks.defaultSwitchChannel
   -- **Seven hundred, because that is what the device does.** Set in
   -- Morningstar's editor and confirmed against `03 21` offset 3, which moved
   -- from 2 to 4 when the setting went from 750 ms to 700 — so the byte is the
