@@ -27,6 +27,8 @@ module Data.Looper.TwisterSurface
   , Event(..)
   , load
   , owner
+  , stateName
+  , eventName
   , feed
   , repaint
   , start
@@ -140,6 +142,10 @@ load text = do
 
 owner :: Surface -> Owner
 owner (Surface s) = ownerOf s.state
+
+-- | The state's name in `twister-surface.json`, for the console.
+stateName :: Surface -> String
+stateName (Surface s) = let StateId n = s.state in n
 
 -- | Total because `load` checked the alphabet; the fallback is unreachable.
 ownerOf :: StateId -> Owner

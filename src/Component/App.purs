@@ -3896,7 +3896,13 @@ feedTwister :: forall o m. MonadAff m => TwisterSurface.Event -> H.HalogenM AppS
 feedTwister ev = do
   st <- H.get
   for_ st.twisterSurface \surface -> do
-    let fed = TwisterSurface.feed { pedalFocused: maybe false (not <<< Looper.isItajara) st.focusPedalId } ev surface
+    let
+      pedalFocused = maybe false (not <<< Looper.isItajara) st.focusPedalId
+      fed = TwisterSurface.feed { pedalFocused } ev surface
+    -- One line a step, so a handover that did not happen can be read back.
+    liftEffect $ Console.log $ "Twister: " <> TwisterSurface.eventName ev
+      <> " (pedal focused: " <> show pedalFocused <> ") "
+      <> TwisterSurface.stateName surface <> " -> " <> TwisterSurface.stateName fed.surface
     H.modify_ _ { twisterSurface = Just fed.surface }
     for_ fed.refused \why -> liftEffect (Console.log ("Twister: " <> why))
     traverse_ paintTwister fed.paints
