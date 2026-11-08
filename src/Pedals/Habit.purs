@@ -4,7 +4,7 @@ import Color (fromHexString)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Midi (CC, MidiValue, unsafeCC, unsafeMidiValue)
-import Data.Pedal (Annotation, Control(..), LabelSource(..), PedalDef, PedalId(..), SectionLayout(..))
+import Data.Pedal (Annotation, Control(..), LabelSource(..), PedalDef, PedalId(..), RadioChoice, SectionLayout(..))
 import Data.Pedal.Engage (EngageConfig(..))
 import Data.Pedal.Layout (ConfigControlType(..), KnobLayer(..), PedalLayout)
 import Data.Tuple (Tuple(..))
@@ -104,13 +104,13 @@ pedal =
         , description: Just "Select modifier. MOD knob controls the selected modifier."
         , controls:
             [ RadioGroup { label: "Modifier", mapping:
-                [ { label: "Stepped Speed", values: Map.fromFoldable [ cc 22 /\ mv 1, cc 21 /\ mv 1 ] }
-                , { label: "Stability",     values: Map.fromFoldable [ cc 22 /\ mv 1, cc 21 /\ mv 2 ] }
-                , { label: "Trimmer",       values: Map.fromFoldable [ cc 22 /\ mv 1, cc 21 /\ mv 3 ] }
-                , { label: "Off",           values: Map.fromFoldable [ cc 22 /\ mv 2, cc 21 /\ mv 1 ] }
-                , { label: "Smooth Speed",  values: Map.fromFoldable [ cc 22 /\ mv 3, cc 21 /\ mv 1 ] }
-                , { label: "Filter",        values: Map.fromFoldable [ cc 22 /\ mv 3, cc 21 /\ mv 2 ] }
-                , { label: "Dropper",       values: Map.fromFoldable [ cc 22 /\ mv 3, cc 21 /\ mv 3 ] }
+                [ modifier "Stepped Speed" 1 1 (Just steppedSpeedOneX)
+                , modifier "Stability"     1 2 (Just 64)
+                , modifier "Trimmer"       1 3 (Just 64)
+                , modifier "Off"           2 1 Nothing
+                , modifier "Smooth Speed"  3 1 (Just smoothSpeedOneX)
+                , modifier "Filter"        3 2 (Just 64)
+                , modifier "Dropper"       3 3 (Just 64)
                 ] }
             , Segmented { cc: cc 23, label: "Mode", options:
                 [ { label: "In", value: mv 1, description: Just "Accumulating: modifier stacks on each echo" }
@@ -227,3 +227,29 @@ habitLayout =
   , knobRows: 3
   , viewBox: { width: 320.0, height: 470.0 }
   }
+
+-- | A modifier is a position of the left toggle (CC 21) and the centre toggle
+-- | (CC 22), plus, where it has one, the Modify value (CC 17) at which it does
+-- | nothing. Choosing it puts Modify there, so you start from neutral and turn
+-- | away; Modify is not part of what the choice *is* (see `RadioChoice`).
+-- | Off has no neutral: Modify does nothing, so it is left alone.
+modifier :: String -> Int -> Int -> Maybe Int -> RadioChoice
+modifier label bank number neutral =
+  { label
+  , values: Map.fromFoldable [ Tuple (cc 22) (mv bank), Tuple (cc 21) (mv number) ]
+  , alsoSends: case neutral of
+      Just n -> Map.singleton (cc 17) (mv n)
+      Nothing -> Map.empty
+  }
+
+-- | Stability, Trimmer, Filter and Dropper are neutral at the midpoint (AC,
+-- | 2026-11-08). The two speeds are not: their midpoint is *stopped*, 0 and 127
+-- | the extremes of reverse and forward (Stepped -4x..4x, Smooth -2x..2x), so
+-- | neutral is 1x forward. On a linear scale that is 64 + 63.5/4 and
+-- | 64 + 63.5/2. Stepped is quantised and its steps may not be linear: both
+-- | values are to be checked by ear (echo pitch unchanged).
+steppedSpeedOneX :: Int
+steppedSpeedOneX = 80
+
+smoothSpeedOneX :: Int
+smoothSpeedOneX = 96

@@ -14,7 +14,7 @@ import Data.Int as Int
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Midi (CC, MidiValue, makeCC, makeMidiValue)
-import Data.Pedal (Annotation, Control(..), LabelSource(..), ModeRangesMode, RangeOption, SelectOption)
+import Data.Pedal (Annotation, Control(..), LabelSource(..), ModeRangesMode, RadioChoice, RangeOption, SelectOption)
 import Data.Pedal.Modes (ModeChannel(..), ModeRole(..))
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
@@ -240,15 +240,23 @@ decodeModeRangesMode json = do
     traverse decodeRangeOption innerArr) rangesJson
   Just { lo, hi, ranges }
 
-decodeRadioMapping :: Json -> Maybe { label :: String, values :: Map.Map CC MidiValue }
+decodeRadioMapping :: Json -> Maybe RadioChoice
 decodeRadioMapping json = do
   obj <- Json.toObject json
   label <- lookupStr "label" obj
-  valuesObj <- FO.lookup "values" obj >>= Json.toObject
-  let entries = FO.toUnfoldable valuesObj :: Array (Tuple String Json)
-  parsed <- traverse parseValueEntry entries
-  Just { label, values: Map.fromFoldable parsed }
+  values <- FO.lookup "values" obj >>= ccMap
+  -- Optional: configs written before alsoSends existed have none.
+  alsoSends <- case FO.lookup "alsoSends" obj of
+    Nothing -> Just Map.empty
+    Just j -> ccMap j
+  Just { label, values, alsoSends }
   where
+  ccMap :: Json -> Maybe (Map.Map CC MidiValue)
+  ccMap j = do
+    o <- Json.toObject j
+    parsed <- traverse parseValueEntry (FO.toUnfoldable o :: Array (Tuple String Json))
+    Just (Map.fromFoldable parsed)
+
   parseValueEntry :: Tuple String Json -> Maybe (Tuple CC MidiValue)
   parseValueEntry (Tuple key valJson) = do
     ccInt <- Int.fromString key

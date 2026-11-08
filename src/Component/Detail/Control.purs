@@ -12,9 +12,9 @@ import Halogen.HTML.Events as HE
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Midi (CC, MidiValue, unMidiValue, unsafeMidiValue)
-import Data.Pedal (Annotation, Control(..), LabelSource(..), PedalId, RangeOption)
+import Data.Pedal (Annotation, Control(..), LabelSource(..), PedalId, RangeOption, choiceIsSelected, choiceSends)
 import Data.Pedal.Modes (DualChannelModes, ChannelDef, ModeChannel(..), ModeRole(..))
-import Data.Tuple (Tuple(..))
+import Data.Tuple (Tuple)
 import Engine (PedalState)
 import Halogen.HTML as HH
 import Halogen.HTML.Properties as HP
@@ -225,12 +225,10 @@ renderControl pid ps mModes = case _ of
       ]
     where
     radioOption entry =
-      let isSelected = Array.all
-            (\(Tuple cc' val) -> Map.lookup cc' ps.values == Just val)
-            (Map.toUnfoldable entry.values :: Array _)
+      let isSelected = choiceIsSelected entry ps.values
       in HH.button
         [ HP.class_ (H.ClassName (if isSelected then "radio-btn active" else "radio-btn"))
-        , HE.onClick \_ -> SetMultipleCC pid (Map.toUnfoldable entry.values)
+        , HE.onClick \_ -> SetMultipleCC pid (choiceSends entry)
         ]
         [ HH.text entry.label ]
 

@@ -1,5 +1,6 @@
 module Config.Encode
   ( pedalDefToJson
+  , controlToJson
   , rigConfigToJson
   ) where
 
@@ -12,7 +13,7 @@ import Data.Int as Int
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Midi (CC, MidiValue, unCC, unMidiValue)
-import Data.Pedal (Annotation, Control(..), LabelSource(..), ModeRangesMode, PedalDef, PedalId(..), RangeOption, Section, SectionLayout(..), SelectOption)
+import Data.Pedal (Annotation, Control(..), LabelSource(..), ModeRangesMode, PedalDef, PedalId(..), RadioChoice, RangeOption, Section, SectionLayout(..), SelectOption)
 import Data.Pedal.Engage (EngageConfig(..))
 import Data.Pedal.Modes (ChannelDef, DualChannelModes, EffectDef, EffectVariant, ModeChannel(..), ModeRole(..))
 import Data.Tuple (Tuple(..))
@@ -321,11 +322,12 @@ modeRangesModeToJson m = obj
   , "ranges" /\ arr (map (\rs -> arr (map rangeOptionToJson rs)) m.ranges)
   ]
 
-radioMappingToJson :: { label :: String, values :: Map.Map CC MidiValue } -> Json
-radioMappingToJson r = obj
+radioMappingToJson :: RadioChoice -> Json
+radioMappingToJson r = obj $
   [ "label" /\ str r.label
   , "values" /\ ccMapToJson r.values
   ]
+    <> (if Map.isEmpty r.alsoSends then [] else [ "alsoSends" /\ ccMapToJson r.alsoSends ])
 
 -- | Encode rig config (for generating rig.json)
 rigConfigToJson :: { name :: String, pedals :: Array { file :: String, channel :: Int } } -> Json

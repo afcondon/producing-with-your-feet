@@ -10,7 +10,10 @@ import Data.Map as Map
 import Data.Set as Set
 import Data.Maybe (Maybe(..), fromMaybe, isJust, isNothing, maybe)
 import Data.Midi (makeCC, makeMidiValue, makeProgramNumber)
-import Data.Pedal (PedalId(..))
+import Data.Pedal (Control(..), PedalId(..), RadioChoice, choiceIsSelected, choiceSends)
+import Config.Encode as Encode
+import Config.Decode.Control as DecodeControl
+import Data.Midi (unsafeCC, unsafeMidiValue)
 import Data.Pedal.Engage (EngageConfig(..), EngageState(..), bypassCCs)
 import Effect (Effect)
 import Effect.Console (log)
@@ -307,8 +310,42 @@ padTo :: Int -> String -> String
 padTo n s = s <> power " " (max 0 (n - String.length s))
 
 
+-- | A radio choice's `alsoSends` (Habit's modifiers set Modify to neutral).
+radioChoiceTests :: Effect Unit
+radioChoiceTests = do
+  log "Running radio choice tests..."
+  let c = unsafeCC
+      v = unsafeMidiValue
+      habitModifiers :: Array RadioChoice
+      habitModifiers = fromMaybe [] do
+        habit <- Array.find (\p -> p.meta.id == PedalId "habit") Registry.pedals
+        Array.findMap (\ctl -> case ctl of
+            RadioGroup r | r.label == "Modifier" -> Just r.mapping
+            _ -> Nothing)
+          (Array.concatMap _.controls habit.sections)
+      choice name = Array.find (\m -> m.label == name) habitModifiers
+  assert "Habit has seven modifiers" (Array.length habitModifiers == 7)
+  case choice "Filter", choice "Off", choice "Smooth Speed" of
+    Just filter, Just off, Just smooth -> do
+      assert "Filter sends what it is, then Modify at neutral"
+        (choiceSends filter == [ Tuple (c 21) (v 2), Tuple (c 22) (v 3), Tuple (c 17) (v 64) ])
+      assert "Filter stays selected however Modify is turned"
+        (choiceIsSelected filter (Map.fromFoldable [ Tuple (c 21) (v 2), Tuple (c 22) (v 3), Tuple (c 17) (v 10) ]))
+      assert "and is not selected on another bank"
+        (not (choiceIsSelected filter (Map.fromFoldable [ Tuple (c 21) (v 2), Tuple (c 22) (v 1) ])))
+      assert "Off leaves Modify alone" (not (Array.any (\(Tuple k _) -> k == c 17) (choiceSends off)))
+      assert "Smooth Speed's neutral is 1x forward, not the stopped midpoint"
+        (Array.elem (Tuple (c 17) (v 96)) (choiceSends smooth))
+      let roundTrip = DecodeControl.decodeControl (Encode.controlToJson (RadioGroup { label: "Modifier", mapping: habitModifiers }))
+      assert "alsoSends survives the config file"
+        (case roundTrip of
+          Just (RadioGroup r) -> map _.alsoSends r.mapping == map _.alsoSends habitModifiers
+          _ -> false)
+    _, _, _ -> assert "Habit's Filter, Off and Smooth Speed are found" false
+
 main :: Effect Unit
 main = do
+  radioChoiceTests
   twisterSurfaceTests
   twisterHoldingTests
   presetUsageTests
