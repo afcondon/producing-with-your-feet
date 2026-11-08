@@ -14,7 +14,7 @@ import Data.Foldable (for_)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Midi (CC, MidiValue)
-import Data.Pedal (PedalDef, PedalId, Section, SectionLayout(..))
+import Data.Pedal (PedalDef, PedalId, Section, SectionLayout(..), annotateByChoice)
 import Data.Tuple (Tuple(..))
 import Data.Pedal.Modes (DualChannelModes)
 import Effect.Aff.Class (class MonadAff)
@@ -85,7 +85,7 @@ renderPedal def ps state =
         , HH.span [ HP.class_ (H.ClassName "channel") ] [ HH.text ("Ch " <> show ps.channel) ]
         ]
     , HH.div [ HP.class_ (H.ClassName "sections") ]
-        (map (renderSection def.meta.id ps def.modes state) def.sections)
+        (map (renderSection def.meta.id ps def.modes state) (annotateByChoice ps.values def.sections))
     ]
 
 renderSection :: forall m. PedalId -> PedalState -> Maybe DualChannelModes -> State -> Section -> H.ComponentHTML Action () m

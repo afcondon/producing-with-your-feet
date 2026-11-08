@@ -9,6 +9,7 @@ module Data.Pedal
   , RadioChoice
   , choiceIsSelected
   , choiceSends
+  , annotateByChoice
   , module Data.Pedal.Label
   , Control(..)
   , Section
@@ -129,10 +130,16 @@ data Control
 -- | expected to move. Habit's modifiers put Modify (CC 17) at the modifier's
 -- | neutral point this way; were it in `values`, turning Modify would make the
 -- | modifier stop showing as selected.
+-- |
+-- | `annotates` relabels other controls while the choice is selected: a
+-- | slider's annotations, by its CC. Habit's Modify means a different thing
+-- | under each modifier (low-pass to high-pass under Filter, reverse to
+-- | forward under the speeds), so each modifier says what its sides are.
 type RadioChoice =
   { label :: String
   , values :: Map CC MidiValue
   , alsoSends :: Map CC MidiValue
+  , annotates :: Map CC (Array Annotation)
   }
 
 -- | Selected while the pedal holds every one of the choice's `values`;
@@ -147,6 +154,31 @@ choiceSends :: RadioChoice -> Array (Tuple CC MidiValue)
 choiceSends choice =
   Map.toUnfoldable choice.values
     <> Map.toUnfoldable (Map.difference choice.alsoSends choice.values)
+
+-- | The pedal's sections as they read now: a slider that a selected radio
+-- | choice annotates takes that choice's annotations, and a static label
+-- | gains the choice's name ("Modify · Filter"). Everything else is as defined.
+annotateByChoice :: Map CC MidiValue -> Array Section -> Array Section
+annotateByChoice held sections = map (\s -> s { controls = map annotate s.controls }) sections
+  where
+  selected :: Array RadioChoice
+  selected = Array.filter (\c -> choiceIsSelected c held) do
+    section <- sections
+    control <- section.controls
+    case control of
+      RadioGroup r -> r.mapping
+      _ -> []
+
+  annotate = case _ of
+    Slider r
+      | Just (Tuple choice anns) <- Array.findMap (\c -> Tuple c <$> Map.lookup r.cc c.annotates) selected ->
+          Slider r
+            { annotations = anns
+            , label = case r.label of
+                Static l -> Static (l <> " \x00B7 " <> choice.label)
+                other -> other
+            }
+    other -> other
 
 type Section =
   { name :: String

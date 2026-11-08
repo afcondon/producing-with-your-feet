@@ -18,7 +18,7 @@ import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Midi (CC, MidiValue, ProgramNumber, makeProgramNumber, unProgramNumber)
 import Data.String.CodeUnits as SCU
-import Data.Pedal (PedalDef, PedalId, Section, SectionLayout(..))
+import Data.Pedal (PedalDef, PedalId, Section, SectionLayout(..), annotateByChoice)
 import Data.Pedal.Modes (DualChannelModes)
 import Data.Preset (BoardPreset, PedalPreset, PresetId)
 import Data.Preset as Preset
@@ -189,7 +189,7 @@ render state =
     let pedalPresets = Array.filter (\p -> p.pedalId == pid) state.input.presets
         isExpanded = Array.elem pid state.expandedPresets
         controls = HH.div [ HP.class_ (H.ClassName "card-sections") ]
-          (map (renderSection def.meta.id ps def.modes) def.sections)
+          (map (renderSection def.meta.id ps def.modes) (annotateByChoice ps.values def.sections))
         body = case state.input.parts of
           WholeCard ->
             [ controls

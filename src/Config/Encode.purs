@@ -328,6 +328,9 @@ radioMappingToJson r = obj $
   , "values" /\ ccMapToJson r.values
   ]
     <> (if Map.isEmpty r.alsoSends then [] else [ "alsoSends" /\ ccMapToJson r.alsoSends ])
+    <> (if Map.isEmpty r.annotates then [] else
+          [ "annotates" /\ obj (map (\(Tuple c anns) -> show (unCC c) /\ arr (map annotationToJson anns))
+              (Map.toUnfoldable r.annotates :: Array (Tuple CC (Array Annotation)))) ])
 
 -- | Encode rig config (for generating rig.json)
 rigConfigToJson :: { name :: String, pedals :: Array { file :: String, channel :: Int } } -> Json

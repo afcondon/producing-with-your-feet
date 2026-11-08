@@ -92,7 +92,7 @@ pedal =
               , annotations: [ ann 0 "Single", ann 64 "Mid", ann 127 "Infinite" ] }
             , Slider { cc: cc 16, label: Static "Size", description: Just "Delay time (50ms to 60s)"
               , annotations: [ ann 0 "50ms", ann 64 "Mid", ann 127 "60s" ] }
-            , Slider { cc: cc 17, label: Static "Modify", description: Just "Modifier depth. Noon = neutral."
+            , Slider { cc: cc 17, label: Static "Modify", description: Just "Modifier depth. Its ends are labelled for the modifier chosen."
               , annotations: [ ann 0 "CCW", ann 64 "Neutral", ann 127 "CW" ] }
             , Slider { cc: cc 18, label: Static "Spread", description: Just "Secondary echo / multi-tap distance"
               , annotations: [ ann 0 "Off", ann 64 "Mid", ann 127 "Max" ] }
@@ -105,12 +105,19 @@ pedal =
         , controls:
             [ RadioGroup { label: "Modifier", mapping:
                 [ modifier "Stepped Speed" 1 1 (Just steppedSpeedOneX)
+                    [ ann 0 "Rev 4x", ann 64 "Stop", ann steppedSpeedOneX "1x", ann 127 "Fwd 4x" ]
                 , modifier "Stability"     1 2 (Just 64)
+                    [ ann 0 "Max, no noise", ann 64 "Neutral", ann 127 "Max, tape noise" ]
                 , modifier "Trimmer"       1 3 (Just 64)
+                    [ ann 0 "Cuts ends", ann 64 "Neutral", ann 127 "Cuts starts" ]
                 , modifier "Off"           2 1 Nothing
+                    [ ann 64 "Modifier off: no effect" ]
                 , modifier "Smooth Speed"  3 1 (Just smoothSpeedOneX)
+                    [ ann 0 "Rev 2x", ann 64 "Stop", ann smoothSpeedOneX "1x", ann 127 "Fwd 2x" ]
                 , modifier "Filter"        3 2 (Just 64)
+                    [ ann 0 "Low-pass", ann 64 "Neutral", ann 127 "High-pass" ]
                 , modifier "Dropper"       3 3 (Just 64)
+                    [ ann 0 "Random", ann 64 "Neutral", ann 127 "Patterned" ]
                 ] }
             , Segmented { cc: cc 23, label: "Mode", options:
                 [ { label: "In", value: mv 1, description: Just "Accumulating: modifier stacks on each echo" }
@@ -233,13 +240,16 @@ habitLayout =
 -- | nothing. Choosing it puts Modify there, so you start from neutral and turn
 -- | away; Modify is not part of what the choice *is* (see `RadioChoice`).
 -- | Off has no neutral: Modify does nothing, so it is left alone.
-modifier :: String -> Int -> Int -> Maybe Int -> RadioChoice
-modifier label bank number neutral =
+-- | `sides` are what Modify's ends mean under this modifier (manual p. 16-17:
+-- | Stability is noise-free counter-clockwise and adds tape noise clockwise).
+modifier :: String -> Int -> Int -> Maybe Int -> Array Annotation -> RadioChoice
+modifier label bank number neutral sides =
   { label
   , values: Map.fromFoldable [ Tuple (cc 22) (mv bank), Tuple (cc 21) (mv number) ]
   , alsoSends: case neutral of
       Just n -> Map.singleton (cc 17) (mv n)
       Nothing -> Map.empty
+  , annotates: Map.singleton (cc 17) sides
   }
 
 -- | Stability, Trimmer, Filter and Dropper are neutral at the midpoint (AC,

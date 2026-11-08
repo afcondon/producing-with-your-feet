@@ -258,7 +258,7 @@
               "label": "CW"
             }
           ],
-          "description": "Modifier depth. Noon = neutral."
+          "description": "Modifier depth. Its ends are labelled for the modifier chosen."
         },
         {
           "type": "slider",
@@ -320,6 +320,26 @@
               },
               "alsoSends": {
                 "17": 80
+              },
+              "annotates": {
+                "17": [
+                  {
+                    "position": 0,
+                    "label": "Rev 4x"
+                  },
+                  {
+                    "position": 64,
+                    "label": "Stop"
+                  },
+                  {
+                    "position": 80,
+                    "label": "1x"
+                  },
+                  {
+                    "position": 127,
+                    "label": "Fwd 4x"
+                  }
+                ]
               }
             },
             {
@@ -330,6 +350,22 @@
               },
               "alsoSends": {
                 "17": 64
+              },
+              "annotates": {
+                "17": [
+                  {
+                    "position": 0,
+                    "label": "Max, no noise"
+                  },
+                  {
+                    "position": 64,
+                    "label": "Neutral"
+                  },
+                  {
+                    "position": 127,
+                    "label": "Max, tape noise"
+                  }
+                ]
               }
             },
             {
@@ -340,6 +376,22 @@
               },
               "alsoSends": {
                 "17": 64
+              },
+              "annotates": {
+                "17": [
+                  {
+                    "position": 0,
+                    "label": "Cuts ends"
+                  },
+                  {
+                    "position": 64,
+                    "label": "Neutral"
+                  },
+                  {
+                    "position": 127,
+                    "label": "Cuts starts"
+                  }
+                ]
               }
             },
             {
@@ -347,6 +399,14 @@
               "values": {
                 "21": 1,
                 "22": 2
+              },
+              "annotates": {
+                "17": [
+                  {
+                    "position": 64,
+                    "label": "Modifier off: no effect"
+                  }
+                ]
               }
             },
             {
@@ -357,6 +417,26 @@
               },
               "alsoSends": {
                 "17": 96
+              },
+              "annotates": {
+                "17": [
+                  {
+                    "position": 0,
+                    "label": "Rev 2x"
+                  },
+                  {
+                    "position": 64,
+                    "label": "Stop"
+                  },
+                  {
+                    "position": 96,
+                    "label": "1x"
+                  },
+                  {
+                    "position": 127,
+                    "label": "Fwd 2x"
+                  }
+                ]
               }
             },
             {
@@ -367,6 +447,22 @@
               },
               "alsoSends": {
                 "17": 64
+              },
+              "annotates": {
+                "17": [
+                  {
+                    "position": 0,
+                    "label": "Low-pass"
+                  },
+                  {
+                    "position": 64,
+                    "label": "Neutral"
+                  },
+                  {
+                    "position": 127,
+                    "label": "High-pass"
+                  }
+                ]
               }
             },
             {
@@ -377,6 +473,22 @@
               },
               "alsoSends": {
                 "17": 64
+              },
+              "annotates": {
+                "17": [
+                  {
+                    "position": 0,
+                    "label": "Random"
+                  },
+                  {
+                    "position": 64,
+                    "label": "Neutral"
+                  },
+                  {
+                    "position": 127,
+                    "label": "Patterned"
+                  }
+                ]
               }
             }
           ]

@@ -9,11 +9,10 @@ import Data.Array as Array
 import Data.Map as Map
 import Data.Set as Set
 import Data.Maybe (Maybe(..), fromMaybe, isJust, isNothing, maybe)
-import Data.Midi (makeCC, makeMidiValue, makeProgramNumber)
-import Data.Pedal (Control(..), PedalId(..), RadioChoice, choiceIsSelected, choiceSends)
+import Data.Midi (makeCC, makeMidiValue, makeProgramNumber, unsafeCC, unsafeMidiValue)
+import Data.Pedal (Control(..), LabelSource(..), PedalId(..), RadioChoice, annotateByChoice, choiceIsSelected, choiceSends)
 import Config.Encode as Encode
 import Config.Decode.Control as DecodeControl
-import Data.Midi (unsafeCC, unsafeMidiValue)
 import Data.Pedal.Engage (EngageConfig(..), EngageState(..), bypassCCs)
 import Effect (Effect)
 import Effect.Console (log)
@@ -310,6 +309,11 @@ padTo :: Int -> String -> String
 padTo n s = s <> power " " (max 0 (n - String.length s))
 
 
+staticLabel :: LabelSource -> Maybe String
+staticLabel = case _ of
+  Static l -> Just l
+  _ -> Nothing
+
 -- | A radio choice's `alsoSends` (Habit's modifiers set Modify to neutral).
 radioChoiceTests :: Effect Unit
 radioChoiceTests = do
@@ -336,10 +340,28 @@ radioChoiceTests = do
       assert "Off leaves Modify alone" (not (Array.any (\(Tuple k _) -> k == c 17) (choiceSends off)))
       assert "Smooth Speed's neutral is 1x forward, not the stopped midpoint"
         (Array.elem (Tuple (c 17) (v 96)) (choiceSends smooth))
+      -- Modify's sides follow the modifier: under Filter it reads low-pass to
+      -- high-pass, and its label names the modifier.
+      let habitSections = fromMaybe [] (_.sections <$> Array.find (\p -> p.meta.id == PedalId "habit") Registry.pedals)
+          modifyUnder held = Array.findMap (\ctl -> case ctl of
+              Slider r | r.cc == c 17 -> Just r
+              _ -> Nothing)
+            (Array.concatMap _.controls (annotateByChoice held habitSections))
+          filterHeld = Map.fromFoldable [ Tuple (c 21) (v 2), Tuple (c 22) (v 3), Tuple (c 17) (v 30) ]
+      assert "under Filter, Modify reads low-pass to high-pass"
+        (case modifyUnder filterHeld of
+          Just r -> map _.label r.annotations == [ "Low-pass", "Neutral", "High-pass" ]
+            && staticLabel r.label == Just "Modify \x00B7 Filter"
+          Nothing -> false)
+      assert "with no modifier held, Modify keeps its own labels"
+        (case modifyUnder Map.empty of
+          Just r -> staticLabel r.label == Just "Modify"
+          Nothing -> false)
       let roundTrip = DecodeControl.decodeControl (Encode.controlToJson (RadioGroup { label: "Modifier", mapping: habitModifiers }))
       assert "alsoSends survives the config file"
         (case roundTrip of
           Just (RadioGroup r) -> map _.alsoSends r.mapping == map _.alsoSends habitModifiers
+            && map (map (map _.label) <<< _.annotates) r.mapping == map (map (map _.label) <<< _.annotates) habitModifiers
           _ -> false)
     _, _, _ -> assert "Habit's Filter, Off and Smooth Speed are found" false
 

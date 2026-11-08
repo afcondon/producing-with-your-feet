@@ -249,7 +249,17 @@ decodeRadioMapping json = do
   alsoSends <- case FO.lookup "alsoSends" obj of
     Nothing -> Just Map.empty
     Just j -> ccMap j
-  Just { label, values, alsoSends }
+  annotates <- case FO.lookup "annotates" obj of
+    Nothing -> Just Map.empty
+    Just j -> do
+      o <- Json.toObject j
+      parsed <- traverse (\(Tuple key annsJson) -> do
+          c <- Int.fromString key >>= makeCC
+          anns <- Json.toArray annsJson >>= traverse decodeAnnotation
+          Just (Tuple c anns))
+        (FO.toUnfoldable o :: Array (Tuple String Json))
+      Just (Map.fromFoldable parsed)
+  Just { label, values, alsoSends, annotates }
   where
   ccMap :: Json -> Maybe (Map.Map CC MidiValue)
   ccMap j = do
