@@ -251,7 +251,15 @@ render state = case state.configError of
             -- which would otherwise draw as an empty cell.
             , cardOrder: Array.filter (isJust <<< CRegistry.findPedal state.registry) state.cardOrder
             , activePedal: state.overviewActivePedal
-            , twisterCard: map (\card -> { card, open: state.twisterCardOpen }) (twisterCardOf state)
+            -- A pedal's card goes with the selection (AC, 2026-11-09): turning
+            -- the pill off hides it, though the Twister keeps serving that
+            -- pedal until another is focused. A scene or the looper's pages
+            -- are not a selection, so their card stays.
+            , twisterCard:
+                if isNothing state.overviewActivePedal
+                     && (twisterOwner state == Just TwisterSurface.PedalPage || isNothing (twisterOwner state))
+                  then Nothing
+                  else map (\card -> { card, open: state.twisterCardOpen }) (twisterCardOf state)
             }
             HandleOverview
         ControlsView ->
