@@ -188,6 +188,9 @@ type AppState =
   -- | loaded, and for good if it failed to (then `configError` says why and
   -- | the Twister paints nothing, rather than guessing an owner).
   , twisterSurface :: Maybe TwisterSurface.Surface
+  -- | Whether the corner card (`Component.Twister.Card`) is open or folded to
+  -- | its title. A viewing preference, so held here and not stored.
+  , twisterCardOpen :: Boolean
   , presets :: Array PedalPreset
   , boardPresets :: Array BoardPreset
   , registry :: PedalRegistry
@@ -414,6 +417,7 @@ initAppState =
   , twisterPage: 0
   , twisterScene: Nothing
   , twisterSurface: Nothing
+  , twisterCardOpen: true
   , presets: []
   , boardPresets: []
   , configError: Nothing

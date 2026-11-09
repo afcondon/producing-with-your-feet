@@ -64,6 +64,8 @@ import Data.Twister.Scene as Scene
 import Data.Twister.Scenes as Scenes
 import Engine.Twister as ETw
 import Data.Twister.Holding as Holding
+import Component.Twister.Card as TwisterCard
+import Config.Preset (buildCCLabels)
 import Data.Preset.Usage as Usage
 
 -- Golden fixture: JS-format engine state with 3 pedals, numeric-string CC keys
@@ -365,11 +367,35 @@ radioChoiceTests = do
           _ -> false)
     _, _, _ -> assert "Habit's Filter, Off and Smooth Speed are found" false
 
+-- | **The corner card names what is under your hand** (restored 2026-11-09).
+-- | A pedal's page is named from the pedal's own CC labels, the looper's
+-- | pages from the looper's table, and with nothing focused there is no card.
+twisterCardTests :: Effect Unit
+twisterCardTests = do
+  log "Running Twister card tests..."
+  let reg = CRegistry.mkRegistry Registry.pedals [] { pedalOutput: { match: "" }, twisterInput: { match: "" }, twisterOutput: { match: "" }, mc6Input: { match: "" } }
+      flint = PedalId "flint"
+      labels = maybe [] (Array.fromFoldable <<< Map.values <<< buildCCLabels) (CRegistry.findPedal reg flint)
+  case TwisterCard.cardFor reg (Just TwisterSurface.PedalPage) Nothing (Just flint) 0 of
+    Nothing -> assert "card: a focused pedal has a card" false
+    Just card -> do
+      let named = Array.filter (_ /= "") (map _.name card.cells)
+      assert "card: a pedal page has sixteen cells" (Array.length card.cells == 16)
+      assert "card: a pedal page names some of its knobs" (not (Array.null named))
+      assert "card: every name on a pedal page is one of the pedal's CC labels"
+        (Array.all (\n -> Array.elem n labels) named)
+  assert "card: nothing focused and no scene, no card"
+    (isNothing (TwisterCard.cardFor reg (Just TwisterSurface.PedalPage) Nothing Nothing 0))
+  assert "card: the looper's pages win over a focused pedal"
+    (map _.title (TwisterCard.cardFor reg (Just TwisterSurface.LooperPages) Nothing (Just flint) 0)
+       == map _.name (Array.head LoopTw.pages))
+
 main :: Effect Unit
 main = do
   radioChoiceTests
   twisterSurfaceTests
   twisterHoldingTests
+  twisterCardTests
   presetUsageTests
   log "Running pedal definition tests..."
 

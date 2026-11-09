@@ -57,6 +57,7 @@ import Data.Tuple (Tuple(..))
 import Data.Twister (Knob, TwisterEncoder(..), TwisterMsg(..), fromHelm)
 import Data.Twister as TwisterData
 import Data.Twister.Holding as Holding
+import Component.Twister.Card as TwisterCard
 import Data.Looper.Twister as LoopTwister
 import Control.Monad.Rec.Class (forever)
 import Effect (Effect)
@@ -104,6 +105,8 @@ import Web.HTML.Window (document)
 
 data Action
   = Initialize
+  -- | Open or fold the corner card that names what is under your hand.
+  | ToggleTwisterCard
   | InitializeMIDI MidiRouting
   | RescanMIDI
   | MidiPortChanged MIDI.PortChange
@@ -289,6 +292,7 @@ render state = case state.configError of
         FilesView -> renderFilesView state
         ConnectView -> renderConnectView state
         BoardsView -> HH.text ""
+    , twisterCard state
     -- **The Presets page** (still `BoardsView` in the code; plan
     -- `pwyf-layout.md`): three areas, left to right, one direction of travel.
     -- 1 shapes a pedal, 2 keeps it as a pedal preset, 3 combines pedal
@@ -710,6 +714,7 @@ renderMidiDiagnostics state =
 
 handleAction :: forall o m. MonadAff m => Action -> H.HalogenM AppState Action Slots o m Unit
 handleAction = case _ of
+  ToggleTwisterCard -> H.modify_ \st -> st { twisterCardOpen = not st.twisterCardOpen }
   Initialize -> do
     -- Load configuration from JSON files
     eConfig <- H.liftAff $ Decode.loadRig "./"
@@ -3803,6 +3808,17 @@ twisterHoldingOf st =
 
 twisterOwner :: AppState -> Maybe TwisterSurface.Owner
 twisterOwner st = map TwisterSurface.owner st.twisterSurface
+
+-- | **What is under your hand on the Twister**, in the corner of every view,
+-- | while this app holds it. See `Component.Twister.Card`.
+twisterCard :: forall w. AppState -> HH.HTML w Action
+twisterCard st = case twisterHoldingOf st of
+  Holding.TwisterWithPedals ->
+    maybe (HH.text "")
+      (TwisterCard.render { open: st.twisterCardOpen, toggle: ToggleTwisterCard })
+      (TwisterCard.cardFor st.registry (twisterOwner st) (sceneOwning st)
+         st.focusPedalId st.twisterPage)
+  _ -> HH.text ""
 
 -- | The scene, when the machine says a scene holds the Twister.
 sceneOwning :: AppState -> Maybe Scene.Scene
