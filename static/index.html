@@ -3759,7 +3759,7 @@ body {
    which took it to Quadrat on 2026-11-07. */
 .twister-card {
   position: fixed; right: 16px; bottom: 16px; z-index: 40;
-  width: 280px; padding: 8px 10px 10px;
+  width: 320px; padding: 8px 10px 10px;
   background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
   box-shadow: 0 2px 10px rgba(0,0,0,.08);
 }
@@ -3774,12 +3774,37 @@ body {
 .twister-card-title:hover { color: var(--fg); }
 .twister-card-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
 .twister-card-cell {
-  min-height: 32px; background: #fff; padding: 4px 5px;
+  min-height: 36px; background: #fff; padding: 4px 6px;
   border: 1px solid #e2ddd5; border-left: 3px solid #c9c2b8;
-  font-size: 10px; line-height: 1.2; color: var(--fg);
+  font-size: 11px; line-height: 1.2; color: var(--fg);
   overflow: hidden; word-break: break-word;
 }
 .twister-card-cell.is-dark { background: #f4f1ec; border-color: #eae5dd; border-left-color: #eae5dd; }
+
+/* On the Overview the card sits centred over the pedal thumbnails, larger,
+   and the thumbnails dim behind it while it is open. */
+.overview-gridwrap { flex: 1; min-width: 0; position: relative; }
+.overview-treemap .overview-cell { transition: opacity .2s; }
+.overview-treemap.is-dimmed .overview-cell { opacity: .5; }
+.overview-treemap.is-dimmed .overview-cell:hover { opacity: .85; }
+.overview-twister {
+  position: absolute; inset: 0; z-index: 5;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+}
+.overview-twister .twister-card {
+  position: static; pointer-events: auto;
+  width: min(560px, 92%); padding: 14px 16px 16px;
+  box-shadow: 0 6px 28px rgba(0,0,0,.14);
+}
+.overview-twister .twister-card.is-folded { width: auto; padding: 8px 14px; }
+.overview-twister .twister-card-title { font-size: 12px; }
+.overview-twister .twister-card:not(.is-folded) .twister-card-title { margin-bottom: 12px; }
+.overview-twister .twister-card-grid { gap: 6px; }
+.overview-twister .twister-card-cell {
+  min-height: 58px; padding: 7px 9px; border-left-width: 4px;
+  font-size: 14px; line-height: 1.25;
+}
 </style>
 </head>
 <body>
@@ -3789,6 +3814,6 @@ body {
   <!-- Stamped by tools/bundle.sh with the bundle's own mtime. Without it a
        reload can serve yesterday's app and say nothing, which has cost this
        project whole afternoons more than once. -->
-  <script src="./index.js?v=1794211657"></script>
+  <script src="./index.js?v=1794212027"></script>
 </body>
 </html>

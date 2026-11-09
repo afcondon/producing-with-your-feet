@@ -18,7 +18,7 @@ import Data.Const (Const)
 import Data.Foldable (for_)
 import Data.Int (toNumber)
 import Data.Map as Map
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), maybe)
 import Data.Midi (CC, MidiValue, unsafeMidiValue)
 import Data.Pedal (PedalDef, PedalId(..))
 import Data.Pedal.Layout (PedalLayout)
@@ -28,6 +28,7 @@ import Engine (EngineState, PedalState)
 import Halogen as H
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
+import Component.Twister.Card as TwisterCard
 import Halogen.HTML.Properties as HP
 import Halogen.Subscription as HS
 import Hylograph.HATS.InterpreterTick (clearContainer, rerender)
@@ -42,6 +43,10 @@ type Input =
   , registry :: PedalRegistry
   , cardOrder :: Array PedalId
   , activePedal :: Maybe PedalId
+  -- | **What is under your hand on the Twister**, drawn centred over the
+  -- | thumbnails, which dim behind it while it is open. `Nothing` when this
+  -- | app does not hold the Twister. See `Component.Twister.Card`.
+  , twisterCard :: Maybe { card :: TwisterCard.Card, open :: Boolean }
   }
 
 data Output
@@ -51,6 +56,9 @@ data Output
   -- | active belongs to the app — the header pills set the same field, and two
   -- | places deciding it separately is how they drift apart.
   | SelectPedal PedalId
+  -- | The card's title was clicked: open or fold it. The app holds the flag,
+  -- | so the corner card on other views agrees.
+  | ToggleTwisterCard
 
 type DragContext =
   { cc :: CC, startY :: Int, startVal :: Int, pedalId :: PedalId
@@ -79,6 +87,7 @@ data Action
   | DragMove Int Int
   | DragEnd
   | CellClicked PedalId
+  | ToggleCard
 
 type Slot = H.Slot (Const Void) Output
 
@@ -114,6 +123,7 @@ render state =
     detailW = if hasActive then min (state.containerH * Layout.svgAspect) (state.containerW * 0.42) else 0.0
     gridW = if hasActive then state.containerW - detailW - 8.0 else state.containerW
     gridCss = Layout.gridStyle gridW state.containerH n
+    dimmed = maybe false _.open state.input.twisterCard
   in
     HH.div [ HP.class_ (H.ClassName "overview-container") ]
       [ if hasActive
@@ -122,11 +132,18 @@ render state =
             , HP.id "overview-detail"
             ] []
           else HH.text ""
-      , HH.div
-          [ HP.class_ (H.ClassName "overview-treemap")
-          , HP.attr (HH.AttrName "style") gridCss
+      , HH.div [ HP.class_ (H.ClassName "overview-gridwrap") ]
+          [ HH.div
+              [ HP.class_ (H.ClassName ("overview-treemap" <> if dimmed then " is-dimmed" else ""))
+              , HP.attr (HH.AttrName "style") gridCss
+              ]
+              (map (renderCell state) state.input.cardOrder)
+          , case state.input.twisterCard of
+              Just tc ->
+                HH.div [ HP.class_ (H.ClassName "overview-twister") ]
+                  [ TwisterCard.render { open: tc.open, toggle: ToggleCard } tc.card ]
+              Nothing -> HH.text ""
           ]
-          (map (renderCell state) state.input.cardOrder)
       ]
 
 renderCell :: forall m. State -> PedalId -> H.ComponentHTML Action () m
@@ -373,6 +390,7 @@ handleAction = case _ of
   -- Only when nothing is being dragged. A knob drag on the active card ends with
   -- the pointer still inside the cell, so the browser delivers a click too —
   -- and without this guard, finishing a drag would toggle the card shut.
+  ToggleCard -> H.raise ToggleTwisterCard
   CellClicked pid -> do
     st <- H.get
     case st.dragging of

@@ -251,6 +251,7 @@ render state = case state.configError of
             -- which would otherwise draw as an empty cell.
             , cardOrder: Array.filter (isJust <<< CRegistry.findPedal state.registry) state.cardOrder
             , activePedal: state.overviewActivePedal
+            , twisterCard: map (\card -> { card, open: state.twisterCardOpen }) (twisterCardOf state)
             }
             HandleOverview
         ControlsView ->
@@ -1607,6 +1608,7 @@ handleAction = case _ of
     -- requirement, so it should be the same code and stay so.
     OverviewView.SelectPedal pid ->
       handleAction (HandleHeader (Header.PedalPillClicked pid))
+    OverviewView.ToggleTwisterCard -> handleAction ToggleTwisterCard
 
   HandleGrid output -> handleGridOutput output
 
@@ -3809,16 +3811,24 @@ twisterHoldingOf st =
 twisterOwner :: AppState -> Maybe TwisterSurface.Owner
 twisterOwner st = map TwisterSurface.owner st.twisterSurface
 
--- | **What is under your hand on the Twister**, in the corner of every view,
--- | while this app holds it. See `Component.Twister.Card`.
-twisterCard :: forall w. AppState -> HH.HTML w Action
-twisterCard st = case twisterHoldingOf st of
+-- | **What is under your hand on the Twister**, while this app holds it.
+-- | See `Component.Twister.Card`.
+twisterCardOf :: AppState -> Maybe TwisterCard.Card
+twisterCardOf st = case twisterHoldingOf st of
   Holding.TwisterWithPedals ->
-    maybe (HH.text "")
-      (TwisterCard.render { open: st.twisterCardOpen, toggle: ToggleTwisterCard })
-      (TwisterCard.cardFor st.registry (twisterOwner st) (sceneOwning st)
-         st.focusPedalId st.twisterPage)
-  _ -> HH.text ""
+    TwisterCard.cardFor st.registry (twisterOwner st) (sceneOwning st)
+      st.focusPedalId st.twisterPage
+  _ -> Nothing
+
+-- | The card in the corner, on every view but the Overview, which draws it
+-- | centred over its thumbnails.
+twisterCard :: forall w. AppState -> HH.HTML w Action
+twisterCard st
+  | st.view == OverviewView = HH.text ""
+  | otherwise =
+      maybe (HH.text "")
+        (TwisterCard.render { open: st.twisterCardOpen, toggle: ToggleTwisterCard })
+        (twisterCardOf st)
 
 -- | The scene, when the machine says a scene holds the Twister.
 sceneOwning :: AppState -> Maybe Scene.Scene
