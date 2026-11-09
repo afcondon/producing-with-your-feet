@@ -3782,11 +3782,12 @@ body {
 .twister-card-cell.is-dark { background: #f4f1ec; border-color: #eae5dd; border-left-color: #eae5dd; }
 
 /* On the Overview the card sits centred over the pedal thumbnails, larger,
-   and the thumbnails dim behind it while it is open. */
+   and the thumbnails dim (darker, not transparent) behind it while it is
+   open. */
 .overview-gridwrap { flex: 1; min-width: 0; position: relative; }
-.overview-treemap .overview-cell { transition: opacity .2s; }
-.overview-treemap.is-dimmed .overview-cell { opacity: .5; }
-.overview-treemap.is-dimmed .overview-cell:hover { opacity: .85; }
+.overview-treemap .overview-cell { transition: filter .2s; }
+.overview-treemap.is-dimmed .overview-cell { filter: brightness(.72); }
+.overview-treemap.is-dimmed .overview-cell:hover { filter: brightness(.92); }
 .overview-twister {
   position: absolute; inset: 0; z-index: 5;
   display: flex; align-items: center; justify-content: center;
